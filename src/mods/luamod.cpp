@@ -17,6 +17,7 @@
 #include "lauxlib.h"
 #include "lua.h"
 #include "lualib.h"
+#include "mods/luawork.h"
 #include "sim.h"
 
 namespace fs = std::filesystem;
@@ -24,12 +25,14 @@ namespace pp::mods {
 
 constexpr int kStride = 1000;
 
-struct LuaMod::Impl {
+struct LuaMod::Impl : LuaWork {
   LuaMod* mod = nullptr;
   size_t used = 0, cap = 0, peak = 0;
   bool denied = false;
-  long long remaining = 0, total = 0;
-  bool timed = false, aborted = false;
+  long long total = 0;
+  bool metered = false;
+  unsigned allocTick = 0;
+  const char* note = nullptr;
   std::chrono::steady_clock::time_point deadline;
   Ctx ctx = Ctx::None;
   int shadowRef = LUA_NOREF;
@@ -47,6 +50,19 @@ struct LuaMod::Impl {
 namespace {
 using Impl = LuaMod::Impl;
 
+bool pastDeadline(Impl* I) { return std::chrono::steady_clock::now() > I->deadline; }
+void stopWith(Impl* I, const char* note) {
+  I->aborted = true;
+  if (!I->note) I->note = note;
+}
+bool allocBudget(Impl* I, size_t nsize) {
+  if (!I->aborted) {
+    I->remaining -= 6 + (long long)(nsize >> 5);
+    if (I->remaining <= 0) stopWith(I, "work budget exceeded");
+    else if (I->timed && ((++I->allocTick & 31) == 0 || nsize >= 65536) && pastDeadline(I)) stopWith(I, "time limit exceeded");
+  }
+  return !I->aborted || nsize < 1024;
+}
 void* allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
   Impl* I = (Impl*)ud;
   size_t old = ptr ? osize : 0;
@@ -56,6 +72,7 @@ void* allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
     return nullptr;
   }
   if (nsize > old && I->used + (nsize - old) > I->cap) { I->denied = true; return nullptr; }
+  if (I->metered && nsize > old && !allocBudget(I, nsize)) return nullptr;
   void* p = std::realloc(ptr, nsize);
   if (!p) return nullptr;
   I->used = I->used - old + nsize;
@@ -109,8 +126,22 @@ void reportError(Impl* I, HostServices& h, const std::string& id, const std::str
 void countHook(lua_State* L, lua_Debug*) {
   Impl* I = IM(L);
   I->remaining -= kStride;
-  if (I->remaining <= 0) { I->aborted = true; luaL_error(L, "instruction budget exceeded"); }
-  if (I->timed && std::chrono::steady_clock::now() > I->deadline) { I->aborted = true; luaL_error(L, "time limit exceeded"); }
+  if (I->remaining <= 0) { stopWith(I, "instruction budget exceeded"); luaL_error(L, "instruction budget exceeded"); }
+  if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); luaL_error(L, "time limit exceeded"); }
+}
+void workCheck(lua_State* L, LuaWork* w) {
+  Impl* I = static_cast<Impl*>(w);
+  if (I->remaining <= 0) { stopWith(I, "work budget exceeded"); luaL_error(L, "work budget exceeded"); }
+  if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); luaL_error(L, "time limit exceeded"); }
+}
+void workRefuse(lua_State* L, LuaWork*, long long) {
+  luaL_error(L, "operation too large for the sandbox (split the work into smaller steps)");
+}
+bool workOver(LuaWork* w) {
+  Impl* I = static_cast<Impl*>(w);
+  if (I->remaining <= 0) { stopWith(I, "work budget exceeded"); return true; }
+  if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); return true; }
+  return false;
 }
 
 }
@@ -157,6 +188,7 @@ int l_log(lua_State* L) {
   for (int i = 1; i <= n; i++) {
     size_t len;
     const char* s = luaL_tolstring(L, i, &len);
+    workSpend(L, 2);
     if (i > 1) line += '\t';
     line.append(s, std::min<size_t>(len, 400));
     lua_pop(L, 1);
@@ -177,12 +209,20 @@ int l_tostring(lua_State* L) {
   luaL_tolstring(L, 1, nullptr);
   return 1;
 }
+constexpr long long kErrorCost = 1500;
+void chargeParse(lua_State* L, size_t n) {
+  long long units = 40 + (long long)(n + (n >> 1));
+  if (units > LuaWork::kBig) luaL_error(L, "load: too large for the sandbox (split the work into smaller steps)");
+  workSpend(L, units);
+}
 int l_load(lua_State* L) {
   size_t n;
   if (lua_type(L, 1) != LUA_TSTRING) luaL_error(L, "load: only string chunks are allowed in the sandbox");
   const char* s = lua_tolstring(L, 1, &n);
+  chargeParse(L, n);
   const char* name = luaL_optstring(L, 2, s);
   int st = luaL_loadbufferx(L, s, n, name, "t");
+  if (st != LUA_OK) workSpend(L, kErrorCost);
   if (st == LUA_OK) {
     if (!lua_isnone(L, 4)) {
       lua_pushvalue(L, 4);
@@ -193,6 +233,22 @@ int l_load(lua_State* L) {
   lua_pushnil(L);
   lua_insert(L, -2);
   return 2;
+}
+int l_burn(lua_State* L) {
+  Impl* I = IM(L);
+  I->remaining -= luaL_checkinteger(L, 1);
+  const char* why = I->remaining <= 0 ? "work budget exceeded" : (I->timed && pastDeadline(I)) ? "time limit exceeded" : nullptr;
+  if (why) {
+    stopWith(I, why);
+    luaL_where(L, 2);
+    lua_pushstring(L, why);
+    lua_concat(L, 2);
+    return lua_error(L);
+  }
+  return 0;
+}
+void warnCharge(void*, const char*, int tocont) {
+  if (!tocont) workQuiet(kErrorCost);
 }
 int l_aborted(lua_State* L) {
   lua_pushboolean(L, IM(L)->aborted);
@@ -213,6 +269,7 @@ int l_require(lua_State* L) {
   if (name.find("..") != std::string::npos || !safeRelPath(rel)) luaL_error(L, "require: bad module name '%s'", name.c_str());
   std::string text;
   if (!readFile(I->mod->dir() / (rel + ".lua"), text, 4u << 20)) luaL_error(L, "module '%s' not found in the mod folder", name.c_str());
+  workSpend(L, (long long)(text.size() >> 3));
   if (luaL_loadbufferx(L, text.data(), text.size(), ("@" + I->mod->manifest().id + "/" + rel + ".lua").c_str(), "t") != LUA_OK) lua_error(L);
   lua_pushstring(L, name.c_str());
   lua_call(L, 1, 1);
@@ -238,13 +295,21 @@ int l_patguard(lua_State* L) {
   luaL_checklstring(L, 1, &sl);
   const char* p = luaL_checklstring(L, 2, &pl);
   int q = 0;
+  bool heavy = false;
   for (size_t i = 0; i < pl; i++) {
-    if (p[i] == '%') { i++; continue; }
+    if (p[i] == '%') {
+      i++;
+      if (i < pl && (p[i] == 'b' || (p[i] >= '1' && p[i] <= '9'))) heavy = true;
+      continue;
+    }
     if (p[i] == '*' || p[i] == '+' || p[i] == '-' || p[i] == '?') q++;
   }
   double cost = std::pow((double)std::max<size_t>(sl, 2), q + 1);
-  if (sl > (1u << 20) || cost > 3e8)
+  double units = (double)(sl >> 5) + (double)(pl >> 2) + 1.0 + (double)sl * (double)pl / 64.0;
+  if (heavy) units += (double)sl * (double)sl / 64.0;
+  if (sl > (1u << 20) || cost > 3e8 || units > (double)LuaWork::kBig)
     luaL_error(L, "pattern too expensive for the sandbox (subject %d bytes, %d repetitions): split the work", (int)sl, q);
+  workSpend(L, (long long)units);
   lua_pushvalue(L, lua_upvalueindex(1));
   lua_insert(L, 1);
   lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
@@ -516,12 +581,17 @@ struct LuaPanic {};
 int panicThrow(lua_State*) { throw LuaPanic{}; }
 
 const char* kPrelude = R"LUA(
-local pcall0, xpcall0, resume0, aborted, error0, unpack, pack = pcall, xpcall, coroutine.resume, __aborted, error, table.unpack, table.pack
-local function chk(r) if aborted() then error0("aborted by the host (budget)", 0) end return unpack(r, 1, r.n) end
-function pcall(f, ...) return chk(pack(pcall0(f, ...))) end
-function xpcall(f, h, ...) return chk(pack(xpcall0(f, h, ...))) end
-function coroutine.resume(c, ...) return chk(pack(resume0(c, ...))) end
+local pcall0, xpcall0, resume0, aborted, error0, burn = pcall, xpcall, coroutine.resume, __aborted, error, __burn
+local function chk(ok, ...)
+  if aborted() then error0("aborted by the host (budget)", 0) end
+  if not ok then burn(1500) end
+  return ok, ...
+end
+function pcall(f, ...) return chk(pcall0(f, ...)) end
+function xpcall(f, h, ...) return chk(xpcall0(f, h, ...)) end
+function coroutine.resume(c, ...) return chk(resume0(c, ...)) end
 __aborted = nil
+__burn = nil
 )LUA";
 }
 
@@ -544,6 +614,7 @@ bool LuaMod::open(std::string* err) {
   if (!L_) { if (err) *err = "cannot create a Lua state"; return false; }
   lua_State* L = L_;
   lua_atpanic(L, panicThrow);
+  lua_setwarnf(L, warnCharge, nullptr);
   static const luaL_Reg libs[] = {{"_G", luaopen_base}, {LUA_TABLIBNAME, luaopen_table}, {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
                                   {LUA_UTF8LIBNAME, luaopen_utf8}, {LUA_COLIBNAME, luaopen_coroutine}, {nullptr, nullptr}};
   for (const luaL_Reg* l = libs; l->func; l++) { luaL_requiref(L, l->name, l->func, 1); lua_pop(L, 1); }
@@ -553,7 +624,7 @@ bool LuaMod::open(std::string* err) {
   nilField("string", "dump");
   for (const char* n : {"tan", "asin", "acos", "exp", "log", "random", "randomseed", "pow", "sinh", "cosh", "tanh", "log10", "ldexp", "frexp"}) nilField("math", n);
   auto setG = [&](const char* n, lua_CFunction f) { lua_pushcfunction(L, f); lua_setglobal(L, n); };
-  setG("print", l_log); setG("log", l_log); setG("tostring", l_tostring); setG("load", l_load); setG("require", l_require); setG("__aborted", l_aborted);
+  setG("print", l_log); setG("log", l_log); setG("tostring", l_tostring); setG("load", l_load); setG("require", l_require); setG("__aborted", l_aborted); setG("__burn", l_burn);
   setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power);
   lua_getglobal(L, "math");
   lua_pushcfunction(L, l_math_random); lua_setfield(L, -2, "random");
@@ -615,6 +686,9 @@ bool LuaMod::open(std::string* err) {
   lua_setfield(L, -2, "__metatable");
   lua_setmetatable(L, -3);
   lua_pop(L, 2);
+  im_->check = workCheck;
+  im_->refuse = workRefuse;
+  im_->over = workOver;
   lua_sethook(L, countHook, LUA_MASKCOUNT, kStride);
   for (auto& s : man_.scripts) {
     std::string text;
@@ -639,8 +713,14 @@ bool LuaMod::pcallBudgeted(int nargs, int nres, bool timed, Ctx ctx, std::string
   I->total = I->remaining = (ctx == Ctx::Load ? 5LL : 1LL) * man_.budget;
   I->timed = timed && ctx != Ctx::Sim;
   I->aborted = false;
+  I->note = nullptr;
   I->screenMode = false;
   I->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ctx == Ctx::Load ? 2000 : ctx == Ctx::Draw ? 25 : 250);
+  lua_sethook(L_, countHook, LUA_MASKCOUNT, kStride);
+  LuaWork* prevWork = gWork;
+  const bool prevMetered = I->metered;
+  gWork = I;
+  I->metered = true;
   int st = LUA_OK;
   try {
     st = lua_pcall(L_, nargs, nres, 0);
@@ -648,10 +728,15 @@ bool LuaMod::pcallBudgeted(int nargs, int nres, bool timed, Ctx ctx, std::string
     st = LUA_ERRRUN;
     lua_pushstring(L_, "native exception");
   }
+  I->metered = prevMetered;
+  gWork = prevWork;
   I->ctx = prev;
   lastInstructions = I->total - I->remaining;
   if (st != LUA_OK) {
-    lastError = lua_isstring(L_, -1) ? lua_tostring(L_, -1) : "(error object)";
+    size_t len = 0;
+    const char* msg = lua_isstring(L_, -1) ? lua_tolstring(L_, -1, &len) : nullptr;
+    lastError = msg ? std::string(msg, std::min<size_t>(len, 600)) + (len > 600 ? "..." : "") : "(error object)";
+    if (I->aborted && I->note && lastError.find(I->note) == std::string::npos) lastError = I->note;
     if (err) *err = lastError;
     lua_pop(L_, 1);
     return false;
