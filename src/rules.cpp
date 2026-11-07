@@ -1120,6 +1120,7 @@ const char* Board::powerName(int id) {
 int Board::masterByName(const std::string& in, bool allowMods) {
   if (allowMods)
     if (const ModMaster* m = masters::byName(in)) return m->power;
+  if (allowMods && in.find(':') != std::string::npos) return 0;
   std::string n;
   for (char c : in) n.push_back((char)std::tolower((unsigned char)c));
   struct M { const char* name; int power; };
