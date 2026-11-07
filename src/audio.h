@@ -27,6 +27,7 @@ class Audio {
   ~Audio();
   bool openDevice();
   void loadManifest();
+  void reloadAssets(const VfsChange& change);
   const Sample* sample(const std::string& id);
   void play(const std::string& id, float semitones = 0, float volume = 1.0f, int throttle = 0, bool force = false);
   void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f);

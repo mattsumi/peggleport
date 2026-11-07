@@ -62,6 +62,7 @@ class Renderer {
                       int lineSpacing = -1, float scale = 1);
   int wrappedHeight(Font* f, int wrapWidth, std::string_view s, int lineSpacing = -1) const;
   void beginCanvas(int canvasW = 800);
+  void reloadAssets(const VfsChange& change);
 
  private:
   struct Tex {

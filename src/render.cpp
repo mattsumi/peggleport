@@ -112,6 +112,22 @@ Renderer::~Renderer() {
     if (t) SDL_DestroyTexture(t);
 }
 
+void Renderer::reloadAssets(const VfsChange& change) {
+  if (!change.any) return;
+  for (auto& [_, t] : cache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  cache_.clear();
+  for (auto& [_, t] : fontTex_)
+    if (t) SDL_DestroyTexture(t);
+  fontTex_.clear();
+  fonts_.reset();
+  man_ = ImageManifest(vfs_);
+  chars_.clear();
+  charsLoaded_ = false;
+  if (portrait_.tex) SDL_DestroyTexture(portrait_.tex);
+  portrait_ = Portrait();
+}
+
 SDL_Texture* Renderer::fontTexture(const Image* img) {
   auto it = fontTex_.find(img);
   if (it != fontTex_.end()) return it->second;

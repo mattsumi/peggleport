@@ -915,6 +915,12 @@ int Font::wrap(std::string_view line, int wrapWidth, int lineSpacing, std::vecto
   return yOff + descent() - lineSpacing;
 }
 
+void FontManager::reset() {
+  manifest_ = false;
+  res_.clear();
+  fonts_.clear();
+}
+
 void FontManager::loadManifest() {
   if (manifest_) return;
   manifest_ = true;
