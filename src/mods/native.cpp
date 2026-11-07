@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <cstdint>
 #include <memory>
@@ -30,6 +32,8 @@ struct NativeMod::Impl {
   std::chrono::steady_clock::time_point logWindow;
   int logCount = 0;
   bool logNoted = false;
+  bool cosmetic = false;
+  PhysicsEdit loadPhysics;
 };
 
 namespace {
@@ -113,13 +117,47 @@ int32_t cStateGet(const char* k, double* out) {
   *out = it->second;
   return 1;
 }
+int32_t cPhysSet(const PPPhysics* p) {
+  if (!gCur || !p || p->struct_size < sizeof(PPPhysics) || (p->mask & ~PP_PHYS_ALL) != 0 || gCur->cosmetic) return 0;
+  const bool loading = gCur->host && gCur->host->ctx == Ctx::Load;
+  if (!loading && !inSim()) return 0;
+  const float vals[PhysicsParams::KeyCount] = {p->gravity_y, p->gravity_x, p->launch_speed, p->ball_bounce, p->peg_bounce, p->drag, p->max_speed, p->ball_radius};
+  PhysicsEdit e;
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) {
+    if (!((p->mask >> k) & 1u)) continue;
+    if (!std::isfinite(vals[k])) return 0;
+    e.set(k, (double)vals[k]);
+  }
+  if (!e.any()) return 1;
+  if (loading) {
+    gCur->loadPhysics.merge(e);
+    return 1;
+  }
+  if (!gCur->host->queue) return 0;
+  ModCmd c;
+  c.k = ModCmd::SetPhysics;
+  c.pe = e;
+  gCur->host->queue(c);
+  return 1;
+}
+int32_t cPhysGet(PPPhysics* o) {
+  if (!gCur || !o || o->struct_size < sizeof(PPPhysics)) return 0;
+  PhysicsParams p;
+  if (gCur->host && gCur->host->ctx == Ctx::Load) gCur->loadPhysics.applyTo(p);
+  else if (B()) p = B()->physics;
+  else return 0;
+  o->mask = PP_PHYS_ALL;
+  o->gravity_y = p.gravityY; o->gravity_x = p.gravityX; o->launch_speed = p.launchSpeed; o->ball_bounce = p.ballBounce;
+  o->peg_bounce = p.pegBounce; o->drag = p.drag; o->max_speed = p.maxSpeed; o->ball_radius = p.ballRadius;
+  return 1;
+}
 DrawSink* sink() { return gCur && gCur->host && gCur->host->ctx == Ctx::Draw ? gCur->host->sink : nullptr; }
 void cRect(float x, float y, float w, float h, uint32_t c, int32_t f) { if (auto* s = sink()) s->rect(x, y, w, h, c, f != 0, false); }
 void cCircle(float x, float y, float r, uint32_t c, int32_t f) { if (auto* s = sink()) s->circle(x, y, r, c, f != 0, false); }
 void cText(float x, float y, const char* t, uint32_t c) { if (auto* s = sink(); s && t) s->text(x, y, t, c, 0, 1.0f, false); }
 
 const PPModApi kApi = {PP_MOD_ABI_VERSION, sizeof(PPModApi), cLog, cRegister, cTick, cScore, cOrange, cBallsLeft, cObjCount, cPeg, cBallCount, cBall, cRng,
-                       cAddScore, cHit, cBalls, cSay, cStateSet, cStateGet, cRect, cCircle, cText};
+                       cAddScore, cHit, cBalls, cSay, cStateSet, cStateGet, cRect, cCircle, cText, cPhysSet, cPhysGet};
 }
 
 std::unique_ptr<NativeMod> NativeMod::load(const std::filesystem::path& lib, const Manifest& m, HostServices& host, std::string* err) {
@@ -127,6 +165,7 @@ std::unique_ptr<NativeMod> NativeMod::load(const std::filesystem::path& lib, con
   nm->im_ = std::make_unique<Impl>();
   Impl& I = *nm->im_;
   I.id = m.id;
+  I.cosmetic = m.cosmetic;
   I.host = &host;
 #ifdef _WIN32
   I.lib = (void*)LoadLibraryW(lib.wstring().c_str());
@@ -141,7 +180,10 @@ std::unique_ptr<NativeMod> NativeMod::load(const std::filesystem::path& lib, con
   auto init = (InitFn)sym("pp_mod_init");
   if (!init) { if (err) *err = "the library exports no pp_mod_init"; return nullptr; }
   Cur c(&I);
+  const Ctx prevCtx = host.ctx;
+  host.ctx = Ctx::Load;
   int32_t rc = init(&kApi);
+  host.ctx = prevCtx;
   if (rc != 0) { if (err) *err = "pp_mod_init returned " + std::to_string(rc); return nullptr; }
   if (!I.hooked) { if (err) *err = "pp_mod_init did not register hooks"; return nullptr; }
   return nm;
@@ -172,6 +214,7 @@ bool NativeMod::power(int pegIdx, int power) {
   Cur c(im_.get());
   return im_->hooks.on_activate_power(power, pegIdx) != 0;
 }
+const PhysicsEdit& NativeMod::loadPhysics() const { return im_->loadPhysics; }
 void NativeMod::frame() { if (im_->hooks.on_frame) { Cur c(im_.get()); im_->hooks.on_frame(); } }
 
 }

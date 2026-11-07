@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
@@ -42,6 +43,7 @@ struct LuaMod::Impl {
   bool logNoted = false;
   std::chrono::steady_clock::time_point logWindow;
   bool screenMode = false;
+  uint32_t clampWarned = 0;
 };
 
 namespace {
@@ -386,6 +388,68 @@ int m_style_shot(lua_State* L) {
   queueCmd(L, {ModCmd::StylePoints, (int)std::clamp<lua_Integer>(pts, -1000000, 1000000), 0, 0, nm});
   return 0;
 }
+PhysicsEdit readPhysics(lua_State* L, int idx, uint32_t& clamped, double* raw) {
+  PhysicsEdit e;
+  clamped = 0;
+  lua_pushnil(L);
+  while (lua_next(L, idx)) {
+    if (lua_type(L, -2) != LUA_TSTRING) luaL_error(L, "physics.set: the field names must be words such as gravity_y");
+    const char* name = lua_tostring(L, -2);
+    int k = 0;
+    if (!physicsKeyByName(name, k))
+      luaL_error(L, "physics.set: unknown field '%s' (use gravity_y, gravity_x, launch_speed, ball_bounce, peg_bounce, drag, max_speed or ball_radius)", name);
+    if (lua_type(L, -1) != LUA_TNUMBER) luaL_error(L, "physics.set: '%s' must be a number", name);
+    double v = lua_tonumber(L, -1);
+    if (!std::isfinite(v)) luaL_error(L, "physics.set: '%s' must be a finite number", name);
+    if (e.has(k)) luaL_error(L, "physics.set: '%s' is given twice (gravity and gravity_y are the same setting)", name);
+    if (physicsClamp(k, v) != (float)v) { clamped |= 1u << k; if (raw) raw[k] = v; }
+    e.set(k, v);
+    lua_pop(L, 1);
+  }
+  return e;
+}
+int p_set(lua_State* L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  Impl* I = IM(L);
+  if (I->mod->manifest().cosmetic) luaL_error(L, "physics.set cannot be used by a cosmetic mod, because it changes the game");
+  const bool loading = I->ctx == Ctx::Load;
+  const bool sim = I->ctx == Ctx::Sim && HS(L).board;
+  if (!loading && !sim) luaL_error(L, "physics.set can only be used while the mod loads (top of a script or on_load) or from gameplay hooks (on_*)");
+  uint32_t clamped = 0;
+  double raw[PhysicsParams::KeyCount] = {};
+  PhysicsEdit e = readPhysics(L, 1, clamped, raw);
+  for (int k = 0; k < PhysicsParams::KeyCount; k++)
+    if (((clamped & ~I->clampWarned) >> k) & 1u) {
+      I->clampWarned |= 1u << k;
+      char buf[200];
+      std::snprintf(buf, sizeof buf, "physics.set: %s %g is outside %g to %g, using %g", physicsKey(k).name, raw[k], (double)physicsKey(k).lo, (double)physicsKey(k).hi, (double)e.v.at(k));
+      emit(HS(L), I->mod->manifest().id, pp::log::Level::Warn, buf);
+    }
+  if (loading) {
+    I->mod->loadPhysics.merge(e);
+    return 0;
+  }
+  if (!HS(L).queue) luaL_error(L, "no command buffer");
+  ModCmd c;
+  c.k = ModCmd::SetPhysics;
+  c.pe = e;
+  HS(L).queue(c);
+  return 0;
+}
+int p_get(lua_State* L) {
+  Impl* I = IM(L);
+  PhysicsParams p;
+  if (I->ctx == Ctx::Load) I->mod->loadPhysics.applyTo(p);
+  else p = needBoard(L).physics;
+  lua_createtable(L, 0, PhysicsParams::KeyCount);
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) {
+    const double v = std::round((double)p.at(k) * 1e6) / 1e6;
+    if (v == std::floor(v)) lua_pushinteger(L, (lua_Integer)v);
+    else lua_pushnumber(L, v);
+    lua_setfield(L, -2, physicsKey(k).name);
+  }
+  return 1;
+}
 void pushNum(lua_State* L, double v) {
   if (v == std::floor(v) && std::fabs(v) < 9e15) lua_pushinteger(L, (lua_Integer)v);
   else lua_pushnumber(L, v);
@@ -582,10 +646,11 @@ bool LuaMod::open(std::string* err) {
                                    {"peg", b_peg}, {"pegs", b_pegs}, {"peg_count", b_peg_count}, {"bricks", b_bricks}, {"balls", b_balls}, {"ball_count", b_ball_count},
                                    {"add_score", m_add_score}, {"hit_peg", m_hit_peg}, {"add_balls", m_add_balls}, {"set_ball_velocity", m_set_ball_velocity},
                                    {"say", m_say}, {"style_shot", m_style_shot}, {nullptr, nullptr}};
+  static const luaL_Reg physics[] = {{"set", p_set}, {"get", p_get}, {nullptr, nullptr}};
   static const luaL_Reg state[] = {{"get", s_get}, {"set", s_set}, {"add", s_add}, {nullptr, nullptr}};
   static const luaL_Reg ui[] = {{"menu", u_menu}, {"message", u_message}, {nullptr, nullptr}};
   static const luaL_Reg draw[] = {{"rect", d_rect}, {"circle", d_circle}, {"text", d_text}, {"image", d_image}, {"screen", d_screen}, {"rgb", d_rgb}, {"hsv", d_hsv}, {nullptr, nullptr}};
-  setFuncs(L, "board", board); setFuncs(L, "state", state); setFuncs(L, "ui", ui); setFuncs(L, "draw", draw);
+  setFuncs(L, "board", board); setFuncs(L, "state", state); setFuncs(L, "ui", ui); setFuncs(L, "draw", draw); setFuncs(L, "physics", physics);
   if (man_.net || man_.fs) openNetLib(L, this, host_);
   if (luaL_loadbufferx(L, kPrelude, std::strlen(kPrelude), "=prelude", "t") != LUA_OK || lua_pcall(L, 0, 0, 0) != LUA_OK) {
     if (err) *err = std::string("prelude: ") + lua_tostring(L, -1);

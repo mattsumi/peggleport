@@ -71,6 +71,7 @@ class ModManager final : public SimHooks {
   void stepEnd(Board& b) override;
   void event(Board& b, int type, int a, int bb, int c, int ball) override;
   bool power(Board& b, int pegIdx, int power, bool silent) override;
+  void basePhysics(PhysicsParams& p) override;
 
   void flush(Board& b);
 

@@ -488,6 +488,13 @@ bool ModManager::power(Board& b, int pegIdx, int pw, bool silent) {
   return replaced;
 }
 
+void ModManager::basePhysics(PhysicsParams& p) {
+  eachSim([&](ModInfo& m) {
+    if (m.lua) m.lua->loadPhysics.applyTo(p);
+    if (m.native) m.native->loadPhysics().applyTo(p);
+  });
+}
+
 void ModManager::apply(Board& b, const ModCmd& c) {
   const bool shotLive = b.phase == Phase::Shot || b.phase == Phase::Popping;
   const int cur = std::clamp(b.cur, 0, 3);
@@ -516,6 +523,9 @@ void ModManager::apply(Board& b, const ModCmd& c) {
     case ModCmd::Say:
       b.banner = c.s;
       b.bannerTimer = 150;
+      break;
+    case ModCmd::SetPhysics:
+      b.setPhysics(c.pe);
       break;
     case ModCmd::StylePoints:
       b.style[cur] += c.i;
