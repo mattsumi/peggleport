@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -9,6 +11,7 @@
 #include <vector>
 
 #include "mods/hostproto.h"
+#include "mods/hostreg.h"
 #include "modhost/sandbox.h"
 #include "peggleport_mod.h"
 
@@ -85,6 +88,12 @@ struct Channel {
 #endif
 };
 
+struct CustomRec {
+  uint32_t peg;
+  uint16_t key;
+  int32_t hits;
+};
+
 struct Snapshot {
   bool have = false;
   int32_t tick = 0;
@@ -94,6 +103,20 @@ struct Snapshot {
   std::vector<PegRec> pegs;
   std::vector<BallRec> ballv;
   std::map<std::string, double> state;
+  pp::PhysicsParams phys;
+  std::vector<CustomRec> custom;
+  std::vector<std::string> keys;
+};
+
+struct PegCallbacks {
+  void (*hit)(int32_t, int32_t) = nullptr;
+  void (*clear)(int32_t) = nullptr;
+};
+
+struct MasterCallbacks {
+  void (*activate)(int32_t, int32_t) = nullptr;
+  void (*shot)(int32_t) = nullptr;
+  void (*end)(int32_t) = nullptr;
 };
 
 struct Host {
@@ -109,6 +132,16 @@ struct Host {
   Context ctx = CtxNone;
   Snapshot snap;
   std::thread::id mainThread;
+  bool loading = false;
+  bool cosmetic = false;
+  std::string modId;
+  pp::PhysicsEdit loadPhys;
+  std::vector<RawPegType> pegRaw;
+  std::vector<pp::PegTypeDef> pegDefs;
+  std::vector<PegCallbacks> pegCb;
+  std::vector<RawMaster> masterRaw;
+  std::vector<MasterSpec> masterDefs;
+  std::vector<MasterCallbacks> masterCb;
 };
 
 Host H;
@@ -295,8 +328,134 @@ void aText(float x, float y, const char* t, uint32_t c) {
   H.effCount++;
 }
 
+int32_t aPhysSet(const PPPhysics* p) {
+  if (!p || !onMain() || p->struct_size < sizeof(PPPhysics) || (p->mask & ~kPhysicsAll) != 0 || H.cosmetic) return 0;
+  if (!H.loading && !inSim()) return 0;
+  const float vals[pp::PhysicsParams::KeyCount] = {p->gravity_y, p->gravity_x, p->launch_speed, p->ball_bounce, p->peg_bounce, p->drag, p->max_speed, p->ball_radius};
+  pp::PhysicsEdit e;
+  for (int k = 0; k < pp::PhysicsParams::KeyCount; k++) {
+    if (!((p->mask >> k) & 1u)) continue;
+    if (!std::isfinite(vals[k])) return 0;
+    e.set(k, (double)vals[k]);
+  }
+  if (!e.any()) return 1;
+  if (H.loading) {
+    H.loadPhys.merge(e);
+    return 1;
+  }
+  if (!effRoom(48)) return 0;
+  Writer w(H.eff);
+  w.u8(ESetPhysics);
+  putPhysics(w, e.mask, e.v);
+  H.effCount++;
+  return 1;
+}
+int32_t aPhysGet(PPPhysics* o) {
+  if (!o || !onMain() || o->struct_size < sizeof(PPPhysics)) return 0;
+  pp::PhysicsParams p;
+  if (H.loading) H.loadPhys.applyTo(p);
+  else if (have()) p = H.snap.phys;
+  else return 0;
+  o->mask = PP_PHYS_ALL;
+  o->gravity_y = p.gravityY;
+  o->gravity_x = p.gravityX;
+  o->launch_speed = p.launchSpeed;
+  o->ball_bounce = p.ballBounce;
+  o->peg_bounce = p.pegBounce;
+  o->drag = p.drag;
+  o->max_speed = p.maxSpeed;
+  o->ball_radius = p.ballRadius;
+  return 1;
+}
+
+std::string textOf(const char* s) {
+  size_t n = 0;
+  while (s && n < kRawText && s[n]) n++;
+  return s ? std::string(s, n) : std::string();
+}
+
+int32_t aRegisterPegType(const PPPegTypeDef* in) {
+  if (!in || !onMain() || !H.loading || in->struct_size < sizeof(PPPegTypeDef) || !in->id || H.pegRaw.size() >= kMaxPegTypes) return 0;
+  RawPegType r;
+  r.id = textOf(in->id);
+  r.name = textOf(in->name);
+  r.image = textOf(in->image);
+  r.litImage = textOf(in->lit_image);
+  for (int32_t i = 0; in->stages && i < in->stage_count && (size_t)i < kMaxStages; i++) r.stages.push_back(textOf(in->stages[i]));
+  r.color = in->color;
+  r.base = in->base;
+  r.score = in->score;
+  r.countsAsOrange = in->counts_as_orange;
+  r.hitsToClear = in->hits_to_clear;
+  r.indestructible = in->indestructible;
+  r.bounce = in->bounce;
+  r.radiusScale = in->radius_scale;
+  r.hasHit = in->on_hit != nullptr;
+  r.hasClear = in->on_clear != nullptr;
+  pp::PegTypeDef d;
+  if (!buildPegType(r, H.modId, H.pegDefs, d)) return 0;
+  H.pegRaw.push_back(r);
+  H.pegDefs.push_back(d);
+  PegCallbacks cb;
+  cb.hit = in->on_hit;
+  cb.clear = in->on_clear;
+  H.pegCb.push_back(cb);
+  return 1;
+}
+void aSetPegType(int32_t peg, const char* type) {
+  if (!type || !onMain() || !inSim() || !effRoom(100)) return;
+  Writer w(H.eff);
+  w.u8(ESetPegType);
+  w.i32(peg);
+  w.str(type, std::strlen(type), 80);
+  H.effCount++;
+}
+int32_t aPegCustom(int32_t id, char* out, int32_t cap, int32_t* hits) {
+  if (!have() || id < 0 || id >= (int32_t)H.snap.pegs.size()) return 0;
+  const auto it = std::lower_bound(H.snap.custom.begin(), H.snap.custom.end(), (uint32_t)id, [](const CustomRec& c, uint32_t v) { return c.peg < v; });
+  if (it == H.snap.custom.end() || it->peg != (uint32_t)id || it->key >= H.snap.keys.size()) return 0;
+  const std::string& key = H.snap.keys[it->key];
+  if (hits) *hits = it->hits;
+  if (out && cap > 0) {
+    const size_t n = std::min<size_t>(key.size(), (size_t)cap - 1);
+    std::memcpy(out, key.data(), n);
+    out[n] = 0;
+  }
+  return (int32_t)key.size();
+}
+int32_t aRegisterMaster(const PPMasterDef* d) {
+  if (!d || !onMain() || !H.loading || H.cosmetic) return 1;
+  if (d->struct_size < offsetof(PPMasterDef, on_end) + sizeof(d->on_end)) return 2;
+  RawMaster r;
+  r.id = textOf(d->id);
+  r.name = textOf(d->name);
+  r.description = textOf(d->description);
+  r.powerName = textOf(d->power_name);
+  r.powerDescription = textOf(d->power_description);
+  r.portrait = textOf(d->portrait);
+  r.banner = textOf(d->banner);
+  r.turns = d->turns;
+  r.trigger = d->trigger;
+  r.color = d->color;
+  r.hasActivate = d->on_activate != nullptr;
+  r.hasShot = d->on_shot != nullptr;
+  r.hasEnd = d->on_end != nullptr;
+  MasterSpec m;
+  const int rc = buildMaster(r, H.masterDefs, m);
+  if (rc != 0) return rc;
+  H.masterRaw.push_back(r);
+  H.masterDefs.push_back(m);
+  MasterCallbacks cb;
+  cb.activate = d->on_activate;
+  cb.shot = d->on_shot;
+  cb.end = d->on_end;
+  H.masterCb.push_back(cb);
+  return 0;
+}
+
 const PPModApi kApi = {PP_MOD_ABI_VERSION, sizeof(PPModApi), aLog, aRegister, aTick, aScore, aOrange, aBallsLeft, aObjCount, aPeg, aBallCount, aBall,
-                       aRng, aAddScore, aHit, aBalls, aSay, aStateSet, aStateGet, aRect, aCircle, aText};
+                       aRng, aAddScore, aHit, aBalls, aSay, aStateSet, aStateGet, aRect, aCircle, aText, aPhysSet, aPhysGet, PP_MOD_ABI_MINOR,
+                       aRegisterPegType, aSetPegType, aPegCustom, aRegisterMaster};
 
 void resetEffects() {
   H.eff.clear();
@@ -333,8 +492,53 @@ bool parseSnapshot(Reader& r) {
     if (!r.ok()) return false;
     s.state.emplace_hint(s.state.end(), std::move(k), v);
   }
+  const uint8_t flags = r.u8();
+  s.phys = pp::PhysicsParams();
+  s.custom.clear();
+  s.keys.clear();
+  if (flags & SnapPhysics)
+    for (int i = 0; i < pp::PhysicsParams::KeyCount; i++) s.phys.at(i) = r.f32();
+  if (flags & SnapCustom) {
+    uint32_t nc = r.u32();
+    if (!r.ok() || nc > np) return false;
+    if ((uint64_t)nc * kCustomWire > r.left()) return false;
+    s.custom.resize(nc);
+    for (uint32_t i = 0; i < nc; i++) {
+      s.custom[i].peg = r.u32();
+      s.custom[i].key = r.u16();
+      s.custom[i].hits = r.i32();
+      if (i && s.custom[i].peg <= s.custom[i - 1].peg) return false;
+    }
+    uint32_t nk = r.u32();
+    if (!r.ok() || nk > kMaxSnapKeys) return false;
+    for (uint32_t i = 0; i < nk; i++) s.keys.push_back(r.str());
+  }
   s.have = true;
   return r.ok();
+}
+
+void beginCall(Reader& r, uint8_t ctx) {
+  H.snap.have = false;
+  H.ctx = CtxNone;
+  if (!r.ok() || ctx > CtxDraw) die(4);
+  if (ctx != CtxNone) {
+    if (!parseSnapshot(r)) die(4);
+    H.ctx = (Context)ctx;
+  }
+  resetEffects();
+}
+
+void endCall(int32_t ret) {
+  H.snap.have = false;
+  H.ctx = CtxNone;
+  H.tx.clear();
+  Writer w(H.tx);
+  w.beginFrame(MReply);
+  w.i32(ret);
+  w.u32(H.hookMask);
+  appendEffects(w);
+  w.endFrame();
+  sendFrame();
 }
 
 void handleHook(Reader& r) {
@@ -342,14 +546,8 @@ void handleHook(Reader& r) {
   int32_t a = r.i32();
   int32_t b = r.i32();
   uint8_t ctx = r.u8();
-  H.snap.have = false;
-  H.ctx = CtxNone;
-  if (!r.ok() || hook >= HookCount || ctx > CtxDraw) die(4);
-  if (ctx != CtxNone) {
-    if (!parseSnapshot(r)) die(4);
-    H.ctx = (Context)ctx;
-  }
-  resetEffects();
+  if (hook >= HookCount) die(4);
+  beginCall(r, ctx);
   int32_t ret = 0;
   PPModHooks& h = H.hooks;
   switch (hook) {
@@ -364,16 +562,36 @@ void handleHook(Reader& r) {
     case HFrame: if (h.on_frame) h.on_frame(); break;
     default: break;
   }
-  H.snap.have = false;
-  H.ctx = CtxNone;
-  H.tx.clear();
-  Writer w(H.tx);
-  w.beginFrame(MReply);
-  w.i32(ret);
-  w.u32(H.hookMask);
-  appendEffects(w);
-  w.endFrame();
-  sendFrame();
+  endCall(ret);
+}
+
+void handleCall(Reader& r) {
+  uint8_t kind = r.u8();
+  uint32_t handle = r.u32();
+  int32_t a = r.i32();
+  int32_t b = r.i32();
+  uint8_t ctx = r.u8();
+  if (kind >= CallCount) die(4);
+  beginCall(r, ctx);
+  switch (kind) {
+    case CPegHit:
+      if (handle < H.pegCb.size() && H.pegCb[handle].hit) H.pegCb[handle].hit(a, b);
+      break;
+    case CPegClear:
+      if (handle < H.pegCb.size() && H.pegCb[handle].clear) H.pegCb[handle].clear(a);
+      break;
+    case CMasterActivate:
+      if (handle < H.masterCb.size() && H.masterCb[handle].activate) H.masterCb[handle].activate(a, b);
+      break;
+    case CMasterShot:
+      if (handle < H.masterCb.size() && H.masterCb[handle].shot) H.masterCb[handle].shot(a);
+      break;
+    case CMasterEnd:
+      if (handle < H.masterCb.size() && H.masterCb[handle].end) H.masterCb[handle].end(a);
+      break;
+    default: break;
+  }
+  endCall(0);
 }
 
 #ifdef _WIN32
@@ -416,6 +634,14 @@ void replyInit(int32_t rc, const std::string& err) {
   w.i32(rc);
   w.str(err, 1000);
   w.u32(H.hookMask);
+  const bool ok = rc == 0;
+  putPhysics(w, ok ? H.loadPhys.mask : 0u, H.loadPhys.v);
+  w.u32(ok ? (uint32_t)H.pegRaw.size() : 0u);
+  if (ok)
+    for (auto& p : H.pegRaw) putPegType(w, p);
+  w.u32(ok ? (uint32_t)H.masterRaw.size() : 0u);
+  if (ok)
+    for (auto& m : H.masterRaw) putMaster(w, m);
   appendEffects(w);
   w.endFrame();
   sendFrame();
@@ -465,7 +691,10 @@ int serve(long parent) {
   uint32_t version = r.u32();
   std::string libPath = r.str(), pluginDir = r.str(), modId = r.str();
   uint8_t probeOnly = r.u8();
+  uint8_t cosmetic = r.u8();
   if (!r.ok() || version != kVersion) return 2;
+  H.cosmetic = cosmetic != 0;
+  H.modId = modId;
 #ifndef _WIN32
   char real[4096];
   if (!libPath.empty() && realpath(libPath.c_str(), real)) libPath = real;
@@ -504,7 +733,9 @@ int serve(long parent) {
     return 0;
   }
   resetEffects();
+  H.loading = true;
   int32_t rc = init(&kApi);
+  H.loading = false;
   if (rc != 0) {
     replyInit(-1, "pp_mod_init returned " + std::to_string(rc));
     return 0;
@@ -520,6 +751,8 @@ int serve(long parent) {
     Reader q(in.data() + 1, in.size() - 1);
     if (in[0] == MHook) {
       handleHook(q);
+    } else if (in[0] == MCall) {
+      handleCall(q);
     } else if (in[0] == MShutdown) {
       H.snap.have = false;
       H.ctx = CtxNone;

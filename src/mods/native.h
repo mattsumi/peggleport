@@ -5,20 +5,15 @@
 #include <string>
 #include <vector>
 
+#include "mods/hostreg.h"
 #include "mods/manifest.h"
 #include "mods/modapi.h"
 #include "pegtypes.h"
 
 namespace pp::mods {
 
-struct NativeMasterDef {
-  std::string id, name, description, powerName, powerDescription, portrait, banner;
-  int turns = 3;
-  int trigger = 0;
-  uint32_t color = 0x88ff88;
-  void (*onActivate)(int32_t, int32_t) = nullptr;
-  void (*onShot)(int32_t) = nullptr;
-  void (*onEnd)(int32_t) = nullptr;
+struct NativeMasterDef : modhost::MasterSpec {
+  uint32_t handle = 0;
 };
 
 struct NativeStatus {
@@ -52,8 +47,7 @@ class NativeMod {
   const PhysicsEdit& loadPhysics() const;
   struct PegTypeReg {
     PegTypeDef def;
-    void (*onHit)(int32_t, int32_t) = nullptr;
-    void (*onClear)(int32_t) = nullptr;
+    uint32_t handle = 0;
   };
   const std::vector<PegTypeReg>& pegTypes() const;
   void pegHook(const PegTypeReg& r, bool clear, int peg, int ball);

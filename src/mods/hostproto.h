@@ -7,7 +7,7 @@
 
 namespace pp::modhost {
 
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;
 constexpr uint32_t kMaxFrame = 4u << 20;
 constexpr uint32_t kMaxEffectBytes = 1u << 20;
 constexpr size_t kMaxStateKey = 48;
@@ -28,6 +28,7 @@ enum Msg : uint8_t {
   MHook = 3,
   MShutdown = 4,
   MRngVal = 5,
+  MCall = 6,
   MReady = 16,
   MInitDone = 17,
   MReply = 18,
@@ -49,6 +50,15 @@ enum Hook : uint8_t {
   HookCount
 };
 
+enum Call : uint8_t {
+  CPegHit,
+  CPegClear,
+  CMasterActivate,
+  CMasterShot,
+  CMasterEnd,
+  CallCount
+};
+
 enum Effect : uint8_t {
   ELog = 1,
   EAddScore,
@@ -59,7 +69,9 @@ enum Effect : uint8_t {
   EReserved,
   ERect,
   ECircle,
-  EText
+  EText,
+  ESetPhysics,
+  ESetPegType
 };
 
 enum Context : uint8_t { CtxNone = 0, CtxSim = 1, CtxDraw = 2 };
@@ -165,7 +177,11 @@ struct BallRec {
   float x, y, vx, vy, r;
 };
 
+enum SnapFlag : uint8_t { SnapPhysics = 1, SnapCustom = 2 };
+
+constexpr size_t kMaxSnapKeys = 4096;
 constexpr size_t kPegWire = 16;
 constexpr size_t kBallWire = 24;
+constexpr size_t kCustomWire = 10;
 
 }

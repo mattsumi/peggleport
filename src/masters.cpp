@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include "mods/hostreg.h"
+
 namespace pp::masters {
 
 namespace {
@@ -55,13 +57,7 @@ const ModMaster* byName(const std::string& name) {
   return nullptr;
 }
 
-bool reservedName(const std::string& id) {
-  static const char* names[] = {"bjorn", "jimmy", "tut", "kat", "splork", "claude", "renfield", "hu", "tula", "cinder", "lord", "warren", "marina", "kalah", "none", "random"};
-  const std::string n = lower(id);
-  for (const char* r : names)
-    if (n == r) return true;
-  return false;
-}
+bool reservedName(const std::string& id) { return modhost::reservedMasterName(id); }
 
 std::string initial(const ModMaster& m) {
   for (char c : m.name)

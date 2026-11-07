@@ -824,7 +824,10 @@ void ModManager::pegCustom(Board& b, int pegIdx, int what, int ball, int custom)
   if (!ow.mod || ow.mod->state != ModInfo::Active) return;
   Scope sc(*this, &b, Ctx::Sim);
   if (ow.nat) {
-    if (ow.mod->native) ow.mod->native->pegHook(*ow.nat, what == 1, pegIdx, ball);
+    if (ow.mod->native) {
+      ow.mod->native->pegHook(*ow.nat, what == 1, pegIdx, ball);
+      checkNative(*ow.mod);
+    }
     return;
   }
   const int ref = what == 1 ? ow.clearRef : ow.hitRef;
@@ -840,8 +843,10 @@ void ModManager::masterCall(Board& b, int player, int power, int what, int pegId
   const int saved = b.cur;
   const bool swap = player >= 0 && player < 4 && player != saved;
   if (swap) b.cur = player;
-  if (bd.native && bd.mi->native) bd.mi->native->masterCall(bd.mi->native->masters()[bd.idx], what, player, pegIdx);
-  else if (!bd.native && bd.mi->lua) bd.mi->lua->callMaster(bd.mi->lua->masters[bd.idx], what, player, pegIdx);
+  if (bd.native && bd.mi->native) {
+    bd.mi->native->masterCall(bd.mi->native->masters()[bd.idx], what, player, pegIdx);
+    checkNative(*bd.mi);
+  } else if (!bd.native && bd.mi->lua) bd.mi->lua->callMaster(bd.mi->lua->masters[bd.idx], what, player, pegIdx);
   if (swap) {
     flush(b);
     b.cur = saved;
