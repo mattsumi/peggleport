@@ -1,0 +1,83 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libasound2-dev libpulse-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxkbcommon-dev \
+            libwayland-dev libdrm-dev libgbm-dev libgl1-mesa-dev libegl1-mesa-dev libdbus-1-dev libudev-dev
+
+      - name: Configure
+        shell: bash
+        run: |
+          args=(-DPP_FETCH_DEPS=ON -DCMAKE_BUILD_TYPE=Release)
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64")
+          fi
+          cmake -S . -B build "${args[@]}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Name the archive
+        id: pkg
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="$GITHUB_REF_NAME"; else v="git-${GITHUB_SHA::7}"; fi
+          case "$RUNNER_OS" in Linux) l=linux ;; Windows) l=windows ;; macOS) l=macos ;; esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "label=$l" >> "$GITHUB_OUTPUT"
+
+      - name: Package
+        shell: bash
+        run: packaging/scripts/package.sh build "${{ steps.pkg.outputs.label }}" "${{ steps.pkg.outputs.version }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: peggleport-${{ runner.os }}
+          path: dist/*
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: peggleport-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && sha256sum -- * > SHA256SUMS.txt)
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes \
+            --title "PegglePort $GITHUB_REF_NAME" \
+            --notes "Builds for Windows, macOS and Linux. They do not contain any game files, so you need your own copy of Peggle Deluxe and/or Peggle Nights. The FAQ in the archive explains the rest."

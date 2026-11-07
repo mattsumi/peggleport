@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PegglePort
+GenericName=Peggle Deluxe / Peggle Nights
+Comment=Open-source port of Peggle that plays your own copy of the game
+Exec=peggleport %U
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=peggle;popcap;
+MimeType=x-scheme-handler/peggleport;
+StartupWMClass=peggleport

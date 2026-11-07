@@ -1,0 +1,15 @@
+[Unit]
+Description=PegglePort lobby relay (pp_lobbyd)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/peggleport-lobby/pp_lobbyd 7770
+Restart=on-failure
+RestartSec=3
+MemoryMax=64M
+TasksMax=16
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

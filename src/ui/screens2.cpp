@@ -1,0 +1,812 @@
+#include <SDL3/SDL.h>
+#include <cstdint>
+#include <utility>
+#include <memory>
+#include <vector>
+#include <string>
+#include <filesystem>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+
+#include "ui/dialog.h"
+#include "ui/dialogs.h"
+#include "ui/game_screen.h"
+#include "ui/screens.h"
+
+namespace pp::ui {
+
+static std::string commas(long long v) {
+  std::string s = std::to_string(v < 0 ? -v : v), r;
+  for (size_t i = 0; i < s.size(); i++) {
+    if (i && (s.size() - i) % 3 == 0) r += ',';
+    r += s[i];
+  }
+  return v < 0 ? "-" + r : r;
+}
+
+static uint32_t rankColor(int rank) {
+  uint32_t hue = (0x46 + rank * 0xf5) & 0xff;
+  return hslToRgb((int)hue, 0xff, 0x80);
+}
+
+
+AdventureScreen::AdventureScreen(App& a) : Screen(a) {
+  a.playMusic("fadeout");
+  PlayerInfo* p = a.curProfile;
+  bContinue = patchButton(0, "Continue", "IMAGE_DLG_BROWNBUTTON1", 0x1fc, 0x227);
+  bRestart = patchButton(1, "Restart", "IMAGE_DLG_BROWNBUTTON1", 0x162, 0x227);
+  bMenu = patchButton(2, "Main Menu", "IMAGE_DLG_BROWNBUTTON1", 199, 0x227);
+  if (p && p->justStartingAdventure()) bContinue->label = "Start";
+  if (p) {
+    auto path = a.profiles.savedGamePath(*p, GameMode::Adventure);
+    hasSave = !path.empty() && std::filesystem::exists(path);
+    if (p->advStage == 0 && p->advLevel == 0 && !hasSave) bRestart->visible = false;
+  }
+}
+
+void AdventureScreen::drawFrame(Gfx& g, float x, float y, float w, float h, const std::string& title) {
+  g.fill(x, y, w, h, 0x000000, 128 / 255.0f);
+  g.frame(x, y, w, h, 0xffd605, 0.8f);
+  g.drawString("OVERLOAD16OUTLINE", x + w / 2, y + 20 + 0, title, 0xffd605, 1, Align::Center);
+}
+
+void AdventureScreen::drawHighScores(Gfx& g, float x, float y) {
+  drawFrame(g, x, y, 0x118, 0xbe, "High Scores");
+  const auto& hs = app.highScores.scores("_adventure");
+  float rowH = g.fontHeight("OVERLOAD12OUTLINE") + 0, ay = y + 0x19 + 18;
+  float ax = x + 10, nameX = ax + 0x28, scoreR = nameX + 0xdc;
+  for (int r = 1; r <= 10; r++) {
+    uint32_t col = 0xffffff;
+    if (r <= (int)hs.size()) col = rankColor(r);
+    g.drawString("OVERLOAD12OUTLINE", ax, ay, std::to_string(r) + ".", col);
+    if (r <= (int)hs.size()) {
+      g.drawString("OVERLOAD12OUTLINE", nameX, ay, hs[r - 1].name, col);
+      std::string sc = commas(hs[r - 1].score);
+      g.drawString("OVERLOADMONO12", scoreR - g.textWidth("OVERLOADMONO12", sc), ay, sc, col);
+    }
+    ay += rowH;
+  }
+}
+
+void AdventureScreen::drawPersonalHighScores(Gfx& g, float x, float y) {
+  drawFrame(g, x, y, 0x118, 0xbe, "Your Best Scores");
+  PlayerInfo* p = app.curProfile;
+  float rowH = g.fontHeight("OVERLOAD12OUTLINE"), ay = y + 0x19 + 18;
+  float ax = x + 10, nameX = ax + 0x28, scoreR = nameX + 0xdc;
+  std::vector<int> sc;
+  if (p) for (auto it = p->advScores.rbegin(); it != p->advScores.rend(); ++it) sc.push_back(*it);
+  for (int r = 1; r <= 10; r++) {
+    uint32_t col = r <= (int)sc.size() ? rankColor(r) : 0xffffff;
+    g.drawString("OVERLOAD12OUTLINE", ax, ay, std::to_string(r) + ".", col);
+    if (r <= (int)sc.size()) {
+      g.drawString("OVERLOAD12OUTLINE", nameX, ay, p->name, col);
+      std::string s = commas(sc[r - 1]);
+      g.drawString("OVERLOADMONO12", scoreR - g.textWidth("OVERLOADMONO12", s), ay, s, col);
+    }
+    ay += rowH;
+  }
+}
+
+void AdventureScreen::drawStats(Gfx& g, float x, float y, bool lifetime) {
+  drawFrame(g, x, y, 280, 140, lifetime ? "Lifetime Stats" : "Adventure Stats");
+  PlayerInfo* p = app.curProfile;
+  if (!p) return;
+  const GameStats& s = lifetime ? p->statsB : p->statsA;
+  float ay = y + 48;
+  auto row = [&](const char* l, const std::string& v) {
+    g.drawString("OVERLOAD12OUTLINE", x + 14, ay, l, 0xffffff);
+    g.drawString("OVERLOADMONO12", x + 266 - g.textWidth("OVERLOADMONO12", v), ay, v, 0xffffaa);
+    ay += g.fontHeight("OVERLOAD12OUTLINE") + 4;
+  };
+  row("Shots Taken:", commas(s.a0));
+  row("Best Shot:", commas(s.bestShot));
+  row("Free Balls:", commas(s.freeBalls[0] + s.freeBalls[1] + s.freeBalls[2] + s.freeBalls[3]));
+}
+
+void AdventureScreen::drawLayer(Gfx& g) {
+  PlayerInfo* p = app.curProfile;
+  int st = p ? std::clamp(p->advStage, 0, std::max(0, app.numStages() - 1)) : 0, lv = p ? std::clamp(p->advLevel, 0, 5) : 0;
+  const StageInfo* si = app.stages.stage(st);
+  const LevelInfo* li = si ? si->level(std::min(lv, (int)si->levels.size() - 1)) : nullptr;
+  g.fill(0, 0, 800, 600, 0x000020);
+  if (li)
+    if (Tex* t = g.img("levels/" + li->file)) g.drawStretch(t, 0x41, 0x41, 800 - 0x5f - 0x41, 600 - 0x2d - 0x41);
+  if (Tex* fr = g.img("IMAGE_ADV_ADVENTURE")) g.draw(fr, 0, 0);
+  int stg = p ? std::clamp(p->advStage + 1, 0, 11) : 0, lvl = p ? std::clamp(p->advLevel + 1, 0, 5) : 0;
+  g.drawString("OVERLOAD24GRAD1", 400, 0x30, "Adventure Stage " + std::to_string(stg) + "-" + std::to_string(lvl), 0xaaffff, 1, Align::Center);
+  drawHighScores(g, 100, 0x78);
+  drawPersonalHighScores(g, 0x1a4, 0x78);
+  drawStats(g, 100, 0x168, false);
+  drawStats(g, 0x1a4, 0x168, true);
+}
+
+void AdventureScreen::drawOverlay(Gfx& g) {
+  if (!bRestart->visible)
+    if (Tex* c = g.img("IMAGE_ADV_RESTART_COVER")) g.drawStretch(c, 0x131, 0x21b, 0xaa, c->lh());
+}
+
+void AdventureScreen::startGame() {
+  app.startAdventureGame();
+}
+
+void AdventureScreen::onButton(int id) {
+  if (id == 0) startGame();
+  else if (id == 1) app.doConfirmRestartAdventureDialog();
+  else if (id == 2) app.showMainMenu();
+}
+
+void AdventureScreen::keyDown(int key, int) {
+  if (app.hasModal()) return;
+  if (key == SDLK_ESCAPE) app.showMainMenu();
+}
+
+
+static const float kSlot[5][2] = {{43, 85}, {304, 85}, {568, 85}, {43, 334}, {568, 334}};
+static const float kSlotW = 190, kSlotH = 175;
+
+LevelScreen::LevelScreen(App& a) : Screen(a) {
+  a.playMusic("beats:60");
+  stage = std::clamp(a.curProfile ? a.curProfile->levelSelectStage : 0, 0, std::max(0, a.stages.numStages() - 1));
+  if (a.curProfile && a.curProfile->maxStage < stage) stage = a.curProfile->maxStage;
+  if (a.packStage >= a.stages.numStages() && a.packStage < a.stages.numAllStages() && a.gameMode != GameMode::Challenge) stage = a.packStage;
+  for (int i = 0; i < 5; i++) {
+    auto b = std::make_unique<Button>();
+    b->id = i;
+    b->kind = Button::Kind::Simple;
+    b->x = kSlot[i][0]; b->y = kSlot[i][1]; b->w = kSlotW; b->h = kSlotH;
+    b->hoverSound = "";
+    b->clickSound = "BUTTON1";
+    b->tickRef = &updateCount;
+    bLevel[i] = add(std::move(b));
+    bLevel[i]->image = nullptr;
+    bLevel[i]->fadeIn = 0.2f; bLevel[i]->fadeOut = 0.04f;
+  }
+  if (a.gameMode == GameMode::Challenge) {
+    bMenu = patchButton(100, "Back", "IMAGE_DLG_PURPLEBUTTON", 6, 541);
+  } else {
+    bMenu = embeddedButton(100, "IMAGE_LS_MAINMENUBUTTON", 6, 541);
+  }
+  bBack = embeddedButton(101, "IMAGE_LS_BACKBUTTON", 284, 546);
+  bNext = embeddedButton(102, "IMAGE_LS_NEXTBUTTON", 399, 546);
+  bRandom = embeddedButton(103, "IMAGE_LS_RANDOMBUTTON", 740, 539);
+  if (a.gameMode == GameMode::Challenge || stage >= a.stages.numStages()) bRandom->visible = false;
+  syncStageNum();
+}
+
+bool LevelScreen::canSelect(int id) const {
+  if (id < 0 || id >= 5) return false;
+  if (!app.curProfile) return true;
+  const StageInfo* s = app.stages.stage(stage);
+  if (!s || id >= (int)s->levels.size()) return false;
+  if (s->pack) return true;
+  return app.curProfile->isLevelUnlocked(stage, id);
+}
+
+static int modFirstStage(const App& a) {
+  for (int i = a.stages.numStages(); i < a.stages.numAllStages(); i++)
+    if (const StageInfo* s = a.stages.stage(i); s && s->packLabel.rfind("mod:", 0) == 0) return i;
+  return -1;
+}
+
+void LevelScreen::syncStageNum() {
+  int mf = modFirstStage(app);
+  if (stage >= app.stages.numStages()) {
+    bBack->visible = stage > app.stages.numStages() || stage == mf;
+    bNext->visible = stage < app.stages.numAllStages() - 1;
+    return;
+  }
+  bBack->visible = stage > 0 || mf >= 0;
+  int maxS = app.curProfile ? std::min(app.curProfile->maxStage, app.stages.numStages() - 1) : app.stages.numStages() - 1;
+  bNext->visible = stage < maxS;
+  if (app.curProfile) { app.curProfile->levelSelectStage = stage; app.curProfile->dirty = true; }
+}
+
+void LevelScreen::update() {
+  Panel::update();
+  if (hoverTicks > 0 && --hoverTicks == 0) hovered = -1;
+}
+void LevelScreen::onButtonEnter(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 0; } else if (id == 103) { hovered = 5; hoverTicks = 0; } }
+void LevelScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 10; } else if (id == 103) { hovered = -1; } }
+
+void LevelScreen::doPlay(int id) {
+  int lvl = id;
+  if (id >= 5) {
+    if (!app.curProfile) return;
+    int s = -1, l = -1;
+    if (!app.stages.randomLevel(*app.curProfile, s, l, app.gameMode == GameMode::Duel, app.rand()) || s < 0) return;
+    stage = s;
+    lvl = l;
+  }
+  app.curLevel = lvl;
+  app.curStage = stage;
+  if (app.gameMode == GameMode::Challenge)
+    if (const StageInfo* st = app.stages.stage(stage))
+      if (const LevelInfo* li = st->level(lvl)) app.challengeLevel = li->file;
+  app.stages.markUsed(stage, lvl);
+  app.showBoard(false, true);
+}
+
+void LevelScreen::onButton(int id) {
+  if (app.moving()) return;
+  if (id >= 0 && id < 5) { if (canSelect(id)) doPlay(id); }
+  else if (id == 100) {
+    if (app.gameMode == GameMode::Challenge) app.showTrophyScreen();
+    else app.showMainMenu();
+  } else if (id == 101 && modFirstStage(app) >= 0 && (stage == 0 || stage == modFirstStage(app))) {
+    stage = stage == 0 ? modFirstStage(app) : 0;
+    app.packStage = stage == 0 ? -1 : stage;
+    if (stage == 0 && app.curProfile) { app.curProfile->levelSelectStage = 0; app.curProfile->dirty = true; }
+    syncStageNum();
+  } else if (id == 101) { if (stage > 0) { stage--; if (stage >= app.stages.numStages()) app.packStage = stage; syncStageNum(); } }
+  else if (id == 102) { stage++; if (stage >= app.stages.numStages()) app.packStage = stage; syncStageNum(); }
+  else if (id == 103) doPlay(103);
+}
+
+void LevelScreen::keyDown(int key, int) {
+  if (app.hasModal()) return;
+  if (key == SDLK_ESCAPE) onButton(100);
+  else if (key == SDLK_LEFT && bBack->visible) onButton(101);
+  else if (key == SDLK_RIGHT && bNext->visible) onButton(102);
+}
+
+void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
+  static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
+  const StageInfo* s = app.stages.stage(stage);
+  const bool duel = app.gameMode == GameMode::Duel, chal = app.gameMode == GameMode::Challenge, normal = !duel && !chal;
+  const float panelX = 300, panelW = 190;
+  if (hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && canSelect(hovered)) {
+    const LevelInfo& li = s->levels[hovered];
+    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", li.title) / 2, 365, li.title, 0xffff00);
+    const auto& all = app.highScores.all();
+    if (all.count(li.file) || true) {
+      const auto& hs = app.highScores.scores(app.scoreKey(li.file, app.boardWidthForNewBoard()));
+      g.drawString("PLAIN", 400 - g.textWidth("PLAIN", "Top Five Scores") / 2, 395, "Top Five Scores", 0x88ff88);
+      const char* nf = "OVERLOAD10OUTLINE";
+      float y = 395 + 25, step = g.fontLineSpacing(nf);
+      for (int i = 0; i < 5 && i < (int)hs.size(); i++) {
+        int hue = (10 * (i + 1)) & 0x800000ff;
+        if (hue > 0x80) hue = 0x100 - hue;
+        uint32_t col = hslToRgb(hue, 0xff, 0x80);
+        g.drawString(nf, 310, y + g.fontAscent(nf), std::to_string(i + 1), col);
+        g.drawString(nf, 330, y + g.fontAscent(nf), hs[i].name, col);
+        std::string v = commas(hs[i].score);
+        g.drawString("PLAIN", 490 - g.textWidth("PLAIN", v), y + g.fontAscent(nf) + 4, v, col);
+        y += step;
+      }
+    }
+    return;
+  }
+  if (app.game == Game::Nights && hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && !canSelect(hovered)) {
+    std::string t = "Level locked!", body = "Complete this level\nin adventure mode to unlock!";
+    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", t) / 2, 365, t, 0xff4444);
+    g.drawWrapped("PLAIN", {303, 395, 190, 80}, body, 0xff4444, 1, Align::Center);
+    return;
+  }
+  bool randomOver = hovered == 5;
+  const StageInfo* curSt = app.stages.stage(stage);
+  std::string title = randomOver ? "Play Random Level" : curSt && curSt->pack && !curSt->name.empty() ? curSt->name : (stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1));
+  g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", title) / 2, 365, title, 0xffff00);
+  if (normal || chal || duel) {
+    std::string hint = chal ? "Pick a level for the challenge!"
+                       : duel ? "Face off against a friend or the computer in this two player game mode!"
+                       : randomOver ? "Can't decide on a level?  Select one randomly!"
+                                    : "Play any level that\nyou have unlocked in Adventure Mode!";
+    g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, hint, 0x88ff88, 1, Align::Center);
+  }
+}
+
+void LevelScreen::drawLayer(Gfx& g) {
+  g.fill(0, 0, 800, 600, 0x000000);
+  const StageInfo* s = app.stages.stage(stage);
+  const bool normal = app.gameMode != GameMode::Duel && app.gameMode != GameMode::Challenge;
+  for (int i = 0; i < 5; i++) {
+    float sx = kSlot[i][0], sy = kSlot[i][1];
+    g.fill(sx - 10, sy - 10, kSlotW + 20, kSlotH + 20, 0x000000);
+    if (!s || i >= (int)s->levels.size()) continue;
+    float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
+    Tex* t = g.img("levels/cached_thumbnails/" + s->levels[i].file);
+    if (!t) t = g.img("levels/" + s->levels[i].file);
+    bool ok = canSelect(i);
+    if (t) {
+      g.drawStretch(t, cx, cy, 200, 177, Mode(1, 0x969696));
+      float a = hovered == 5 ? 1.0f : bLevel[i]->overAlpha;
+      if (ok && a > 0) g.drawStretch(t, cx, cy, 200, 177, Mode(a));
+    } else {
+      g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
+    }
+    if (!ok)
+      if (Tex* lk = g.img("IMAGE_LS_LOCK")) g.draw(lk, sx + (kSlotW - lk->lw()) / 2, sy + (kSlotH - lk->lh()) / 2);
+  }
+  if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
+  for (int i = 0; i < 5; i++) {
+    if (!s || i >= (int)s->levels.size()) continue;
+    float sx = kSlot[i][0], sy = kSlot[i][1];
+    bool ok = canSelect(i);
+    if (ok) {
+      const char* tf = "PLAIN";
+      std::string name = s->levels[i].title;
+      g.drawString(tf, sx + (kSlotW - g.textWidth(tf, name)) / 2, sy + 26 + g.fontAscent(tf), name, hovered == 5 ? 0xfff600 : 0x93c814);
+    }
+    if (bLevel[i]->overAlpha > 0)
+      if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) g.draw(sel, sx - 4, sy, Mode(bLevel[i]->overAlpha));
+    if (ok && normal && app.curProfile && app.curProfile->clearedLevels.count(s->levels[i].file))
+      if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 60, sy + 177);
+    if (ok && normal && app.game == Game::Nights && app.curProfile && app.curProfile->acedLevels.count(s->levels[i].file))
+      if (Tex* ar = g.img("IMAGE_LS_TINYACED")) g.draw(ar, sx + kSlotW - 225, sy + 177);
+  }
+  if (Tex* l = g.img("IMAGE_LS_LEVELSCREENLEFT")) g.draw(l, 15, 524);
+  if (bRandom->visible)
+    if (Tex* r = g.img("IMAGE_LS_LEVELSCREENRIGHT")) g.draw(r, 703, 508);
+  std::string banner = app.gameMode == GameMode::Duel ? "Two Player Duel" : app.gameMode == GameMode::Challenge ? "Pick a Level" : "Quick Play";
+  g.drawString("OVERLOAD24GRAD1", 400 - g.textWidth("OVERLOAD24GRAD1", banner) / 2, 48, banner, 0xb6ffff);
+  drawLevelInfo(g, 304, 335);
+}
+
+
+StoryScreen::StoryScreen(App& a, bool rev, bool eg) : Screen(a), reveal(rev), easter(eg) {
+  stage = a.curProfile && a.curProfile->advStage >= 0 && a.gameMode == GameMode::Adventure ? a.curStage : (a.curProfile ? std::max(0, a.curProfile->advStage) : a.curStage);
+  stage = std::clamp(a.curStage, 0, std::max(0, a.numStages() - 1));
+  bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x21e);
+  bContinue->x = 400 - bContinue->w / 2;
+  bContinue->visible = false;
+  initText();
+}
+
+void StoryScreen::initText() {
+  const StageInfo* s = app.stages.stage(stage);
+  page = 1;
+  if (app.curProfile) page = app.curProfile->advCompletions < 4 ? app.curProfile->advCompletions + 1 : 1 + (int)(app.rand() % 3) + 1;
+  if (!s || page > 4 || s->story[page].empty()) page = 1;
+  text.clear();
+  if (s) {
+    for (auto& d : s->story[0]) text += d.text;
+    if (page != 1) text += "\n^ffffff^A few choice words of\nPeggle Wisdom^oldclr^\n\n";
+    else text += "\n";
+    for (auto& d : s->story[page]) text += d.text;
+  }
+  totalVisible = (int)stripColorCodes(text).size();
+  start = 20;
+  app.playMusic("beats:48");
+}
+
+void StoryScreen::update() {
+  Panel::update();
+  if (bContinue->visible) {
+    float tx = 400 - bContinue->w / 2;
+    if (bContinue->x < tx) bContinue->x = std::min(tx, bContinue->x + 30);
+    if (bContinue->y > 0x21e) bContinue->y = std::max(0x21e * 1.0f, bContinue->y - 15);
+  }
+  if (done) return;
+  if (start != 0) {
+    if (--start == 0) { boxes++; boxFade = 1; wait = 20; }
+    return;
+  }
+  if (boxFade != 0 && ++boxFade == 20) boxFade = 0;
+  if (wait != 0) { wait--; return; }
+  if (typed < totalVisible) {
+    typed++;
+    app.playSample("TYPING");
+    std::string vis = stripColorCodes(text);
+    int off = typed - 1;
+    if (off >= 0 && off < (int)vis.size()) {
+      switch (vis[off]) {
+        case '!': case '?': wait = 20; break;
+        case '.': case ',': wait = 10; break;
+        default: wait = 2; break;
+      }
+      if (off == (int)vis.size() - 1) wait = 50;
+    }
+    return;
+  }
+  done = true;
+  bContinue->visible = true;
+  bContinue->x = -(100 + bContinue->w);
+  bContinue->y = 0x21e + 60;
+  app.playSample("TEXT_WOOSH");
+}
+void StoryScreen::finish() {
+  if (reveal) { app.showMainMenu(); return; }
+  app.showBoard(true, true);
+}
+void StoryScreen::onButton(int) { finish(); }
+bool StoryScreen::input(const Input& in) {
+  if (in.type == Input::MouseDown && !done && in.button > 0) {
+    typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1;
+    return true;
+  }
+  return Panel::input(in);
+}
+void StoryScreen::keyDown(int key, int) {
+  if (key == SDLK_ESCAPE || key == SDLK_RETURN || key == SDLK_SPACE) {
+    if (done) finish();
+    else { typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1; }
+  }
+}
+
+static std::string firstVisible(const std::string& s, int n) {
+  std::string out;
+  int cnt = 0;
+  for (size_t i = 0; i < s.size();) {
+    if (s[i] == '^') {
+      auto e = s.find('^', i + 1);
+      if (e != std::string::npos && (e - i == 7 || s.compare(i + 1, e - i - 1, "oldclr") == 0)) { out += s.substr(i, e - i + 1); i = e + 1; continue; }
+    }
+    if (cnt >= n) break;
+    out += s[i++];
+    cnt++;
+  }
+  return out;
+}
+
+static uint32_t charColor(int i) {
+  static const uint32_t c[10] = {0x88ffff, 0x88ff88, 0xffff88, 0xa080ff, 0x88ccff, 0xffaa44, 0xff88ff, 0xff4444, 0x00ff00, 0xb6bcd6};
+  return i >= 0 && i < 10 ? c[i] : 0xffffff;
+}
+
+void StoryScreen::drawLayer(Gfx& g) {
+  g.fill(0, 0, 800, 600, 0x000000);
+  if (Tex* bx = g.img("IMAGE_DLG_DIALOGBOX")) g.drawBox(bx, -2, -4, 804, 608);
+  const bool first = !app.curProfile || stage == 0 || app.curProfile->advCompletions != 0;
+  static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
+  g.fill(0, 0, 0, 0, 0);
+  std::string head = stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1);
+  g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, 45 + g.fontAscent("OVERLOAD24OUTLINE"), head, 0xddddff);
+  const float aX = 53, aY = first ? 200.0f : 135.0f;
+  int ci = stage % 10;
+  Tex* portrait = g.img("IMAGE_CHR_CHARACTER" + std::to_string(ci + 1));
+  float pw = portrait ? portrait->lw() : 184, ph = portrait ? portrait->lh() : 184;
+  float fade = boxes == 0 ? 0.0f : (boxFade > 0 ? boxFade / 20.0f : 1.0f);
+  if (boxes > 0) {
+    float tx = 20 + pw + aX, ty = 20 + aY, tw = 800 - tx - 50;
+    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, (done || !first ? 180 : 180) + 20, Mode(0.5f * fade, 0x000000));
+    if (portrait) {
+      g.draw(portrait, aX, aY + 4, Mode(fade));
+      if (Tex* bf = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(bf, aX - 8, aY + 4 - 8, pw + 16, ph + 16, Mode(fade));
+    }
+    std::string shown = firstVisible(text, typed);
+    g.drawWrapped("STAGE", {tx, ty, tw, 180}, shown, charColor(ci), 1, Align::Left);
+  }
+  if (stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
+    const float bx = 45, bw = 64 * 11 + 14;
+    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) {
+      g.drawBox(tr, bx, 342, bw, 95, Mode(50 / 255.0f, 0x000000));
+      g.drawBox(tr, bx, 440, bw, 75, Mode(50 / 255.0f, 0x000000));
+    }
+    std::string adv = "Adventure: ^00FF00^" + std::to_string(app.curProfile->maxLevelIndex()) + " of 55^oldclr^ Complete";
+    std::string chl = "Challenge: ^00FF00^" + std::to_string((int)app.curProfile->trophies.size()) + " of " + std::to_string(app.trophies.numTrophies()) + "^oldclr^ Complete";
+    auto line = [&](const std::string& s, float base) {
+      std::string plain = stripColorCodes(s);
+      float x = 80 + (800 - g.textWidth("OVERLOAD16OUTLINE", plain)) / 2 - 40;
+      for (auto& run : parseColorCodes(s)) {
+        g.drawString("OVERLOAD16OUTLINE", x, base, run.text, run.rgb < 0 ? 0xffffff : (uint32_t)run.rgb);
+        x += g.textWidth("OVERLOAD16OUTLINE", run.text);
+      }
+    };
+    line(adv, 342 + 88);
+    line(chl, 440 + 30);
+    Tex* chars = g.img("IMAGE_CHR_CHARACTERS");
+    Tex* shadows = g.img("IMAGE_CHR_CHARACTERSHADOWS");
+    Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
+    Tex* sel = g.img("IMAGE_DLG_SELECTORFRAME");
+    const int unlocked = app.curProfile->maxStage;
+    for (int i = 0; i < 11; i++) {
+      float cx = 53 + 64 * i, cy = 342 + 14;
+      bool open = i <= unlocked && i < 10;
+      if (i < 10) {
+        if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, i, 0);
+        if (!open) {
+          if (Tex* lk = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lk, cx, cy, Mode(120 / 255.0f));
+          if (chars) g.fill(cx, cy, chars->cw(), chars->ch(), 0x000000, 110 / 255.0f);
+        }
+      } else if (Tex* q = g.img("IMAGE_DLG_QUESTIONMARK")) {
+        g.draw(q, cx, cy);
+      }
+      float cw = chars ? chars->cw() : 52, chh = chars ? chars->ch() : 52;
+      if (Tex* fr = i == stage % 10 ? sel : frame) g.drawBox(fr, cx - 5, cy - 8, cw + 10 + 1, chh + 10 + 5);
+    }
+  }
+}
+
+
+struct HelpPage {
+  const char* name;
+  const char* head[2];
+  const char* row[4][3];
+  bool style = false;
+};
+static const HelpPage kHelp[8] = {
+    {"Controls", {"Move your mouse cursor to where you want the ball to go.", "The Launcher will automatically aim so that the ball heads to that point."},
+     {{"Click the left mouse button to fire the ball.", "The ball will head right to where your mouse was when you clicked.", ""},
+      {"Hold down the right mouse button to speed up time.", "This is helpful when waiting for moving objects.", ""},
+      {"Use the mouse wheel to make small angle adjustments.", "This is useful for getting the exact shot that you want.", ""},
+      {"The left and right arrow keys will also make small angle adjustments.", "Hitting the enter key will fire the ball.", ""}}},
+    {"Instructions", {"There are four types of pegs in Peggle.", "Pegs can be both round and rectangular."},
+     {{"Clear all of the orange pegs on a level to beat the level.", "", ""},
+      {"Orange pegs are worth 10x the value of blue pegs.", "", ""},
+      {"The purple peg is worth 50x the value of the blue pegs.", "This peg changes location on every shot.", ""},
+      {"The green peg activates your Magic Power.", "There are two green pegs per level.", ""}}},
+    {"Scoring", {"The number of points you get for a shot is the total value of all of the pegs", "multiplied by the number of pegs you hit."},
+     {{"Every peg that you hit on a shot adds to a subtotal score.", "The shot score is the subtotal score multiplied by the number of pegs hit.", ""},
+      {"The value of the pegs goes up as you eliminate orange pegs.", "The Fevermeter on the right shows the current score multiplier.", ""},
+      {"Certain cool shots give you extra style points.  These points add directly", "to your score and don't factor into getting a 25,000 point Free Ball.", ""},
+      {"After beating a level you earn extra points from the bonus holes.", "You also earn 10,000 points per extra ball left over.", ""}}},
+    {"Free Balls", {"There are a few different ways to get a Free Ball.", ""},
+     {{"You get a Free Ball if your ball lands in the Free Ball Bucket.", "", ""},
+      {"Scoring 25K, 75K, and 125K on a shot also gives you a Free Ball.", "", ""},
+      {"If you don't hit any pegs on a shot then you may be awarded", "a Free Ball by winning a coin flip!", ""},
+      {"In Duel Mode, you get style points instead of Free Balls.", "Also, there are no coin flip Free Balls in Duel Mode.", ""}}},
+    {"Game Modes", {"There are four game modes in Peggle.", ""},
+     {{"Adventure Mode allows you to train with all the Peggle Masters.", "Progress through all the levels to become a Peggle Master yourself.", ""},
+      {"Quick Play Mode lets you select an individual level to play.", "You may only play levels that you've completed in Adventure Mode.", ""},
+      {"Duel Mode allows you to compete in a two player version of Peggle.", "You can play against the computer or another person.", ""},
+      {"Challenge Mode presents you with extra difficult Peggle feats.", "Beat all of the challenges to become a Peggle Grand Master.", ""}}},
+    {"Duel Mode", {"Duel Mode has slightly different rules than the single player modes.", ""},
+     {{"In Duel Mode, two players take turns shooting the ball.", "The player with the most points at the end of the game wins.", ""},
+      {"You must hit at least one orange peg on a shot.", "If you don't then you are penalized by losing 25% of your total score.", ""},
+      {"The game ends either when a player eliminates the last orange peg or", "when both players run out of balls.", ""},
+      {"", "", ""}}},
+    {"Instant Replays", {"Instant replays are useful for reliving your favorite shots and showing them", "to your friends and family over and over again."},
+     {{"Click the Instant Replay button on the bottom right of the game to", "see a replay of the last shot.", ""},
+      {"Right click the Instant Replay button to enable an advanced mode in which", "you can replay all shots for a game.", ""},
+      {"You can save replays and view them later!", "Click the Replays button on the main menu to view saved replays.", ""},
+      {"Hold down the left mouse button in the play area to activate slow motion.", "Hold down the right button to activate fast forward.", ""}}},
+    {"Extra Tidbits", {"What else, what else, what else?", ""},
+     {{"After beating Adventure Mode, you can replay it again using any Peggle", "Master on any level!  Can you top your high score?", ""},
+      {"Clearing all of the pegs on a level gives you a bonus blue ribbon!", "", ""},
+      {"It's rumored that there's a level of Peggle Mastery beyond Grand Master.", "Supposedly, clearing every level can help you attain this rank!", ""},
+      {"", "", ""}}}};
+
+static const HelpPage kHelpNights[14] = {
+    {"Instructions", {"", ""},
+     {{"Click where you want the ball to go.", "", ""},
+      {"Hit all ^FF8933^ORANGE PEGS and BRICKS^oldclr^ to win!", "", ""},
+      {"Beat the level before running out of balls.", "", ""},
+      {"Get the ball in the bucket for a free ball!", "", ""}}},
+    {"Controls", {"Move your mouse cursor to where you want the ball to go.", "The Launcher will automatically aim so that the ball heads to that point."},
+     {{"Click the left mouse button to fire the ball.", "The ball will head right to where your mouse pointer was when you clicked.", ""},
+      {"Hold down the right mouse button to speed up time.", "This is helpful when waiting for moving objects.", ""},
+      {"Use the mouse wheel to make small angle adjustments.", "This is useful for getting the exact shot that you want.", ""},
+      {"The left and right arrow keys will also make small angle adjustments.", "Hitting the enter key will fire the ball.", ""}}},
+    {"Pegs", {"There are four types of pegs in Peggle Nights.", "Pegs can be both round and rectangular."},
+     {{"Clear all of the orange pegs on a level to beat the level.", "", ""},
+      {"Orange pegs are worth 10x the value of blue pegs.", "", ""},
+      {"The purple peg is worth 50x the value of the blue pegs.", "This peg changes location on every shot.", ""},
+      {"The green peg activates your Magic Power.", "There are two green pegs per level.", ""}}},
+    {"Scoring", {"The number of points you get for a shot is the total value of all of the pegs", "multiplied by the number of pegs you hit."},
+     {{"Every peg that you hit on a shot adds to a subtotal score.", "The shot score is the subtotal score multiplied by the number of pegs hit.", ""},
+      {"The value of the pegs goes up as you eliminate orange pegs.", "The Fevermeter on the right shows the current score multiplier.", ""},
+      {"Certain cool shots give you extra style points.  These points add directly", "to your score and don't factor into getting a 25,000 point Free Ball.", ""},
+      {"After beating a level you earn extra points from the bonus holes.", "You also earn 10,000 points per extra ball left over.", ""}}},
+    {"Free Balls", {"There are a few different ways to get a Free Ball.", ""},
+     {{"You get a Free Ball if your ball lands in the Free Ball Bucket.", "", ""},
+      {"Scoring 25K, 75K, and 125K on a shot also gives you a Free Ball.", "", ""},
+      {"If you don't hit any pegs on a shot then you may be awarded", "a Free Ball by winning a coin flip!", ""},
+      {"In Duel Mode, you get style points instead of Free Balls.", "Also, there are no coin flip Free Balls in Duel Mode.", ""}}},
+    {"Game Modes", {"There are four game modes in Peggle Nights.", ""},
+     {{"Adventure Mode allows you to train with all the Peggle Masters.", "Progress through all the levels to become a Peggle Master yourself.", ""},
+      {"Quick Play Mode lets you select an individual level to play.", "You may only play levels that you've completed in Adventure Mode.", ""},
+      {"Duel Mode allows you to compete in a two player version of Peggle Nights.", "You can play against the computer or another person.", ""},
+      {"Challenge Mode presents you with extra difficult Peggle Nights feats.", "Beat all of the challenges to advance your Peggle Master rank.", ""}}},
+    {"Duel Mode", {"Duel Mode has slightly different rules than the single player modes.", ""},
+     {{"In Duel Mode, two players take turns shooting the ball.", "The player with the most points at the end of the game wins.", ""},
+      {"You must hit at least one orange peg on a shot.", "If you don't then you are penalized by losing 25% of your total score.", ""},
+      {"The game ends either when a player eliminates the last orange peg or", "when both players run out of balls.", ""},
+      {"", "", ""}}},
+    {"Instant Replays", {"Instant replays are useful for reliving your favorite shots and showing them", "to your friends and family over and over again."},
+     {{"Click the Instant Replay button on the bottom right of the game to", "see a replay of the last shot.", ""},
+      {"Right click the Instant Replay button to enable an advanced mode in which", "you can replay all shots for a game.", ""},
+      {"You can save replays and view them later!", "Click the Replays button on the main menu to view saved replays.", ""},
+      {"Hold down the left mouse button in the play area to activate slow motion.", "Hold down the right button to activate fast forward.", ""}}},
+    {"Extra Tidbits", {"What else, what else, what else?", ""},
+     {{"After beating Adventure Mode, you can replay it again using any Peggle", "Master on any level!  Can you top your high score?", ""},
+      {"Clearing all of the pegs on a level gives you a bonus blue ribbon!", "", ""},
+      {"Each level has an Ace Score. Beat that score for a bonus red ribbon!", "Get Ace Scores on all levels for an even fancier trophy!", ""},
+      {"Open replays by double-clicking the replay files. You can also", "drag-and-drop replay files into an open Peggle Nights window.", ""}}},
+    {"Style Shots", {"Certain kinds of shots earn special recognition and bonus points!", "The second score listed is specific to duel mode."},
+     {{"FREE BALL SKILLS", "5,000 / 2,500 points", "Bounce the ball directly from one (and only one) peg into the\nFree Ball Bucket."},
+      {"LONG SHOT", "25,000 / 5,000 points", "Hit a non-blue peg first, travel 1/3 the width of the screen and\nhit another non-blue peg."},
+      {"DOUBLE LONG SHOT", "25,000 / 10,000 points", "Get a LONG SHOT, then travel 1/3 the width of the screen and hit\na third non-blue peg."},
+      {"SUPER LONG SHOT", "50,000 / 10,000 points", "Hit a non-blue peg first, travel 2/3 the width of the screen and\nhit another non-blue peg."}},
+     true},
+    {"More Style Shots", {"Certain kinds of shots earn special recognition and bonus points!", "The second score listed is specific to duel mode."},
+     {{"EXTREME SLIDE", "50,000 / 5,000 points", "Slide above a certain speed for 12 pegs."},
+      {"OFF THE WALL", "25,000 / 5,000 points", "Bounce the ball off the wall, travel 1/5 the width of the screen\nand hit a non-blue peg."},
+      {"KICK THE BUCKET", "25,000 / 5,000 points", "Bounce the ball off the Free Ball Bucket to hit the final orange\npeg for Fever."},
+      {"LUCKY BOUNCE", "25,000 / 2,500 points", "Bounce the ball off the Free Ball Bucket, then catch it again."}},
+     true},
+    {"Still More Style Shots", {"Certain kinds of shots earn special recognition and bonus points!", "The second score listed is specific to duel mode."},
+     {{"MAD SKILLZ", "25,000 / 5,000 points", "Have 5 balls in a row fall in the Free Ball Bucket."},
+      {"CRAZY MAD SKILLZ", "100,000 /   N/A   points", "Have 10 balls in a row fall in the Free Ball Bucket."},
+      {"ORANGE ATTACK", "50,000 / 5,000 points", "Hit a large percentage of the remaining orange pegs in one shot."},
+      {"COOL CLEAR", "50,000 /   N/A   points", "Hit the final orange peg for Fever, then hit the final remaining\npeg for an All Clear."}},
+     true},
+    {"Master-Specific Style Shots", {"Some Masters have additional Style Shots specific to their powers.", "All Masters have a Style Shot awarded for hitting both green pegs in the same shot."},
+     {{"MULTIBALL MADNESS", "25,000 / 5,000 points", "Get the Multiball after hitting the final orange peg for Fever."},
+      {"FREE BALL FRENZY", "100,000 / 10,000 points", "Have more than one ball go into the Free Ball Bucket in one shot."},
+      {"FLIPPER MANIAC", "25,000 / 5,000 points", "Bounce off a Flipper and hit at least one peg; do this four times."},
+      {"SHOCK IT TO ME", "25,000 / 5,000 points", "Zap a dozen or more pegs with Electrobolt."}},
+     true},
+    {"Even More Master-Specific Style Shots", {"Some Masters have additional Style Shots specific to their powers.", "All Masters have a Style Shot awarded for hitting both green pegs in the same shot."},
+     {{"EYE OF THE PYRAMID", "10,000 / 5,000 points", "Get a ball into the Free Ball Bucket without hitting the Pyramid\nbumpers."},
+      {"PYRAMID PICKUP", "10,000 / 5,000 points", "Bounce a ball off the Pyramid bumpers and into the Free Ball Bucket."},
+      {"HAT TRICK", "10,000 / 2,500 points", "Have a ball wearing the Magic Hat go into the Free Ball Bucket."},
+      {"", "", ""}},
+     true},
+};
+
+int HelpScreen::numPages() const { return app.game == Game::Nights ? 14 : 8; }
+
+HelpScreen::HelpScreen(App& a, bool fb) : Screen(a), fromBoard(fb) {
+  patchButton(1, "Previous", "IMAGE_DLG_BROWNBUTTON1", 224, 541);
+  patchButton(2, "Next", "IMAGE_DLG_BROWNBUTTON1", 468, 541);
+  auto* done = addButton(0, Button::Kind::Simple, "IMAGE_HELP_BUTTONOVERLAY");
+  done->x = 738; done->y = 536;
+  done->w = 62; done->h = 62;
+  done->image = nullptr;
+}
+void HelpScreen::onButton(int id) {
+  if (id == 0) { app.endHelpScreen(); }
+  else if (id == 1) page = std::max(0, page - 1);
+  else if (id == 2) page = std::min(numPages() - 1, page + 1);
+}
+void HelpScreen::keyDown(int key, int) {
+  if (key == SDLK_ESCAPE || key == SDLK_RETURN) app.endHelpScreen();
+  else if (key == SDLK_LEFT) onButton(1);
+  else if (key == SDLK_RIGHT) onButton(2);
+}
+void HelpScreen::drawLayer(Gfx& g) {
+  g.fill(0, 0, 800, 600, 0x000020);
+  if (Tex* bg = g.img("IMAGE_HELP_SCREEN")) g.draw(bg, 0, 0);
+  const bool nights = app.game == Game::Nights;
+  const HelpPage& hp = nights ? kHelpNights[page] : kHelp[page];
+  g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, "How to Play", 0xb6ffff, 1, Align::Center);
+  g.drawString("OVERLOAD16OUTLINE", 400, 90, hp.name, 0xffffff, 1, Align::Center);
+  char pg[32];
+  std::snprintf(pg, sizeof pg, "Page %d of %d", page + 1, numPages());
+  g.drawString("PLAIN2", 400, 0x21c, pg, 0xffffff, 1, Align::Center);
+  for (int i = 0; i < 2; i++)
+    if (hp.head[i][0]) g.drawWrapped("PLAIN2", {60, 110.0f + 18 * i, 680, 20}, hp.head[i], 0xffffaa, 1, Align::Center);
+  Tex* icons = g.img("IMAGE_HELP_ICONS");
+  if (nights && page == 0) {
+    static const int ic[4][2] = {{0, 0}, {1, 1}, {2, 3}, {3, 1}};
+    static const char* two[3] = {"Two players take turns shooting the ball.", "The goal is to score more points than your opponent.",
+                                 "You are penalized if you fail to hit an orange peg on a shot!"};
+    const bool duel = app.hasBoard() && app.gameMode == GameMode::Duel;
+    if (duel) g.drawString("OVERLOAD16OUTLINE", 400, 140, "Two Player Rules", 0xffffff, 1, Align::Center);
+    for (int r = 0; r < (duel ? 3 : 4); r++) {
+      if (icons) g.drawCel(icons, 75 + (68 - icons->cw()) / 2, 170.0f + 90 * r - 2 + (68 - icons->ch()) / 2, ic[r][0], ic[r][1]);
+      g.drawString("PLAIN2", 400, 170.0f + 90 * r + 40, duel ? two[r] : hp.row[r][0], 0xffffff, 1, Align::Center);
+    }
+    return;
+  }
+  for (int r = 0; r < 4; r++) {
+    float y = 170.0f + 90 * r;
+    int icol = nights ? (page == 5 ? -1 : page - 1 > 4 ? page - 2 : page - 1) : (page < 7 ? page : -1);
+    if (nights && page == 5 && r == 0)
+      if (Tex* mi = g.img("IMAGE_HELP_MODES")) g.draw(mi, 32, 170);
+    if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, nights ? 72.0f : 75 + (68 - icons->cw()) / 2.0f, nights ? y : y - 2 + (68 - icons->ch()) / 2.0f, icol, r);
+    if (hp.style) {
+      if (!hp.row[r][0][0]) continue;
+      g.drawString("PLAIN2", 170, y + 19, hp.row[r][0], 0xffffaa);
+      g.drawString("PLAIN2", 690, y + 19, hp.row[r][1], 0xffffaa, 1, Align::Right);
+      std::string d = hp.row[r][2];
+      float ly = y + (d.find('\n') == std::string::npos ? 46.0f : 38.0f);
+      size_t p = 0;
+      while (p <= d.size()) {
+        size_t e = d.find('\n', p);
+        g.drawString("PLAIN2", 200, ly, d.substr(p, e == std::string::npos ? std::string::npos : e - p), 0xffffff);
+        ly += 18;
+        if (e == std::string::npos) break;
+        p = e + 1;
+      }
+      continue;
+    }
+    int n = 0;
+    for (int k = 0; k < 3; k++) if (hp.row[r][k][0]) n++;
+    float off = n <= 1 ? 16 : n == 2 ? 8 : 0;
+    for (int k = 0; k < 3; k++)
+      if (hp.row[r][k][0]) g.drawString("PLAIN2", 170, y + 23 + off + 18.0f * k, hp.row[r][k], 0xffffff);
+  }
+}
+
+
+TrophyScreen::TrophyScreen(App& a) : Screen(a) {
+  a.playMusic("fadeout");
+  page = a.curProfile ? std::clamp(a.curProfile->i38, 0, std::max(0, (int)a.trophies.pages().size() - 1)) : 0;
+  bBack = embeddedButton(100, "IMAGE_LS_MAINMENUBUTTON", 6, 541);
+  bPrev = embeddedButton(101, "IMAGE_LS_BACKBUTTON", 284, 546);
+  bNext = embeddedButton(102, "IMAGE_LS_NEXTBUTTON", 399, 546);
+  for (int i = 0; i < 5; i++) {
+    auto b = std::make_unique<Button>();
+    b->id = i;
+    b->kind = Button::Kind::Simple;
+    b->x = kSlot[i][0]; b->y = kSlot[i][1]; b->w = kSlotW; b->h = kSlotH;
+    b->hoverSound = ""; b->clickSound = "BUTTON1"; b->tickRef = &updateCount;
+    bSlot[i] = add(std::move(b));
+  }
+  syncPage();
+}
+void TrophyScreen::syncPage() {
+  bPrev->visible = page > 0;
+  bNext->visible = page + 1 < (int)app.trophies.pages().size();
+  if (app.curProfile) { app.curProfile->i38 = page; app.curProfile->dirty = true; }
+}
+void TrophyScreen::update() { Panel::update(); if (hoverTicks > 0 && --hoverTicks == 0) hovered = -1; }
+void TrophyScreen::onButtonEnter(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 0; } }
+void TrophyScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 10; } }
+void TrophyScreen::doPlay(int slot) {
+  const auto& pages = app.trophies.pages();
+  if (page >= (int)pages.size() || slot >= (int)pages[page].trophies.size()) return;
+  const TrophyInfo& t = pages[page].trophies[slot];
+  app.curChallenge = t.id;
+  app.gameMode = GameMode::Challenge;
+  if (!t.levels.empty() && t.levels[0] != "pick" && t.levels[0].rfind("rand", 0) != 0 && t.levels[0].rfind("Rand", 0) != 0) {
+    app.challengeStep = 0;
+    app.challengeLevel = app.resolveChallengeLevel(t.levels[0]);
+    app.showBoard(false, true);
+  } else if (!t.levels.empty() && (t.levels[0].rfind("rand", 0) == 0 || t.levels[0].rfind("Rand", 0) == 0)) {
+    app.challengeStep = 0;
+    app.challengeLevel = app.resolveChallengeLevel(t.levels[0]);
+    app.showBoard(false, true);
+  } else {
+    app.challengeStep = 0;
+    app.showLevelScreen(true);
+  }
+}
+void TrophyScreen::onButton(int id) {
+  if (app.moving()) return;
+  if (id >= 0 && id < 5) doPlay(id);
+  else if (id == 100) app.showMainMenu();
+  else if (id == 101) { if (page > 0) { page--; syncPage(); } }
+  else if (id == 102) { page++; syncPage(); }
+}
+void TrophyScreen::keyDown(int key, int) {
+  if (app.hasModal()) return;
+  if (key == SDLK_ESCAPE) onButton(100);
+  else if (key == SDLK_LEFT && bPrev->visible) onButton(101);
+  else if (key == SDLK_RIGHT && bNext->visible) onButton(102);
+}
+void TrophyScreen::drawLayer(Gfx& g) {
+  g.fill(0, 0, 800, 600, 0x000020);
+  const auto& pages = app.trophies.pages();
+  if (page >= (int)pages.size()) {
+    if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
+    return;
+  }
+  const TrophyPage& pg = pages[page];
+  for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
+    const TrophyInfo& t = pg.trophies[i];
+    float sx = kSlot[i][0], sy = kSlot[i][1];
+    Tex* th = t.levels.empty() ? nullptr : g.img("levels/cached_thumbnails/" + t.levels[0]);
+    if (th && th->valid()) {
+      float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
+      g.drawStretch(th, cx, cy, 200, 177, Mode(1, 0x969696));
+      if (hovered == i) g.drawStretch(th, cx, cy, 200, 177, Mode(1));
+    } else {
+      g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
+    }
+  }
+  if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
+  g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, pg.name, 0xb7ffff, 1, Align::Center);
+  g.drawString("OVERLOAD16OUTLINE", 0x1b8, 0x1f9, "Page " + std::to_string(page + 1), 0xffff00, 1, Align::Left);
+  for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
+    const TrophyInfo& t = pg.trophies[i];
+    float sx = kSlot[i][0], sy = kSlot[i][1];
+    bool won = app.curProfile && app.curProfile->trophies.count(t.id);
+    g.fill(sx + 4, sy + 4, kSlotW - 8, 42, 0x000000, 0.6f);
+    g.drawWrapped("OVERLOAD16OUTLINE", {sx + 6, sy + 8, kSlotW - 12, 40}, t.name, won ? 0xffff80 : 0xffffff, 1, Align::Center);
+    const std::string& d = t.smallDesc.empty() ? t.desc : t.smallDesc;
+    if (!d.empty()) {
+      g.fill(sx + 4, sy + kSlotH - 56, kSlotW - 8, 52, 0x000000, 0.6f);
+      g.drawWrapped("PLAIN", {sx + 8, sy + kSlotH - 52, kSlotW - 16, 46}, d, 0xe0e0ff, 1, Align::Center);
+    }
+    if (won)
+      if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 50, sy + 50);
+  }
+  if (hovered >= 0 && hovered < 5 && hovered < (int)pg.trophies.size())
+    g.drawWrapped("PLAIN", {304, 335, 190, 170}, pg.trophies[hovered].desc, 0xffffff, 1, Align::Center);
+}
+
+}

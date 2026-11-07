@@ -1,0 +1,41 @@
+#pragma once
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "content.h"
+#include "net.h"
+#include "ui/app.h"
+
+namespace pp::ui::online {
+
+constexpr int kMenuButtonId = 90;
+
+void addMainMenuButton(Panel& menu);
+bool handleMenuButton(App& app, int id);
+void tickMainMenu(App& app);
+void setPendingInvite(const std::string& url);
+void showOnline(App& app);
+const char* masterDisplayName(int i);
+const char* masterKey(int i);
+
+struct Prefs {
+  std::string lobby;
+  int mode = 0;
+  int master = 0;
+  std::string level;
+  void load(const std::filesystem::path& file);
+  void save(const std::filesystem::path& file) const;
+};
+
+struct MatchLaunch {
+  std::unique_ptr<Session> session;
+  LevelBundle lb;
+  MatchInfo info;
+  std::string lobbyHost;
+  int lobbyPort = 7770;
+};
+void startMatchScreen(App& app, MatchLaunch&& launch);
+
+}
