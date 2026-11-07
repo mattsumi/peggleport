@@ -10,6 +10,7 @@ struct LuaWork {
   bool timed = false;
   bool aborted = false;
   unsigned tick = 0;
+  unsigned aux = 0;
   lua_State* cur = nullptr;
   void (*check)(lua_State*, LuaWork*) = nullptr;
   void (*refuse)(lua_State*, LuaWork*, long long) = nullptr;
