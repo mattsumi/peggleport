@@ -81,6 +81,7 @@ class ModManager final : public SimHooks {
   bool power(Board& b, int pegIdx, int power, bool silent) override;
   void basePhysics(PhysicsParams& p) override;
   void pegCustom(Board& b, int pegIdx, int what, int ball, int custom) override;
+  void masterCall(Board& b, int player, int power, int what, int pegIdx) override;
 
   void flush(Board& b);
 
@@ -110,6 +111,13 @@ class ModManager final : public SimHooks {
   PegTypeTable pegTable_;
   std::vector<PegOwner> pegOwners_;
   void buildPegTypes();
+  struct MasterBind {
+    ModInfo* mi = nullptr;
+    bool native = false;
+    size_t idx = 0;
+  };
+  std::vector<MasterBind> binds_;
+  void installMasters();
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);
   void addMod(const std::filesystem::path& src, bool cli);

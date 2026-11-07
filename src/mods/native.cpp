@@ -8,7 +8,10 @@
 #include <cstring>
 #include <cstdint>
 #include <memory>
+#include <cctype>
+#include <cstddef>
 #include <string>
+#include <vector>
 #include <filesystem>
 
 #include "mods/manifest.h"
@@ -31,7 +34,9 @@ struct NativeMod::Impl {
   PPModHooks hooks{};
   bool hooked = false;
   bool initializing = false;
+  bool initDone = false;
   std::vector<NativeMod::PegTypeReg> pegTypes;
+  std::vector<NativeMasterDef> masters;
   uint32_t presRng = 0x1234567u;
   std::chrono::steady_clock::time_point logWindow;
   int logCount = 0;
@@ -225,8 +230,46 @@ int32_t cPegCustom(int32_t id, char* out, int32_t cap, int32_t* hits) {
   return (int32_t)key.size();
 }
 
+std::string clipText(const char* p, size_t n) {
+  std::string s = p ? p : "";
+  if (s.size() <= n) return s;
+  size_t k = n;
+  while (k > 0 && ((unsigned char)s[k] & 0xc0) == 0x80) k--;
+  return s.substr(0, k);
+}
+int32_t cRegisterMaster(const PPMasterDef* d) {
+  if (!gCur || !d || gCur->initDone || gCur->cosmetic) return 1;
+  if (d->struct_size < offsetof(PPMasterDef, on_end) + sizeof(d->on_end)) return 2;
+  NativeMasterDef m;
+  m.id = clipText(d->id, 64);
+  for (char& c : m.id) {
+    c = (char)std::tolower((unsigned char)c);
+    if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) return 3;
+  }
+  if (m.id.empty() || m.id.size() > 32 || pp::masters::reservedName(m.id)) return 3;
+  for (auto& o : gCur->masters)
+    if (o.id == m.id) return 4;
+  if (gCur->masters.size() >= 16) return 5;
+  m.name = clipText(d->name, 40);
+  if (m.name.empty()) m.name = m.id;
+  m.description = clipText(d->description, 240);
+  m.powerName = d->power_name && *d->power_name ? clipText(d->power_name, 40) : "Master Power";
+  m.powerDescription = clipText(d->power_description, 240);
+  m.portrait = clipText(d->portrait, 200);
+  m.banner = d->banner && *d->banner ? clipText(d->banner, 40) : m.powerName + "!";
+  m.turns = d->turns < 1 ? 1 : d->turns > 99 ? 99 : d->turns;
+  if (d->trigger < 0 || d->trigger > 2) return 6;
+  m.trigger = d->trigger;
+  m.color = d->color & 0xffffffu;
+  m.onActivate = d->on_activate;
+  m.onShot = d->on_shot;
+  m.onEnd = d->on_end;
+  gCur->masters.push_back(m);
+  return 0;
+}
+
 const PPModApi kApi = {PP_MOD_ABI_VERSION, sizeof(PPModApi), cLog, cRegister, cTick, cScore, cOrange, cBallsLeft, cObjCount, cPeg, cBallCount, cBall, cRng,
-                       cAddScore, cHit, cBalls, cSay, cStateSet, cStateGet, cRect, cCircle, cText, cPhysSet, cPhysGet, PP_MOD_ABI_MINOR, cRegisterPegType, cSetPegType, cPegCustom};
+                       cAddScore, cHit, cBalls, cSay, cStateSet, cStateGet, cRect, cCircle, cText, cPhysSet, cPhysGet, PP_MOD_ABI_MINOR, cRegisterPegType, cSetPegType, cPegCustom, cRegisterMaster};
 }
 
 std::unique_ptr<NativeMod> NativeMod::load(const std::filesystem::path& lib, const Manifest& m, HostServices& host, std::string* err) {
@@ -256,6 +299,7 @@ std::unique_ptr<NativeMod> NativeMod::load(const std::filesystem::path& lib, con
   I.initializing = false;
   host.ctx = prevCtx;
   if (rc != 0) { if (err) *err = "pp_mod_init returned " + std::to_string(rc); return nullptr; }
+  I.initDone = true;
   if (!I.hooked) { if (err) *err = "pp_mod_init did not register hooks"; return nullptr; }
   return nm;
 }
@@ -300,6 +344,13 @@ void NativeMod::pegHook(const PegTypeReg& r, bool clear, int peg, int ball) {
   Cur c(im_.get());
   if (clear) { if (r.onClear) r.onClear(peg); }
   else if (r.onHit) r.onHit(peg, ball);
+}
+const std::vector<NativeMasterDef>& NativeMod::masters() const { return im_->masters; }
+void NativeMod::masterCall(const NativeMasterDef& m, int which, int player, int peg) {
+  Cur c(im_.get());
+  if (which == 0 && m.onActivate) m.onActivate(player, peg);
+  else if (which == 1 && m.onShot) m.onShot(player);
+  else if (which == 2 && m.onEnd) m.onEnd(player);
 }
 void NativeMod::frame() { if (im_->hooks.on_frame) { Cur c(im_.get()); im_->hooks.on_frame(); } }
 

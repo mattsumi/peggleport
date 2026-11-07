@@ -178,7 +178,7 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     for (char c : out.name)
       if (std::isalpha((unsigned char)c)) pre.push_back(c);
       else break;
-    int m = pre == "Master" ? 0 : Board::masterByName(pre);
+    int m = pre == "Master" ? 0 : Board::masterByName(pre, false);
     if (ini.count("master")) m = Board::masterByName(ini["master"]);
     for (int i = 0; i < 4; i++) out.cfg.master[i] = m;
   }

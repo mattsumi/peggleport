@@ -11,6 +11,10 @@ extern "C" {
 #define PP_MOD_ABI_VERSION 1
 #define PP_MOD_ABI_MINOR 1
 
+#define PP_MASTER_TRIGGER_GREEN_PEG 0
+#define PP_MASTER_TRIGGER_EVERY_SHOT 1
+#define PP_MASTER_TRIGGER_LEVEL_START 2
+
 #if defined(_WIN32)
 #define PP_MOD_EXPORT __declspec(dllexport)
 #else
@@ -79,6 +83,22 @@ typedef struct PPPegTypeDef {
   void (*on_hit)(int32_t peg, int32_t ball);
   void (*on_clear)(int32_t peg);
 } PPPegTypeDef;
+typedef struct PPMasterDef {
+  uint32_t struct_size;
+  const char* id;
+  const char* name;
+  const char* description;
+  const char* power_name;
+  const char* power_description;
+  const char* portrait;
+  const char* banner;
+  int32_t turns;
+  int32_t trigger;
+  uint32_t color;
+  void (*on_activate)(int32_t player, int32_t peg);
+  void (*on_shot)(int32_t player);
+  void (*on_end)(int32_t player);
+} PPMasterDef;
 
 typedef struct PPModApi {
   uint32_t abi_version;
@@ -109,6 +129,7 @@ typedef struct PPModApi {
   int32_t (*register_peg_type)(const PPPegTypeDef* def);
   void (*set_peg_type)(int32_t peg, const char* type);
   int32_t (*peg_custom)(int32_t peg, char* out, int32_t cap, int32_t* hits);
+  int32_t (*register_master)(const PPMasterDef* def);
 } PPModApi;
 
 #define PP_MOD_API_HAS(api, member) ((api)->struct_size >= offsetof(PPModApi, member) + sizeof((api)->member))

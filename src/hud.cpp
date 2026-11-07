@@ -3,9 +3,12 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <vector>
 #include <string>
 
+#include "masters.h"
 #include "render.h"
 
 namespace pp {
@@ -107,7 +110,74 @@ void Renderer::drawOrbBack(const Board& b, const Hud& hud, int dw) {
 }
 
 
+void Renderer::drawModPortrait(const Board& b, int dw) {
+  const ModMaster* mm = masters::byPower(b.master[b.cur]);
+  if (!mm) return;
+  const std::string key = "mod-master:" + mm->key();
+  auto it = cache_.find(key);
+  if (it == cache_.end()) {
+    Tex T;
+    if (!mm->portraitFile.empty()) {
+      std::ifstream f(mm->portraitFile, std::ios::binary);
+      std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+      Image im;
+      if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {
+        T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h);
+        if (T.t) {
+          SDL_UpdateTexture(T.t, nullptr, im.rgba.data(), im.w * 4);
+          SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+          SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+          T.w = im.w;
+          T.h = im.h;
+        }
+      }
+    }
+    it = cache_.emplace(key, T).first;
+  }
+  const float wx = 352.0f + dw / 2.0f, wy = 24.0f, ww = 91.0f, wh = 88.0f;
+  SDL_Rect clip{(int)std::floor(px(wx)), (int)std::floor(py(wy)), (int)std::ceil(ww * s_), (int)std::ceil(wh * s_)};
+  SDL_SetRenderClipRect(r_, &clip);
+  Tex* t = &it->second;
+  if (t->t && t->w > 0) {
+    const float k = std::min(ww / (float)t->w, wh / (float)t->h);
+    const float w = (float)t->w * k, h = (float)t->h * k;
+    put(t, {0, 0, t->lw(), t->lh()}, wx + (ww - w) / 2, wy + (wh - h) / 2, {}, w, h);
+  } else {
+    const uint32_t c = mm->color;
+    const float cx = px(wx + ww / 2), cy = py(wy + wh / 2), rad = 41.0f * s_;
+    const int N = 40;
+    SDL_FColor dark{(float)((c >> 16) & 255) / 765.0f, (float)((c >> 8) & 255) / 765.0f, (float)(c & 255) / 765.0f, 1.0f};
+    SDL_Vertex v[N + 1];
+    int idx[N * 3];
+    v[0] = {{cx, cy}, dark, {0, 0}};
+    for (int i = 0; i < N; i++) {
+      const float a = 6.2831853f * (float)i / (float)N;
+      v[i + 1] = {{cx + std::cos(a) * rad, cy + std::sin(a) * rad}, dark, {0, 0}};
+      idx[i * 3] = 0;
+      idx[i * 3 + 1] = i + 1;
+      idx[i * 3 + 2] = (i + 1) % N + 1;
+    }
+    SDL_RenderGeometry(r_, nullptr, v, N + 1, idx, N * 3);
+    SDL_FPoint ring[N + 1];
+    for (int i = 0; i <= N; i++) {
+      const float a = 6.2831853f * (float)i / (float)N;
+      ring[i] = {cx + std::cos(a) * (rad - 4.0f * s_), cy + std::sin(a) * (rad - 4.0f * s_)};
+    }
+    SDL_SetRenderDrawColor(r_, (Uint8)(c >> 16), (Uint8)(c >> 8), (Uint8)c, 255);
+    SDL_RenderLines(r_, ring, N + 1);
+    Font* f = font("FONT_PLAIN");
+    if (!f) f = font("FONT_SMALL_DISP");
+    if (f) drawText(f, wx + ww / 2, wy + 58, masters::initial(*mm), 0xffffffffu, TextAlign::Center, 3.0f, false);
+  }
+  SDL_Rect all{(int)std::floor(px(0)), (int)std::floor(py(0)), (int)std::ceil((800 + dw) * s_), (int)std::ceil(600 * s_)};
+  SDL_SetRenderClipRect(r_, &all);
+}
+
 void Renderer::drawPortrait(const Board& b, int dw) {
+  if (b.master[b.cur] >= masters::kFirstPower) {
+    drawModPortrait(b, dw);
+    return;
+  }
   if (!charsLoaded_) {
     chars_ = loadCharacters(vfs_);
     charsLoaded_ = true;

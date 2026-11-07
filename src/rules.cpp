@@ -1085,10 +1085,14 @@ void Board::resolveShot() {}
 const char* Board::powerName(int id) {
   static const char* n[] = {"", "SuperGuide!", "Flippers!", "Multiball!", "Pyramid!", "SpaceBlast!", "SpookyBall!", "ZenShot!",
                             "ShotExtender!", "FlowerPower!", "Nudge!", "TimeBomb!", "Fireball!", "LuckySpin!", "Electrobolt!"};
-  return id >= 0 && id <= 14 ? n[id] : "";
+  if (id >= 0 && id <= 14) return n[id];
+  if (const ModMaster* m = masters::byPower(id)) return m->banner.c_str();
+  return "";
 }
 
-int Board::masterByName(const std::string& in) {
+int Board::masterByName(const std::string& in, bool allowMods) {
+  if (allowMods)
+    if (const ModMaster* m = masters::byName(in)) return m->power;
   std::string n;
   for (char c : in) n.push_back((char)std::tolower((unsigned char)c));
   struct M { const char* name; int power; };
@@ -1096,13 +1100,15 @@ int Board::masterByName(const std::string& in) {
                         {"tula", 9}, {"cinder", 12}, {"lord", 12}, {"warren", 13}, {"marina", 14}, {"kalah", 14}};
   for (auto& m : t)
     if (n.find(m.name) != std::string::npos) return m.power;
-  return std::atoi(n.c_str());
+  const int v = std::atoi(n.c_str());
+  if (v >= masters::kFirstPower) return allowMods && masters::byPower(v) ? v : 0;
+  return v;
 }
 
 
 void Board::syncTurns() {
   for (int p = 0; p < 4; p++) {
-    turns[p] = (master[p] > 0 && master[p] < 16) ? pturn[p][master[p]] : 0;
+    turns[p] = (master[p] > 0 && master[p] < masters::kPowerSlots) ? pturn[p][master[p]] : 0;
     spookyCount[p] = pturn[p][P_SPOOKY];
   }
 }
@@ -1322,6 +1328,10 @@ void Board::finishSlotMachine(int outcome, Ball* ball, int pegIdx) {
 
 void Board::doPowerup(int oi, int power, bool silent) {
   const int pw = power ? power : master[cur];
+  if (pw >= masters::kFirstPower) {
+    doModPower(oi, pw, silent);
+    return;
+  }
   if (g_simHooks && !noModHooks && g_simHooks->power(*this, oi, pw, silent)) return;
   if (pw < 0 || pw > 14) return;
   Ball* ball = curBall_ >= 0 && curBall_ < (int)balls.size() ? &balls[(size_t)curBall_] : nullptr;
@@ -1370,6 +1380,71 @@ void Board::doPowerup(int oi, int power, bool silent) {
 
 void Board::doPower(int oi) { doPowerup(oi, 0, false); }
 
+bool Board::modMasterInUse() const {
+  for (int p = 0; p < 4; p++)
+    if (master[p] >= masters::kFirstPower) return true;
+  return false;
+}
+
+void Board::doModPower(int oi, int pw, bool silent) {
+  const ModMaster* mm = masters::byPower(pw);
+  if (!mm || pw >= masters::kPowerSlots || mm->trigger != ModMaster::GreenPeg) return;
+  const int greensNow = greenHits;
+  int& counter = pturn[cur][pw];
+  say(mm->banner, 120);
+  ev(Event::Power, pw, 0);
+  if (greensNow == 2 && !silent) awardStyle(10);
+  counter = std::max(counter, mm->turns + 1);
+  setPowerActive(pw, true);
+  syncTurns();
+  if (g_simHooks && !noModHooks) g_simHooks->masterCall(*this, cur, pw, 0, oi);
+}
+
+void Board::modMasterStart() {
+  for (int p = 0; p < players; p++) {
+    const int pw = master[p];
+    const ModMaster* mm = pw >= masters::kFirstPower ? masters::byPower(pw) : nullptr;
+    if (!mm) continue;
+    if (mm->trigger == ModMaster::EveryShot) pturn[p][pw] = 1;
+    else if (mm->trigger == ModMaster::LevelStart) pturn[p][pw] = mm->turns;
+  }
+  syncTurns();
+  for (int p = 0; p < players; p++) {
+    const int pw = master[p];
+    const ModMaster* mm = pw >= masters::kFirstPower ? masters::byPower(pw) : nullptr;
+    if (!mm || mm->trigger != ModMaster::LevelStart) continue;
+    if (p == cur) {
+      say(mm->banner, 120);
+      ev(Event::Power, pw, 0);
+    }
+    if (g_simHooks && !noModHooks) g_simHooks->masterCall(*this, p, pw, 0, -1);
+  }
+}
+
+void Board::modMasterTurn() {
+  const int pw = master[cur];
+  const ModMaster* mm = pw >= masters::kFirstPower ? masters::byPower(pw) : nullptr;
+  if (!mm) return;
+  int& c = pturn[cur][pw];
+  if (c > 0) {
+    c--;
+    if (c == 0 && mm->trigger != ModMaster::EveryShot) {
+      ev(Event::PowerEnd, pw);
+      if (g_simHooks && !noModHooks) g_simHooks->masterCall(*this, cur, pw, 2, -1);
+    }
+  }
+  if (mm->trigger == ModMaster::EveryShot) c = 1;
+  setPowerActive(pw, c != 0);
+}
+
+void Board::modMasterShot() {
+  const int pw = master[cur];
+  const ModMaster* mm = pw >= masters::kFirstPower ? masters::byPower(pw) : nullptr;
+  if (!mm || pturn[cur][pw] <= 0 || !g_simHooks || noModHooks) return;
+  if (mm->trigger == ModMaster::EveryShot) g_simHooks->masterCall(*this, cur, pw, 0, -1);
+  g_simHooks->masterCall(*this, cur, pw, 1, -1);
+}
+
 void Board::activatePowers() {
   for (int p = 0; p < (cfg.nights ? 15 : 14); p++) {
     if (pturn[cur][p] > 0) {
@@ -1378,6 +1453,7 @@ void Board::activatePowers() {
     }
     setPowerActive(p, pturn[cur][p] != 0);
   }
+  if (master[cur] >= masters::kFirstPower) modMasterTurn();
   if (triplerCount[cur] != 0) { triplerOn = true; triplerCount[cur]--; }
   if (hatCount[cur] != 0) { hatOn = true; hatCount[cur]--; }
   if (cfg.nights) {

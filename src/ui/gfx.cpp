@@ -10,6 +10,8 @@
 #include <string>
 #include <array>
 #include <cctype>
+#include <fstream>
+#include <iterator>
 
 #include "image.h"
 #include "log.h"
@@ -219,6 +221,14 @@ void Gfx::reloadAssets(const VfsChange& change) {
     haveMan_ = man_.load(vfs_);
   }
   int refreshed = 0;
+  for (auto it = cache_.begin(); it != cache_.end();) {
+    if (it->first.rfind("file:", 0) == 0) {
+      if (it->second.t) SDL_DestroyTexture(it->second.t);
+      it = cache_.erase(it);
+      continue;
+    }
+    ++it;
+  }
   for (auto& [key, T] : cache_) {
     std::string path = key;
     if (const ResImage* ri = man_.image(key)) path = ri->path;
@@ -232,6 +242,33 @@ void Gfx::reloadAssets(const VfsChange& change) {
   rgbaCache_.clear();
   if (manifest || change.touchesFolder("fonts")) fp_ = makeDefaultFontProvider(r_, this);
   pp::log::info("ui", "refreshed " + std::to_string(refreshed) + " of " + std::to_string(cache_.size()) + " cached images");
+}
+
+Tex* Gfx::imgFile(const std::string& file) {
+  const std::string key = "file:" + file;
+  auto it = cache_.find(key);
+  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
+  Tex T;
+  std::ifstream f(file, std::ios::binary);
+  std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  Image im;
+  if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {
+    T.w = im.w;
+    T.h = im.h;
+    T.path = file;
+    if (r_) {
+      T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h);
+      if (T.t) {
+        SDL_UpdateTexture(T.t, nullptr, im.rgba.data(), im.w * 4);
+        SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+      } else {
+        T.w = 0;
+      }
+    }
+  }
+  auto& slot = cache_[key] = T;
+  return slot.valid() ? &slot : nullptr;
 }
 
 SDL_FRect Gfx::dest(float x, float y, float w, float h, bool snap) const {

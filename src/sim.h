@@ -10,6 +10,7 @@
 
 #include "gun.h"
 #include "level.h"
+#include "masters.h"
 #include "mods/simhooks.h"
 #include "physics.h"
 #include "physobj.h"
@@ -275,7 +276,7 @@ class Board {
   enum Power { P_NONE, P_GUIDE, P_FLIPPERS, P_MULTIBALL, P_PYRAMID, P_SPACEBLAST, P_SPOOKY, P_ZEN, P_EXTENDER, P_FLOWER,
                P_NUDGE, P_TIMEBOMB, P_FIREBALL, P_LUCKYSPIN, P_CHAIN };
   static const char* powerName(int id);
-  static int masterByName(const std::string& name);
+  static int masterByName(const std::string& name, bool allowMods = true);
   int master[4]{}, turns[4]{}, spookyCount[4]{}, style[4]{};
   int frames = 0;
   bool slowOn = false, slowC3 = false;
@@ -314,7 +315,7 @@ class Board {
   int feverBallsPaid = 0;
   int tallyDisp = 0, tallyDelay = 0;
   int tripleTick = 0;
-  int pturn[4][16]{};
+  int pturn[4][masters::kPowerSlots]{};
   bool extenderFlag = false;
   bool flippersFx = false;
   int multiSerial = 0;
@@ -327,6 +328,11 @@ class Board {
   void setPyramid(bool on);
   void setPowerActive(int power, bool on);
   void doPowerup(int pegIdx, int power, bool silent);
+  void doModPower(int pegIdx, int power, bool silent);
+  void modMasterStart();
+  void modMasterTurn();
+  void modMasterShot();
+  bool modMasterInUse() const;
   void doMultiball(Ball* ball, int pegIdx);
   void doSpaceBlast(Ball* ball, int pegIdx);
   void doFlower(Ball* ball, int pegIdx);

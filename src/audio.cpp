@@ -254,6 +254,10 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
           break;
         }
         if (e.a == 102) { play("AAH", 0, 1, 1); break; }
+        if (e.a >= masters::kFirstPower && e.a < masters::kPowerSlots) {
+          play("POWERUP", 0, 1, 1);
+          break;
+        }
         if (e.a <= 0 || e.a > 14) break;
         if (e.a == 5) play(e.b ? "EXPLODE" : "POWERUP_SPACEBLAST", e.b ? -24.0f : 0.0f);
         else if (e.a == 6) play(e.b == 0 ? "POWERUP_SPOOKYBALL" : e.b == 1 ? "SPOOKYBALL2" : "SPOOKYBALL3");
