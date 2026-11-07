@@ -609,6 +609,33 @@ bool Board::setPegType(int oi, int custom) {
   return true;
 }
 
+void Board::syncModTypes() {
+  modSig = g_modTypeSig;
+  for (size_t i = 0; i < objs.size(); i++) {
+    Obj& o = objs[i];
+    if (!o.custom) continue;
+    o.custom = 0;
+    o.hits = 0;
+    o.hitTick = -1000000;
+    if (o.shape == Shape::Circle && o.radius0 != 0.0f && o.radius != o.radius0) {
+      o.radius = o.radius0;
+      rebuild(o);
+      if (i < sapIn_.size() && sapIn_[i]) {
+        sapRemove((int)i);
+        sapIn_[i] = 0;
+      }
+    }
+  }
+  bool dropped = false;
+  for (int p = 0; p < 4; p++) {
+    if (master[p] < masters::kFirstPower) continue;
+    master[p] = 0;
+    for (int k = masters::kFirstPower; k < masters::kPowerSlots; k++) pturn[p][k] = 0;
+    dropped = true;
+  }
+  if (dropped) syncTurns();
+}
+
 void Board::applyPegTypes() {
   for (const auto& [n, key] : cfg.pegTypes) {
     const int custom = findPegType(key);

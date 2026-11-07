@@ -125,6 +125,7 @@ class ModManager final : public SimHooks {
   };
   std::vector<MasterBind> binds_;
   void installMasters();
+  void refreshTypeSig();
   void checkNative(ModInfo& m);
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);

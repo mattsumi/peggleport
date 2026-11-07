@@ -285,6 +285,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
     return false;
   }
   cfg = c;
+  modSig = g_modTypeSig;
   base_ = base;
   level_ = lv;
   if (g_simHooks) g_simHooks->basePhysics(physics);
@@ -589,6 +590,7 @@ void Board::updateZoom() {
 }
 
 void Board::step() {
+  if (modSig != g_modTypeSig) syncModTypes();
   const bool mh = g_simHooks && !noModHooks;
   if (mh) g_simHooks->stepBegin(*this);
   stepCore();

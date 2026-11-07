@@ -22,5 +22,6 @@ struct SimHooks {
 inline SimHooks* g_simHooks = nullptr;
 namespace mods_ { inline SimHooks* hooks() { return g_simHooks; } }
 inline uint64_t g_modSetHash = 0;
+inline uint64_t g_modTypeSig = 0;
 
 }
