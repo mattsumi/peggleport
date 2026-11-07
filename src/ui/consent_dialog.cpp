@@ -88,8 +88,13 @@ void ConsentDialog::onButton(int id) {
       log::warn("mod:" + modId, "the mod changed while its permission dialog was open, so nothing was allowed; press Allow... again");
     }
   } else if (mods::g_mods && step == 2) {
-    mods::g_mods->setUnrestricted(modId, id == ID_YES);
-    app.requestModApply();
+    mods::ModInfo* mi = mods::g_mods->find(modId);
+    if (mi && mi->hashHex == hash && mi->consented) {
+      mods::g_mods->setUnrestricted(modId, id == ID_YES);
+      app.requestModApply();
+    } else if (id == ID_YES) {
+      log::warn("mod:" + modId, "the mod changed while its permission dialog was open, so nothing was allowed; press Allow... again");
+    }
   }
   closed = true;
   if (!hosted) doScrollOff();

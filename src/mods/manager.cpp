@@ -283,7 +283,7 @@ bool ModManager::folderChanged() const { return !userDir_.empty() && folderSigna
 std::string ModManager::loadPlan() const {
   std::string s;
   for (auto& m : mods_)
-    if (m->willLoad()) s += m->m.id + ":" + m->hashHex + ";";
+    if (m->willLoad()) s += m->m.id + ":" + m->hashHex + (m->unrestricted ? "!" : "") + ";";
   return s;
 }
 
@@ -478,6 +478,7 @@ void ModManager::activate(Vfs* vfs) {
   bool code = false;
   for (auto& m : mods_) if (m->state == ModInfo::Active && m->hasCode()) code = true;
   g_modSetHash = setHash_;
+  refreshTypeSig();
   if (code) { g_simHooks = this; installed_ = true; }
   g_mods = this;
   appliedPlan_ = loadPlan();
@@ -560,6 +561,7 @@ void ModManager::deactivate() {
     masters::clear();
   }
   if (g_pegTypes == &pegTable_) g_pegTypes = nullptr;
+  g_modTypeSig = 0;
   pegTable_.defs.clear();
   pegOwners_.clear();
   binds_.clear();
@@ -573,6 +575,25 @@ void ModManager::deactivate() {
     }
   }
   queue_.clear();
+}
+
+void ModManager::refreshTypeSig() {
+  if (pegTable_.defs.empty() && masters::all().empty()) {
+    g_modTypeSig = 0;
+    return;
+  }
+  uint64_t h = 1469598103934665603ull;
+  for (const PegTypeDef& d : pegTable_.defs) {
+    const std::string k = d.key();
+    h = fnvMix(h, k.data(), k.size());
+    h = fnvMix(h, "\n", 1);
+  }
+  for (const ModMaster& m : masters::all()) {
+    const std::string k = m.key();
+    h = fnvMix(h, k.data(), k.size());
+    h = fnvMix(h, &m.power, sizeof m.power);
+  }
+  g_modTypeSig = h;
 }
 
 void ModManager::installMasters() {

@@ -285,6 +285,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
     return false;
   }
   cfg = c;
+  modSig = g_modTypeSig;
   base_ = base;
   level_ = lv;
   if (g_simHooks) g_simHooks->basePhysics(physics);
@@ -298,7 +299,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   addLevel(*lv, false);
   if (W > 650) widen();
   rng.seed(cfg.seed);
-  for (int p = 0; p < 4; p++) master[p] = cfg.master[p];
+  for (int p = 0; p < 4; p++) master[p] = cfg.master[p] >= masters::kFirstPower && !masters::byPower(cfg.master[p]) ? 0 : cfg.master[p];
   setupPegs();
   if (!cfg.pegTypes.empty()) applyPegTypes();
   int balls0 = cfg.balls > 0 ? cfg.balls : (cfg.duel ? 6 : 10);
@@ -329,6 +330,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   phase = Phase::Aim;
   if (g_simHooks) g_simHooks->levelStart(*this);
   if (modMasterInUse()) modMasterStart();
+  if (g_simHooks) g_simHooks->stepEnd(*this);
   return true;
 }
 
@@ -589,6 +591,7 @@ void Board::updateZoom() {
 }
 
 void Board::step() {
+  if (modSig != g_modTypeSig) syncModTypes();
   const bool mh = g_simHooks && !noModHooks;
   if (mh) g_simHooks->stepBegin(*this);
   stepCore();
@@ -638,6 +641,7 @@ bool Board::fire(float angle) {
   beginShotRules();
   shotSteps = 0;
   if (master[cur] >= masters::kFirstPower) modMasterShot();
+  if (g_simHooks && !noModHooks) g_simHooks->stepEnd(*this);
   return true;
 }
 

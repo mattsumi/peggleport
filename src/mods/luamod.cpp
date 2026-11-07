@@ -483,6 +483,7 @@ int m_set_peg_types(lua_State* L) {
   std::vector<std::pair<int, std::string>> list;
   lua_pushnil(L);
   while (lua_next(L, 1)) {
+    workSpend(L, 2);
     if (lua_isinteger(L, -2) && lua_type(L, -1) == LUA_TSTRING) {
       lua_Integer id = lua_tointeger(L, -2);
       if (id >= 0 && id <= 100000) list.push_back({(int)id, std::string(lua_tostring(L, -1)).substr(0, 80)});
@@ -490,6 +491,7 @@ int m_set_peg_types(lua_State* L) {
     lua_pop(L, 1);
     if (list.size() > 4000) luaL_error(L, "set_peg_types: too many entries");
   }
+  workSpend(L, (long long)list.size() * 4);
   std::sort(list.begin(), list.end());
   for (auto& [id, t] : list) queueCmd(L, {ModCmd::SetPegType, id, 0, 0, qualifyPegType(L, t)});
   return 0;

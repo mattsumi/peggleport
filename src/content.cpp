@@ -179,7 +179,10 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
       if (std::isalpha((unsigned char)c)) pre.push_back(c);
       else break;
     int m = pre == "Master" ? 0 : Board::masterByName(pre, false);
-    if (ini.count("master")) m = Board::masterByName(ini["master"]);
+    if (ini.count("master")) {
+      m = Board::masterByName(ini["master"]);
+      out.master = ini["master"];
+    }
     for (int i = 0; i < 4; i++) out.cfg.master[i] = m;
   }
   for (const auto& [key, text] : ini) {

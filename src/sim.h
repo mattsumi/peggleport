@@ -258,6 +258,8 @@ class Board {
   std::vector<Event> events;
   bool emit = true;
   bool noModHooks = false;
+  uint64_t modSig = 0;
+  void syncModTypes();
   struct FxRec { Event e; int tick; std::string note; };
   std::vector<FxRec> fxlog;
   uint32_t fxTotal = 0;
