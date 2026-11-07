@@ -299,7 +299,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   addLevel(*lv, false);
   if (W > 650) widen();
   rng.seed(cfg.seed);
-  for (int p = 0; p < 4; p++) master[p] = cfg.master[p];
+  for (int p = 0; p < 4; p++) master[p] = cfg.master[p] >= masters::kFirstPower && !masters::byPower(cfg.master[p]) ? 0 : cfg.master[p];
   setupPegs();
   if (!cfg.pegTypes.empty()) applyPegTypes();
   int balls0 = cfg.balls > 0 ? cfg.balls : (cfg.duel ? 6 : 10);
