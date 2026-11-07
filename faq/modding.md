@@ -53,7 +53,7 @@ priority = 0
 | `native` | the plugin, as a file name or a base name (`hello_native.dll`, `libhello_native.so`, `.dylib`) |
 | `determinism` | `sim` (default) means the mod takes part in the gameplay and every player in an online match needs it. `cosmetic` means it only draws and can never change a result |
 | `memory_mb` | Lua memory limit, 4 to 64 |
-| `instruction_budget` | Lua instructions allowed per gameplay hook call, 1000 to 5000000 |
+| `instruction_budget` | work allowed per hook call, 1000 to 5000000. Lua instructions and library calls both count |
 | `priority` | for data mods, which one wins when two replace the same file. The higher number wins |
 
 Paths to scripts and plugins must stay inside the mod folder.
@@ -76,7 +76,9 @@ You get `base`, `table`, `string`, `math`, `utf8` and `coroutine`. There is no `
 
 `math.sin`, `math.cos` and `math.atan` are special versions that return the same numbers on every system. `math.tan`, `asin`, `acos`, `exp`, `log` and friends are removed for the same reason. `math.random` is the game's random generator.
 
-Limits: every gameplay hook gets an instruction budget, there is a memory limit, drawing and menu callbacks have a time limit (25 ms for `on_frame`, 250 ms for menu and network callbacks), and string patterns that could run away are refused. A hook that raises an error is logged and skipped. Drawing hooks are switched off after 20 errors. A single huge call such as `string.rep` on a gigantic input is only limited by memory.
+Limits: every hook and callback gets a work budget (`instruction_budget`, 200000 by default). Lua instructions use it, and so do library calls: `string.rep`, `string.format`, `table.sort`, `table.concat`, pattern matching, `load` and the rest are charged by the size of what they handle, and so is memory your script allocates. The charge depends on sizes only, never on the clock, so a hook uses exactly the same budget on every computer and online matches stay in sync. There is also a memory limit (`memory_mb`), and drawing and menu callbacks have a time limit (25 ms for `on_frame`, 250 ms for menu and network callbacks) that is checked inside library calls and while memory is allocated too. String patterns that could run away are refused.
+
+When a hook runs out it is stopped with an error: `instruction budget exceeded` for Lua code, `work budget exceeded` for library calls and memory, `time limit exceeded` for the time limits. `pcall`, `xpcall` and `coroutine.resume` cannot catch these. A single call that is far too big to run at all, like a `string.rep` with a multi-megabyte result, fails at once with an ordinary error ending in `too large for the sandbox (split the work into smaller steps)`, which `pcall` can catch. Catching an error costs some of the budget, so a loop of failing `pcall`s ends quickly. A hook that raises an error is logged and skipped, and the mod keeps running. Drawing hooks are switched off after 20 errors. A string longer than 200 characters is never read as a number.
 
 ### Where code runs
 
@@ -180,5 +182,4 @@ This is a best-effort check. A native plugin can hide what it does, and the dial
 * No new Master characters, peg types or physics.
 * `https://` does not work.
 * Changing the mod list or permissions needs a restart.
-* The time limits do not interrupt one very long library call.
 * Native plugins are scanned, never contained.
