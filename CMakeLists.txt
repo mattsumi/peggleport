@@ -146,9 +146,19 @@ else()
 endif()
 
 find_package(Threads REQUIRED)
+if(WIN32)
+  set(PP_HOSTPROC_SOURCE src/mods/hostproc_win.cpp)
+  set(PP_SANDBOX_SOURCE src/modhost/sandbox_win.cpp)
+elseif(APPLE)
+  set(PP_HOSTPROC_SOURCE src/mods/hostproc_posix.cpp)
+  set(PP_SANDBOX_SOURCE src/modhost/sandbox_mac.cpp)
+else()
+  set(PP_HOSTPROC_SOURCE src/mods/hostproc_posix.cpp)
+  set(PP_SANDBOX_SOURCE src/modhost/sandbox_linux.cpp)
+endif()
 add_library(pp_mods STATIC
   src/mods/json.cpp src/mods/manifest.cpp src/mods/zip.cpp src/mods/scanner.cpp
-  src/mods/luamod.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp)
+  src/mods/luamod.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp ${PP_HOSTPROC_SOURCE})
 target_include_directories(pp_mods PUBLIC src third_party include)
 target_link_libraries(pp_mods PUBLIC pp_core pp_flags pp_lua SDL3::SDL3 ${CMAKE_DL_LIBS} Threads::Threads)
 if(WIN32)
@@ -178,6 +188,13 @@ target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_edito
 add_executable(pp_lobbyd src/lobbyd.cpp)
 target_link_libraries(pp_lobbyd PRIVATE pp_core)
 
+add_executable(pp_modhost src/modhost/main.cpp ${PP_SANDBOX_SOURCE})
+target_include_directories(pp_modhost PRIVATE src include)
+target_link_libraries(pp_modhost PRIVATE pp_flags ${CMAKE_DL_LIBS} Threads::Threads)
+if(WIN32)
+  target_link_libraries(pp_modhost PRIVATE advapi32 ws2_32)
+endif()
+
 add_library(hello_native MODULE examples/plugin/hello_native.c)
 target_include_directories(hello_native PRIVATE include)
 set_target_properties(hello_native PROPERTIES PREFIX "" C_VISIBILITY_PRESET hidden
@@ -196,4 +213,4 @@ endif()
 add_custom_command(TARGET hello_native POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/examples/plugin/hello_native.ini" "${CMAKE_BINARY_DIR}/examples/mods/hello_native/mod.ini")
 
-set_target_properties(peggleport pp_lobbyd PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set_target_properties(peggleport pp_lobbyd pp_modhost PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
