@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
@@ -17,6 +18,7 @@
 #include "lauxlib.h"
 #include "lua.h"
 #include "lualib.h"
+#include "mods/luawork.h"
 #include "sim.h"
 
 namespace fs = std::filesystem;
@@ -24,12 +26,14 @@ namespace pp::mods {
 
 constexpr int kStride = 1000;
 
-struct LuaMod::Impl {
+struct LuaMod::Impl : LuaWork {
   LuaMod* mod = nullptr;
   size_t used = 0, cap = 0, peak = 0;
   bool denied = false;
-  long long remaining = 0, total = 0;
-  bool timed = false, aborted = false;
+  long long total = 0;
+  bool metered = false;
+  unsigned allocTick = 0;
+  const char* note = nullptr;
   std::chrono::steady_clock::time_point deadline;
   Ctx ctx = Ctx::None;
   int shadowRef = LUA_NOREF;
@@ -42,11 +46,25 @@ struct LuaMod::Impl {
   bool logNoted = false;
   std::chrono::steady_clock::time_point logWindow;
   bool screenMode = false;
+  uint32_t clampWarned = 0;
 };
 
 namespace {
 using Impl = LuaMod::Impl;
 
+bool pastDeadline(Impl* I) { return std::chrono::steady_clock::now() > I->deadline; }
+void stopWith(Impl* I, const char* note) {
+  I->aborted = true;
+  if (!I->note) I->note = note;
+}
+bool allocBudget(Impl* I, size_t nsize) {
+  if (!I->aborted) {
+    I->remaining -= 6 + (long long)(nsize >> 5);
+    if (I->remaining <= 0) stopWith(I, "work budget exceeded");
+    else if (I->timed && ((++I->allocTick & 31) == 0 || nsize >= 65536) && pastDeadline(I)) stopWith(I, "time limit exceeded");
+  }
+  return !I->aborted || nsize < 1024;
+}
 void* allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
   Impl* I = (Impl*)ud;
   size_t old = ptr ? osize : 0;
@@ -56,6 +74,7 @@ void* allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
     return nullptr;
   }
   if (nsize > old && I->used + (nsize - old) > I->cap) { I->denied = true; return nullptr; }
+  if (I->metered && nsize > old && !allocBudget(I, nsize)) return nullptr;
   void* p = std::realloc(ptr, nsize);
   if (!p) return nullptr;
   I->used = I->used - old + nsize;
@@ -108,9 +127,33 @@ void reportError(Impl* I, HostServices& h, const std::string& id, const std::str
 
 void countHook(lua_State* L, lua_Debug*) {
   Impl* I = IM(L);
-  I->remaining -= kStride;
-  if (I->remaining <= 0) { I->aborted = true; luaL_error(L, "instruction budget exceeded"); }
-  if (I->timed && std::chrono::steady_clock::now() > I->deadline) { I->aborted = true; luaL_error(L, "time limit exceeded"); }
+  long long stride = lua_gethookcount(L);
+  const bool pushed = stride != kStride;
+  if (pushed) lua_sethook(L, countHook, LUA_MASKCOUNT, kStride);
+  I->remaining -= stride;
+  if (I->remaining <= 0) {
+    const char* why = pushed ? "work budget exceeded" : "instruction budget exceeded";
+    stopWith(I, why);
+    luaL_error(L, "%s", why);
+  }
+  if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); luaL_error(L, "time limit exceeded"); }
+}
+void workNudge(LuaWork* w) {
+  if (w->cur && lua_gethookcount(w->cur) != 1) lua_sethook(w->cur, countHook, LUA_MASKCOUNT, 1);
+}
+void workCheck(lua_State* L, LuaWork* w) {
+  Impl* I = static_cast<Impl*>(w);
+  if (I->remaining <= 0) { stopWith(I, "work budget exceeded"); luaL_error(L, "work budget exceeded"); }
+  if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); luaL_error(L, "time limit exceeded"); }
+}
+void workRefuse(lua_State* L, LuaWork*, long long) {
+  luaL_error(L, "operation too large for the sandbox (split the work into smaller steps)");
+}
+bool workOver(LuaWork* w) {
+  Impl* I = static_cast<Impl*>(w);
+  if (I->remaining <= 0) { stopWith(I, "work budget exceeded"); return true; }
+  if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); return true; }
+  return false;
 }
 
 }
@@ -157,6 +200,7 @@ int l_log(lua_State* L) {
   for (int i = 1; i <= n; i++) {
     size_t len;
     const char* s = luaL_tolstring(L, i, &len);
+    workSpend(L, 2);
     if (i > 1) line += '\t';
     line.append(s, std::min<size_t>(len, 400));
     lua_pop(L, 1);
@@ -177,12 +221,20 @@ int l_tostring(lua_State* L) {
   luaL_tolstring(L, 1, nullptr);
   return 1;
 }
+constexpr long long kErrorCost = 1500;
+void chargeParse(lua_State* L, size_t n) {
+  long long units = 40 + (long long)(n + (n >> 1));
+  if (units > LuaWork::kBig) luaL_error(L, "load: too large for the sandbox (split the work into smaller steps)");
+  workSpend(L, units);
+}
 int l_load(lua_State* L) {
   size_t n;
   if (lua_type(L, 1) != LUA_TSTRING) luaL_error(L, "load: only string chunks are allowed in the sandbox");
   const char* s = lua_tolstring(L, 1, &n);
+  chargeParse(L, n);
   const char* name = luaL_optstring(L, 2, s);
   int st = luaL_loadbufferx(L, s, n, name, "t");
+  if (st != LUA_OK) workSpend(L, kErrorCost);
   if (st == LUA_OK) {
     if (!lua_isnone(L, 4)) {
       lua_pushvalue(L, 4);
@@ -193,6 +245,22 @@ int l_load(lua_State* L) {
   lua_pushnil(L);
   lua_insert(L, -2);
   return 2;
+}
+int l_burn(lua_State* L) {
+  Impl* I = IM(L);
+  I->remaining -= luaL_checkinteger(L, 1);
+  const char* why = I->remaining <= 0 ? "work budget exceeded" : (I->timed && pastDeadline(I)) ? "time limit exceeded" : nullptr;
+  if (why) {
+    stopWith(I, why);
+    luaL_where(L, 2);
+    lua_pushstring(L, why);
+    lua_concat(L, 2);
+    return lua_error(L);
+  }
+  return 0;
+}
+void warnCharge(void*, const char*, int tocont) {
+  if (!tocont) workQuiet(kErrorCost);
 }
 int l_aborted(lua_State* L) {
   lua_pushboolean(L, IM(L)->aborted);
@@ -213,6 +281,7 @@ int l_require(lua_State* L) {
   if (name.find("..") != std::string::npos || !safeRelPath(rel)) luaL_error(L, "require: bad module name '%s'", name.c_str());
   std::string text;
   if (!readFile(I->mod->dir() / (rel + ".lua"), text, 4u << 20)) luaL_error(L, "module '%s' not found in the mod folder", name.c_str());
+  workSpend(L, (long long)(text.size() >> 3));
   if (luaL_loadbufferx(L, text.data(), text.size(), ("@" + I->mod->manifest().id + "/" + rel + ".lua").c_str(), "t") != LUA_OK) lua_error(L);
   lua_pushstring(L, name.c_str());
   lua_call(L, 1, 1);
@@ -238,13 +307,21 @@ int l_patguard(lua_State* L) {
   luaL_checklstring(L, 1, &sl);
   const char* p = luaL_checklstring(L, 2, &pl);
   int q = 0;
+  bool heavy = false;
   for (size_t i = 0; i < pl; i++) {
-    if (p[i] == '%') { i++; continue; }
+    if (p[i] == '%') {
+      i++;
+      if (i < pl && (p[i] == 'b' || (p[i] >= '1' && p[i] <= '9'))) heavy = true;
+      continue;
+    }
     if (p[i] == '*' || p[i] == '+' || p[i] == '-' || p[i] == '?') q++;
   }
   double cost = std::pow((double)std::max<size_t>(sl, 2), q + 1);
-  if (sl > (1u << 20) || cost > 3e8)
+  double units = (double)(sl >> 5) + (double)(pl >> 2) + 1.0 + (double)sl * (double)pl / 64.0;
+  if (heavy) units += (double)sl * (double)sl / 64.0;
+  if (sl > (1u << 20) || cost > 3e8 || units > (double)LuaWork::kBig)
     luaL_error(L, "pattern too expensive for the sandbox (subject %d bytes, %d repetitions): split the work", (int)sl, q);
+  workSpend(L, (long long)units);
   lua_pushvalue(L, lua_upvalueindex(1));
   lua_insert(L, 1);
   lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
@@ -288,7 +365,15 @@ int l_math_atan(lua_State* L) { lua_pushnumber(L, dm::atan2(luaL_checknumber(L, 
 
 void pushPeg(lua_State* L, const Board& b, int i) {
   const Obj& o = b.objs[(size_t)i];
-  lua_createtable(L, 0, 9);
+  lua_createtable(L, 0, 12);
+  if (const int li = b.levelIndexOf(i); li >= 0) { lua_pushinteger(L, li); lua_setfield(L, -2, "index"); }
+  if (o.custom) {
+    if (const PegTypeDef* d = pegTypeDef(o.custom)) {
+      const std::string key = d->mod == IM(L)->mod->manifest().id ? d->id : d->key();
+      lua_pushstring(L, key.c_str()); lua_setfield(L, -2, "custom");
+      lua_pushinteger(L, o.hits); lua_setfield(L, -2, "hits");
+    }
+  }
   lua_pushinteger(L, i); lua_setfield(L, -2, "id");
   lua_pushnumber(L, o.pos.x); lua_setfield(L, -2, "x");
   lua_pushnumber(L, o.pos.y); lua_setfield(L, -2, "y");
@@ -379,12 +464,106 @@ int m_add_score(lua_State* L) { lua_Integer n = luaL_checkinteger(L, 1); queueCm
 int m_hit_peg(lua_State* L) { queueCmd(L, {ModCmd::HitPeg, (int)luaL_checkinteger(L, 1), 0, 0, ""}); return 0; }
 int m_add_balls(lua_State* L) { queueCmd(L, {ModCmd::AddBalls, (int)std::clamp<lua_Integer>(luaL_checkinteger(L, 1), -99, 99), 0, 0, ""}); return 0; }
 int m_set_ball_velocity(lua_State* L) { queueCmd(L, {ModCmd::SetBallVel, (int)luaL_checkinteger(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), ""}); return 0; }
+std::string qualifyPegType(lua_State* L, const std::string& t) {
+  if (t.find(':') != std::string::npos) return t;
+  Impl* I = IM(L);
+  for (auto& r : I->mod->pegTypes)
+    if (r.def.id == t) return r.def.mod + ":" + t;
+  return t;
+}
+int m_set_peg_type(lua_State* L) {
+  lua_Integer id = luaL_checkinteger(L, 1);
+  std::string t = luaL_checkstring(L, 2);
+  if (id < 0 || id > 100000) luaL_error(L, "set_peg_type: bad peg id");
+  queueCmd(L, {ModCmd::SetPegType, (int)id, 0, 0, qualifyPegType(L, t.substr(0, 80))});
+  return 0;
+}
+int m_set_peg_types(lua_State* L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  std::vector<std::pair<int, std::string>> list;
+  lua_pushnil(L);
+  while (lua_next(L, 1)) {
+    workSpend(L, 2);
+    if (lua_isinteger(L, -2) && lua_type(L, -1) == LUA_TSTRING) {
+      lua_Integer id = lua_tointeger(L, -2);
+      if (id >= 0 && id <= 100000) list.push_back({(int)id, std::string(lua_tostring(L, -1)).substr(0, 80)});
+    }
+    lua_pop(L, 1);
+    if (list.size() > 4000) luaL_error(L, "set_peg_types: too many entries");
+  }
+  workSpend(L, (long long)list.size() * 4);
+  std::sort(list.begin(), list.end());
+  for (auto& [id, t] : list) queueCmd(L, {ModCmd::SetPegType, id, 0, 0, qualifyPegType(L, t)});
+  return 0;
+}
 int m_say(lua_State* L) { queueCmd(L, {ModCmd::Say, 0, 0, 0, std::string(luaL_checkstring(L, 1)).substr(0, 60)}); return 0; }
 int m_style_shot(lua_State* L) {
   std::string nm = std::string(luaL_checkstring(L, 1)).substr(0, 40);
   lua_Integer pts = luaL_checkinteger(L, 2);
   queueCmd(L, {ModCmd::StylePoints, (int)std::clamp<lua_Integer>(pts, -1000000, 1000000), 0, 0, nm});
   return 0;
+}
+PhysicsEdit readPhysics(lua_State* L, int idx, uint32_t& clamped, double* raw) {
+  PhysicsEdit e;
+  clamped = 0;
+  lua_pushnil(L);
+  while (lua_next(L, idx)) {
+    if (lua_type(L, -2) != LUA_TSTRING) luaL_error(L, "physics.set: the field names must be words such as gravity_y");
+    const char* name = lua_tostring(L, -2);
+    int k = 0;
+    if (!physicsKeyByName(name, k))
+      luaL_error(L, "physics.set: unknown field '%s' (use gravity_y, gravity_x, launch_speed, ball_bounce, peg_bounce, drag, max_speed or ball_radius)", name);
+    if (lua_type(L, -1) != LUA_TNUMBER) luaL_error(L, "physics.set: '%s' must be a number", name);
+    double v = lua_tonumber(L, -1);
+    if (!std::isfinite(v)) luaL_error(L, "physics.set: '%s' must be a finite number", name);
+    if (e.has(k)) luaL_error(L, "physics.set: '%s' is given twice (gravity and gravity_y are the same setting)", name);
+    if (physicsClamp(k, v) != (float)v) { clamped |= 1u << k; if (raw) raw[k] = v; }
+    e.set(k, v);
+    lua_pop(L, 1);
+  }
+  return e;
+}
+int p_set(lua_State* L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  Impl* I = IM(L);
+  if (I->mod->manifest().cosmetic) luaL_error(L, "physics.set cannot be used by a cosmetic mod, because it changes the game");
+  const bool loading = I->ctx == Ctx::Load;
+  const bool sim = I->ctx == Ctx::Sim && HS(L).board;
+  if (!loading && !sim) luaL_error(L, "physics.set can only be used while the mod loads (top of a script or on_load) or from gameplay hooks (on_*)");
+  uint32_t clamped = 0;
+  double raw[PhysicsParams::KeyCount] = {};
+  PhysicsEdit e = readPhysics(L, 1, clamped, raw);
+  for (int k = 0; k < PhysicsParams::KeyCount; k++)
+    if (((clamped & ~I->clampWarned) >> k) & 1u) {
+      I->clampWarned |= 1u << k;
+      char buf[200];
+      std::snprintf(buf, sizeof buf, "physics.set: %s %g is outside %g to %g, using %g", physicsKey(k).name, raw[k], (double)physicsKey(k).lo, (double)physicsKey(k).hi, (double)e.v.at(k));
+      emit(HS(L), I->mod->manifest().id, pp::log::Level::Warn, buf);
+    }
+  if (loading) {
+    I->mod->loadPhysics.merge(e);
+    return 0;
+  }
+  if (!HS(L).queue) luaL_error(L, "no command buffer");
+  ModCmd c;
+  c.k = ModCmd::SetPhysics;
+  c.pe = e;
+  HS(L).queue(c);
+  return 0;
+}
+int p_get(lua_State* L) {
+  Impl* I = IM(L);
+  PhysicsParams p;
+  if (I->ctx == Ctx::Load) I->mod->loadPhysics.applyTo(p);
+  else p = needBoard(L).physics;
+  lua_createtable(L, 0, PhysicsParams::KeyCount);
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) {
+    const double v = std::round((double)p.at(k) * 1e6) / 1e6;
+    if (v == std::floor(v)) lua_pushinteger(L, (lua_Integer)v);
+    else lua_pushnumber(L, v);
+    lua_setfield(L, -2, physicsKey(k).name);
+  }
+  return 1;
 }
 void pushNum(lua_State* L, double v) {
   if (v == std::floor(v) && std::fabs(v) < 9e15) lua_pushinteger(L, (lua_Integer)v);
@@ -506,6 +685,183 @@ int l_register_power(lua_State* L) {
   return 0;
 }
 
+int l_register_peg_type(lua_State* L) {
+  Impl* I = IM(L);
+  if (I->ctx != Ctx::Load) luaL_error(L, "register_peg_type can only be used while the mod loads (at the top of a script or in on_load)");
+  if (I->mod->manifest().cosmetic) luaL_error(L, "a cosmetic mod cannot define peg types");
+  luaL_checktype(L, 1, LUA_TTABLE);
+  if (I->mod->pegTypes.size() >= 64) luaL_error(L, "register_peg_type: a mod can define up to 64 peg types");
+  PegTypeReg r;
+  PegTypeDef& d = r.def;
+  d.mod = I->mod->manifest().id;
+  auto field = [&](const char* k) { lua_getfield(L, 1, k); return lua_type(L, -1); };
+  auto text = [&](const char* k, std::string& out, size_t max, bool path) {
+    if (field(k) != LUA_TNIL) {
+      if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "register_peg_type: '%s' must be a string", k);
+      out = lua_tostring(L, -1);
+      if (out.size() > max) luaL_error(L, "register_peg_type: '%s' is too long", k);
+      if (path && !safeRelPath(out)) luaL_error(L, "register_peg_type: '%s' must be a path inside the mod folder", k);
+    }
+    lua_pop(L, 1);
+  };
+  auto number = [&](const char* k, double& out) {
+    bool set = false;
+    if (field(k) != LUA_TNIL) {
+      if (!lua_isnumber(L, -1)) luaL_error(L, "register_peg_type: '%s' must be a number", k);
+      out = lua_tonumber(L, -1);
+      if (!std::isfinite(out)) luaL_error(L, "register_peg_type: '%s' must be a finite number", k);
+      set = true;
+    }
+    lua_pop(L, 1);
+    return set;
+  };
+  text("id", d.id, 32, false);
+  if (d.id.empty()) luaL_error(L, "register_peg_type: 'id' is required");
+  for (char c : d.id)
+    if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) luaL_error(L, "register_peg_type: 'id' may only use letters, digits, '_' and '-'");
+  for (auto& o : I->mod->pegTypes)
+    if (o.def.id == d.id) luaL_error(L, "register_peg_type: the id '%s' is already used by this mod", d.id.c_str());
+  d.name = d.id;
+  text("name", d.name, 60, false);
+  text("image", d.image, 200, true);
+  text("lit_image", d.litImage, 200, true);
+  if (field("stages") != LUA_TNIL) {
+    if (!lua_istable(L, -1)) luaL_error(L, "register_peg_type: 'stages' must be a list of image paths");
+    for (lua_Integer i = 1; i <= 16; i++) {
+      lua_rawgeti(L, -1, i);
+      if (lua_isnil(L, -1)) { lua_pop(L, 1); break; }
+      if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "register_peg_type: 'stages' must be a list of image paths");
+      std::string sp = lua_tostring(L, -1);
+      if (sp.size() > 200 || !safeRelPath(sp)) luaL_error(L, "register_peg_type: every stage must be a path inside the mod folder");
+      d.stages.push_back(sp);
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+  double v = 0;
+  if (number("color", v)) { d.color = (uint32_t)((lua_Unsigned)(lua_Integer)v & 0xffffffu); d.hasColor = true; }
+  if (field("base") != LUA_TNIL) {
+    if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "register_peg_type: 'base' must be \"blue\", \"orange\", \"purple\" or \"green\"");
+    std::string b = lua_tostring(L, -1);
+    if (b == "blue") d.base = 1;
+    else if (b == "orange") d.base = 2;
+    else if (b == "purple") d.base = 3;
+    else if (b == "green") d.base = 4;
+    else luaL_error(L, "register_peg_type: 'base' must be \"blue\", \"orange\", \"purple\" or \"green\"");
+  }
+  lua_pop(L, 1);
+  if (number("score", v)) d.score = (int)std::clamp(v, 0.0, 1000000.0);
+  if (field("counts_as_orange") != LUA_TNIL) d.orange = lua_toboolean(L, -1) ? 1 : 0;
+  lua_pop(L, 1);
+  if (number("hits_to_clear", v)) d.hits = (int)std::clamp(v, 1.0, 100.0);
+  if (field("clears_on_hit") != LUA_TNIL) d.clears = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  if (number("bounce", v)) d.bounce = (float)std::clamp(v, 0.1, 3.0);
+  if (number("radius_scale", v)) d.radiusScale = (float)std::clamp(v, 0.5, 3.0);
+  if (!d.clears && d.orange == 1) {
+    emit(HS(L), d.mod, pp::log::Level::Warn, "peg type '" + d.id + "' never clears, so it cannot count as an orange peg; counts_as_orange is ignored");
+    d.orange = 0;
+  }
+  if (!d.clears) d.hits = 1;
+  for (const char* k : {"on_hit", "on_clear"}) {
+    int t = field(k);
+    if (t == LUA_TNIL) { lua_pop(L, 1); continue; }
+    if (t != LUA_TFUNCTION) luaL_error(L, "register_peg_type: '%s' must be a function", k);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    if (k[3] == 'h') { r.hitRef = ref; d.onHit = true; }
+    else { r.clearRef = ref; d.onClear = true; }
+  }
+  I->mod->pegTypes.push_back(r);
+  return 0;
+}
+std::string clipText(const std::string& s, size_t n) {
+  if (s.size() <= n) return s;
+  size_t k = n;
+  while (k > 0 && ((unsigned char)s[k] & 0xc0) == 0x80) k--;
+  return s.substr(0, k);
+}
+bool optStringField(lua_State* L, const char* key, std::string& out, size_t maxLen) {
+  lua_getfield(L, 1, key);
+  bool had = false;
+  if (lua_type(L, -1) == LUA_TSTRING) {
+    out = clipText(lua_tostring(L, -1), maxLen);
+    had = true;
+  } else if (!lua_isnil(L, -1)) {
+    luaL_error(L, "register_master: '%s' must be a string", key);
+  }
+  lua_pop(L, 1);
+  return had;
+}
+int optFunctionField(lua_State* L, const char* key) {
+  lua_getfield(L, 1, key);
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return -1;
+  }
+  if (!lua_isfunction(L, -1)) luaL_error(L, "register_master: '%s' must be a function", key);
+  return luaL_ref(L, LUA_REGISTRYINDEX);
+}
+int l_register_master(lua_State* L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  Impl* I = IM(L);
+  if (I->ctx != Ctx::Load) luaL_error(L, "register_master can only be used while the mod loads (at the top of a script or in on_load)");
+  if (I->mod->manifest().cosmetic) luaL_error(L, "register_master needs a gameplay mod: a cosmetic mod cannot add Masters");
+  MasterDef d;
+  std::string id;
+  if (!optStringField(L, "id", id, 64) || id.empty()) luaL_error(L, "register_master: 'id' is required");
+  for (char& c : id) {
+    c = (char)std::tolower((unsigned char)c);
+    if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) luaL_error(L, "register_master: 'id' may only hold letters, digits, - and _");
+  }
+  if (id.size() > 32) luaL_error(L, "register_master: 'id' is longer than 32 characters");
+  if (pp::masters::reservedName(id)) luaL_error(L, "register_master: '%s' is the name of a built-in Master, pick another id", id.c_str());
+  for (auto& m : I->mod->masters)
+    if (m.id == id) luaL_error(L, "register_master: this mod already has a Master with the id '%s'", id.c_str());
+  if (I->mod->masters.size() >= 16) luaL_error(L, "register_master: one mod can add at most 16 Masters");
+  d.id = id;
+  d.name = id;
+  optStringField(L, "name", d.name, 40);
+  if (d.name.empty()) d.name = id;
+  optStringField(L, "description", d.description, 240);
+  d.powerName = "Master Power";
+  optStringField(L, "power_name", d.powerName, 40);
+  optStringField(L, "power_description", d.powerDescription, 240);
+  optStringField(L, "portrait", d.portrait, 200);
+  d.banner = d.powerName + "!";
+  optStringField(L, "banner", d.banner, 40);
+  lua_getfield(L, 1, "turns");
+  if (!lua_isnil(L, -1)) {
+    if (!lua_isinteger(L, -1)) luaL_error(L, "register_master: 'turns' must be a whole number from 1 to 99");
+    lua_Integer t = lua_tointeger(L, -1);
+    if (t < 1 || t > 99) luaL_error(L, "register_master: 'turns' must be a whole number from 1 to 99");
+    d.turns = (int)t;
+  }
+  lua_pop(L, 1);
+  std::string trig = "green_peg";
+  optStringField(L, "trigger", trig, 16);
+  if (trig == "green_peg") d.trigger = 0;
+  else if (trig == "every_shot") d.trigger = 1;
+  else if (trig == "level_start") d.trigger = 2;
+  else luaL_error(L, "register_master: 'trigger' must be \"green_peg\", \"every_shot\" or \"level_start\"");
+  lua_getfield(L, 1, "color");
+  if (!lua_isnil(L, -1)) {
+    if (!lua_isinteger(L, -1)) luaL_error(L, "register_master: 'color' must be a number like 0xRRGGBB");
+    d.color = (uint32_t)((lua_Unsigned)lua_tointeger(L, -1) & 0xffffffu);
+  }
+  lua_pop(L, 1);
+  d.onActivate = optFunctionField(L, "on_activate");
+  d.onShot = optFunctionField(L, "on_shot");
+  d.onEnd = optFunctionField(L, "on_end");
+  I->mod->masters.push_back(d);
+  return 0;
+}
+int b_master_key(lua_State* L) {
+  Board& b = needBoard(L);
+  if (const ModMaster* m = pp::masters::byPower(b.master[playerArg(L, 1, b)])) lua_pushstring(L, m->key().c_str());
+  else lua_pushnil(L);
+  return 1;
+}
+
 void setFuncs(lua_State* L, const char* table, const luaL_Reg* fns) {
   lua_newtable(L);
   luaL_setfuncs(L, fns, 0);
@@ -516,12 +872,17 @@ struct LuaPanic {};
 int panicThrow(lua_State*) { throw LuaPanic{}; }
 
 const char* kPrelude = R"LUA(
-local pcall0, xpcall0, resume0, aborted, error0, unpack, pack = pcall, xpcall, coroutine.resume, __aborted, error, table.unpack, table.pack
-local function chk(r) if aborted() then error0("aborted by the host (budget)", 0) end return unpack(r, 1, r.n) end
-function pcall(f, ...) return chk(pack(pcall0(f, ...))) end
-function xpcall(f, h, ...) return chk(pack(xpcall0(f, h, ...))) end
-function coroutine.resume(c, ...) return chk(pack(resume0(c, ...))) end
+local pcall0, xpcall0, resume0, aborted, error0, burn = pcall, xpcall, coroutine.resume, __aborted, error, __burn
+local function chk(ok, ...)
+  if aborted() then error0("aborted by the host (budget)", 0) end
+  if not ok then burn(1500) end
+  return ok, ...
+end
+function pcall(f, ...) return chk(pcall0(f, ...)) end
+function xpcall(f, h, ...) return chk(xpcall0(f, h, ...)) end
+function coroutine.resume(c, ...) return chk(resume0(c, ...)) end
 __aborted = nil
+__burn = nil
 )LUA";
 }
 
@@ -544,6 +905,7 @@ bool LuaMod::open(std::string* err) {
   if (!L_) { if (err) *err = "cannot create a Lua state"; return false; }
   lua_State* L = L_;
   lua_atpanic(L, panicThrow);
+  lua_setwarnf(L, warnCharge, nullptr);
   static const luaL_Reg libs[] = {{"_G", luaopen_base}, {LUA_TABLIBNAME, luaopen_table}, {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
                                   {LUA_UTF8LIBNAME, luaopen_utf8}, {LUA_COLIBNAME, luaopen_coroutine}, {nullptr, nullptr}};
   for (const luaL_Reg* l = libs; l->func; l++) { luaL_requiref(L, l->name, l->func, 1); lua_pop(L, 1); }
@@ -553,8 +915,8 @@ bool LuaMod::open(std::string* err) {
   nilField("string", "dump");
   for (const char* n : {"tan", "asin", "acos", "exp", "log", "random", "randomseed", "pow", "sinh", "cosh", "tanh", "log10", "ldexp", "frexp"}) nilField("math", n);
   auto setG = [&](const char* n, lua_CFunction f) { lua_pushcfunction(L, f); lua_setglobal(L, n); };
-  setG("print", l_log); setG("log", l_log); setG("tostring", l_tostring); setG("load", l_load); setG("require", l_require); setG("__aborted", l_aborted);
-  setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power);
+  setG("print", l_log); setG("log", l_log); setG("tostring", l_tostring); setG("load", l_load); setG("require", l_require); setG("__aborted", l_aborted); setG("__burn", l_burn);
+  setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power); setG("register_peg_type", l_register_peg_type); setG("register_master", l_register_master);
   lua_getglobal(L, "math");
   lua_pushcfunction(L, l_math_random); lua_setfield(L, -2, "random");
   lua_pushcfunction(L, l_math_sin); lua_setfield(L, -2, "sin");
@@ -578,14 +940,15 @@ bool LuaMod::open(std::string* err) {
     lua_setglobal(L, "mod");
   }
   static const luaL_Reg board[] = {{"tick", b_tick}, {"score", b_score}, {"orange_left", b_orange_left}, {"orange_total", b_orange_total}, {"balls_left", b_balls_left},
-                                   {"shot_score", b_shot_score}, {"player", b_player}, {"fever", b_fever}, {"width", b_width}, {"master", b_master}, {"phase", b_phase},
+                                   {"shot_score", b_shot_score}, {"player", b_player}, {"fever", b_fever}, {"width", b_width}, {"master", b_master}, {"master_key", b_master_key}, {"phase", b_phase},
                                    {"peg", b_peg}, {"pegs", b_pegs}, {"peg_count", b_peg_count}, {"bricks", b_bricks}, {"balls", b_balls}, {"ball_count", b_ball_count},
                                    {"add_score", m_add_score}, {"hit_peg", m_hit_peg}, {"add_balls", m_add_balls}, {"set_ball_velocity", m_set_ball_velocity},
-                                   {"say", m_say}, {"style_shot", m_style_shot}, {nullptr, nullptr}};
+                                   {"say", m_say}, {"style_shot", m_style_shot}, {"set_peg_type", m_set_peg_type}, {"set_peg_types", m_set_peg_types}, {nullptr, nullptr}};
+  static const luaL_Reg physics[] = {{"set", p_set}, {"get", p_get}, {nullptr, nullptr}};
   static const luaL_Reg state[] = {{"get", s_get}, {"set", s_set}, {"add", s_add}, {nullptr, nullptr}};
   static const luaL_Reg ui[] = {{"menu", u_menu}, {"message", u_message}, {nullptr, nullptr}};
   static const luaL_Reg draw[] = {{"rect", d_rect}, {"circle", d_circle}, {"text", d_text}, {"image", d_image}, {"screen", d_screen}, {"rgb", d_rgb}, {"hsv", d_hsv}, {nullptr, nullptr}};
-  setFuncs(L, "board", board); setFuncs(L, "state", state); setFuncs(L, "ui", ui); setFuncs(L, "draw", draw);
+  setFuncs(L, "board", board); setFuncs(L, "state", state); setFuncs(L, "ui", ui); setFuncs(L, "draw", draw); setFuncs(L, "physics", physics);
   if (man_.net || man_.fs) openNetLib(L, this, host_);
   if (luaL_loadbufferx(L, kPrelude, std::strlen(kPrelude), "=prelude", "t") != LUA_OK || lua_pcall(L, 0, 0, 0) != LUA_OK) {
     if (err) *err = std::string("prelude: ") + lua_tostring(L, -1);
@@ -615,6 +978,10 @@ bool LuaMod::open(std::string* err) {
   lua_setfield(L, -2, "__metatable");
   lua_setmetatable(L, -3);
   lua_pop(L, 2);
+  im_->check = workCheck;
+  im_->refuse = workRefuse;
+  im_->over = workOver;
+  im_->nudge = workNudge;
   lua_sethook(L, countHook, LUA_MASKCOUNT, kStride);
   for (auto& s : man_.scripts) {
     std::string text;
@@ -639,8 +1006,16 @@ bool LuaMod::pcallBudgeted(int nargs, int nres, bool timed, Ctx ctx, std::string
   I->total = I->remaining = (ctx == Ctx::Load ? 5LL : 1LL) * man_.budget;
   I->timed = timed && ctx != Ctx::Sim;
   I->aborted = false;
+  I->note = nullptr;
   I->screenMode = false;
   I->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ctx == Ctx::Load ? 2000 : ctx == Ctx::Draw ? 25 : 250);
+  lua_sethook(L_, countHook, LUA_MASKCOUNT, kStride);
+  LuaWork* prevWork = gWork;
+  lua_State* prevCur = I->cur;
+  I->cur = L_;
+  const bool prevMetered = I->metered;
+  gWork = I;
+  I->metered = true;
   int st = LUA_OK;
   try {
     st = lua_pcall(L_, nargs, nres, 0);
@@ -648,10 +1023,16 @@ bool LuaMod::pcallBudgeted(int nargs, int nres, bool timed, Ctx ctx, std::string
     st = LUA_ERRRUN;
     lua_pushstring(L_, "native exception");
   }
+  I->metered = prevMetered;
+  I->cur = prevCur;
+  gWork = prevWork;
   I->ctx = prev;
   lastInstructions = I->total - I->remaining;
   if (st != LUA_OK) {
-    lastError = lua_isstring(L_, -1) ? lua_tostring(L_, -1) : "(error object)";
+    size_t len = 0;
+    const char* msg = lua_isstring(L_, -1) ? lua_tolstring(L_, -1, &len) : nullptr;
+    lastError = msg ? std::string(msg, std::min<size_t>(len, 600)) + (len > 600 ? "..." : "") : "(error object)";
+    if (I->aborted && I->note && lastError.find(I->note) == std::string::npos) lastError = I->note;
     if (err) *err = lastError;
     lua_pop(L_, 1);
     return false;
@@ -737,6 +1118,36 @@ bool LuaMod::activatePower(const PowerDef& p, int player, int peg) {
   std::string e;
   if (pcallBudgeted(2, 0, false, Ctx::Sim, &e)) return true;
   reportError(im_.get(), host_, man_.id, "error in power '" + p.name + "': " + e);
+  return false;
+}
+
+bool LuaMod::callPegHook(int ref, int peg, int ball) {
+  if (!L_ || !host_.board || peg < 0 || peg >= (int)host_.board->objs.size()) return false;
+  lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);
+  if (!lua_isfunction(L_, -1)) { lua_pop(L_, 1); return false; }
+  pushPeg(L_, *host_.board, peg);
+  lua_pushinteger(L_, ball);
+  std::string e;
+  if (pcallBudgeted(2, 0, false, Ctx::Sim, &e)) return true;
+  errors++;
+  reportError(im_.get(), host_, man_.id, "error in a peg type callback: " + e);
+  return false;
+}
+
+bool LuaMod::callMaster(const MasterDef& m, int which, int player, int peg) {
+  const int ref = which == 0 ? m.onActivate : which == 1 ? m.onShot : m.onEnd;
+  if (ref < 0 || !L_) return true;
+  lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);
+  lua_pushinteger(L_, player);
+  int n = 1;
+  if (which == 0) {
+    lua_pushinteger(L_, peg);
+    n = 2;
+  }
+  std::string e;
+  if (pcallBudgeted(n, 0, false, Ctx::Sim, &e)) return true;
+  static const char* names[] = {"on_activate", "on_shot", "on_end"};
+  reportError(im_.get(), host_, man_.id, "error in " + std::string(names[which]) + " of Master '" + m.id + "': " + e);
   return false;
 }
 

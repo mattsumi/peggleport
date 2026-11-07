@@ -1,6 +1,7 @@
 #ifndef PEGGLEPORT_MOD_H
 #define PEGGLEPORT_MOD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -8,6 +9,11 @@ extern "C" {
 #endif
 
 #define PP_MOD_ABI_VERSION 1
+#define PP_MOD_ABI_MINOR 1
+
+#define PP_MASTER_TRIGGER_GREEN_PEG 0
+#define PP_MASTER_TRIGGER_EVERY_SHOT 1
+#define PP_MASTER_TRIGGER_LEVEL_START 2
 
 #if defined(_WIN32)
 #define PP_MOD_EXPORT __declspec(dllexport)
@@ -28,6 +34,22 @@ typedef struct PPBallInfo {
   float x, y, vx, vy, r;
 } PPBallInfo;
 
+#define PP_PHYS_GRAVITY_Y (1u << 0)
+#define PP_PHYS_GRAVITY_X (1u << 1)
+#define PP_PHYS_LAUNCH_SPEED (1u << 2)
+#define PP_PHYS_BALL_BOUNCE (1u << 3)
+#define PP_PHYS_PEG_BOUNCE (1u << 4)
+#define PP_PHYS_DRAG (1u << 5)
+#define PP_PHYS_MAX_SPEED (1u << 6)
+#define PP_PHYS_BALL_RADIUS (1u << 7)
+#define PP_PHYS_ALL 0xffu
+
+typedef struct PPPhysics {
+  uint32_t struct_size;
+  uint32_t mask;
+  float gravity_y, gravity_x, launch_speed, ball_bounce, peg_bounce, drag, max_speed, ball_radius;
+} PPPhysics;
+
 typedef struct PPModHooks {
   uint32_t struct_size;
   void (*on_level_start)(void);
@@ -41,6 +63,42 @@ typedef struct PPModHooks {
   void (*on_frame)(void);
   void (*shutdown)(void);
 } PPModHooks;
+
+typedef struct PPPegTypeDef {
+  uint32_t struct_size;
+  const char* id;
+  const char* name;
+  const char* image;
+  const char* lit_image;
+  const char* const* stages;
+  int32_t stage_count;
+  uint32_t color;
+  int32_t base;
+  int32_t score;
+  int32_t counts_as_orange;
+  int32_t hits_to_clear;
+  int32_t indestructible;
+  float bounce;
+  float radius_scale;
+  void (*on_hit)(int32_t peg, int32_t ball);
+  void (*on_clear)(int32_t peg);
+} PPPegTypeDef;
+typedef struct PPMasterDef {
+  uint32_t struct_size;
+  const char* id;
+  const char* name;
+  const char* description;
+  const char* power_name;
+  const char* power_description;
+  const char* portrait;
+  const char* banner;
+  int32_t turns;
+  int32_t trigger;
+  uint32_t color;
+  void (*on_activate)(int32_t player, int32_t peg);
+  void (*on_shot)(int32_t player);
+  void (*on_end)(int32_t player);
+} PPMasterDef;
 
 typedef struct PPModApi {
   uint32_t abi_version;
@@ -65,7 +123,16 @@ typedef struct PPModApi {
   void (*draw_rect)(float x, float y, float w, float h, uint32_t rgba, int32_t fill);
   void (*draw_circle)(float x, float y, float r, uint32_t rgba, int32_t fill);
   void (*draw_text)(float x, float y, const char* text, uint32_t rgba);
+  int32_t (*physics_set)(const PPPhysics* p);
+  int32_t (*physics_get)(PPPhysics* out);
+  uint32_t abi_minor;
+  int32_t (*register_peg_type)(const PPPegTypeDef* def);
+  void (*set_peg_type)(int32_t peg, const char* type);
+  int32_t (*peg_custom)(int32_t peg, char* out, int32_t cap, int32_t* hits);
+  int32_t (*register_master)(const PPMasterDef* def);
 } PPModApi;
+
+#define PP_MOD_API_HAS(api, member) ((api)->struct_size >= offsetof(PPModApi, member) + sizeof((api)->member))
 
 #ifdef __cplusplus
 }

@@ -23,12 +23,14 @@ class ModsScreen : public Screen {
 
  private:
   static constexpr int kRowH = 76, kPage = 5, kTop = 92;
-  int page_ = 0, sig_ = -1;
-  bool dirty_ = true;
-  std::string status_;
+  int page_ = 0, sig_ = -1, seen_ = 0;
+  bool dirty_ = true, wasFocused_ = true;
+  std::string status_, touched_;
   std::unique_ptr<ConsentDialog> dlg_;
   int signature() const;
   void rebuild();
+  void followApply();
+  void changed(const std::string& id);
 };
 
 }

@@ -112,6 +112,22 @@ Renderer::~Renderer() {
     if (t) SDL_DestroyTexture(t);
 }
 
+void Renderer::reloadAssets(const VfsChange& change) {
+  if (!change.any) return;
+  for (auto& [_, t] : cache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  cache_.clear();
+  for (auto& [_, t] : fontTex_)
+    if (t) SDL_DestroyTexture(t);
+  fontTex_.clear();
+  fonts_.reset();
+  man_ = ImageManifest(vfs_);
+  chars_.clear();
+  charsLoaded_ = false;
+  if (portrait_.tex) SDL_DestroyTexture(portrait_.tex);
+  portrait_ = Portrait();
+}
+
 SDL_Texture* Renderer::fontTexture(const Image* img) {
   auto it = fontTex_.find(img);
   if (it != fontTex_.end()) return it->second;
@@ -348,6 +364,35 @@ Renderer::Tex* Renderer::img(const std::string& id) {
   return t;
 }
 
+Renderer::Tex* Renderer::grayImg(const std::string& id) {
+  const std::string key = "gray|" + id;
+  auto it = cache_.find(key);
+  if (it != cache_.end()) return it->second.t ? &it->second : nullptr;
+  Tex T;
+  if (const ImageRes* r = man_.find(id)) {
+    if (auto im = loadGameImage(vfs_, r->path, r->alphaImage)) {
+      for (size_t i = 0; i + 3 < im->rgba.size(); i += 4) {
+        const int lum = (im->rgba[i] * 299 + im->rgba[i + 1] * 587 + im->rgba[i + 2] * 114) / 1000;
+        const uint8_t v = (uint8_t)std::min(255, lum * 5 / 2);
+        im->rgba[i] = im->rgba[i + 1] = im->rgba[i + 2] = v;
+      }
+      T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im->w, im->h);
+      if (T.t) {
+        SDL_UpdateTexture(T.t, nullptr, im->rgba.data(), im->w * 4);
+        SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+        T.w = im->w;
+        T.h = im->h;
+        T.scale = im->scale;
+        T.rows = std::max(1, r->rows);
+        T.cols = std::max(1, r->cols);
+      }
+    }
+  }
+  auto& slot = cache_[key] = T;
+  return slot.t ? &slot : nullptr;
+}
+
 Renderer::Tex* Renderer::objImage(const std::string& name) {
   if (name.empty()) return nullptr;
   for (const char* pre : {"", "images/levels/", "images/game/", "levels/"})
@@ -476,6 +521,10 @@ void Renderer::observe(const Board& b) {
 void Renderer::drawPegGlow(const Obj& o, float cx, float cy) {
   if (!o.lit) return;
   uint32_t c;
+  if (const PegTypeDef* d = o.custom ? pegTypeDef(o.custom) : nullptr; d && d->hasColor) {
+    putCentered(img("IMAGE_PEGGLOW"), cx, cy, {(d->color << 8) | 0x9fu, Blend::Add});
+    return;
+  }
   switch (o.pegType) {
     case 2: c = 0xff8800'7f; break;
     case 3: c = 0xff55ff'9f; break;
@@ -485,7 +534,7 @@ void Renderer::drawPegGlow(const Obj& o, float cx, float cy) {
   putCentered(img("IMAGE_PEGGLOW"), cx, cy, {c, Blend::Add});
 }
 
-void Renderer::drawBigPulse(int pegType, float cx, float cy, int age, int kind) {
+void Renderer::drawBigPulse(int pegType, float cx, float cy, int age, int kind, uint32_t tint) {
   int t = pegType - 1;
   if (t < 0 || t > 3) return;
   static const char* names[] = {"IMAGE_PULSE_NORMAL", "IMAGE_PULSE_GOAL", "IMAGE_PULSE_SCORE", "IMAGE_PULSE_POWERUP", "IMAGE_PULSE2_SCORE", "IMAGE_PULSE2_POWERUP"};
@@ -497,14 +546,56 @@ void Renderer::drawBigPulse(int pegType, float cx, float cy, int age, int kind) 
   int cel = std::min(im->rows - 1, age / delay);
   if (kind == 2) cel = im->rows - cel - 1;
   float x = (float)(int)(cx - (int)(im->lw() / 2)), y = (float)(int)(cy - (int)(im->ch() / 2));
-  putCelAt(im, 0, cel, x, y, {0xffffffffu, Blend::Add});
+  putCelAt(im, 0, cel, x, y, {tint, Blend::Add});
+}
+
+void Renderer::drawCustomPeg(const Board& b, const Obj& o, const PegTypeDef& d, float cx, float cy) {
+  const float r = o.radius;
+  const float x = cx - r, y = cy - r;
+  const int cel = std::clamp(o.pegType - 1, 0, 3);
+  const int hitsNeeded = std::max(1, d.hits);
+  const int shown = d.clears ? std::min(o.hits, hitsNeeded - 1) : 0;
+  const bool stages = !d.stages.empty() && d.clears;
+  const std::string& own = stages ? d.stages[(size_t)std::min<int>(shown, (int)d.stages.size() - 1)] : d.image;
+  Tex* own0 = own.empty() ? nullptr : tex(own);
+  Tex* litOwn = d.litImage.empty() ? nullptr : tex(d.litImage);
+  const uint32_t tint = d.hasColor ? ((d.color << 8) | 0xffu) : 0xffffffffu;
+  Tex* sheet = d.hasColor ? grayImg("IMAGE_BALLPEG") : img("IMAGE_BALLPEG");
+  auto sprite0 = [&](bool lit, uint32_t rgba, Blend mode) {
+    if (!lit && own0) {
+      put(own0, {0, 0, own0->lw(), own0->lh()}, x, y, {0xffffff00u | (rgba & 255u), mode}, r * 2, r * 2);
+    } else if (lit && litOwn) {
+      put(litOwn, {0, 0, litOwn->lw(), litOwn->lh()}, x, y, {0xffffff00u | (rgba & 255u), mode}, r * 2, r * 2);
+    } else if (lit && own0) {
+      put(own0, {0, 0, own0->lw(), own0->lh()}, x, y, {0xffffff00u | (rgba & 255u), Blend::Add}, r * 2, r * 2);
+    } else if (sheet) {
+      const int c = cel + (lit ? 4 : 0);
+      put(sheet, {0, c * sheet->ch(), sheet->cw(), sheet->ch()}, x, y, {rgba, mode}, r * 2, r * 2);
+    }
+  };
+  if (o.lit) {
+    if (own0 && !litOwn) sprite0(false, 0xffffffffu, Blend::Normal);
+    sprite0(true, own0 || litOwn ? 0xffffffffu : tint, Blend::Normal);
+    return;
+  }
+  sprite0(false, own0 ? 0xffffffffu : tint, Blend::Normal);
+  const int age = b.tick - o.hitTick;
+  int progress = d.clears && hitsNeeded > 1 && !stages ? 255 * std::min(o.hits, hitsNeeded - 1) / hitsNeeded : 0;
+  if (progress > 0) sprite0(true, (own0 || litOwn ? 0xffffff00u : (tint & 0xffffff00u)) | (uint32_t)progress, Blend::Normal);
+  if (age >= 0 && age < 12) {
+    const int a = 200 * (12 - age) / 12;
+    sprite0(true, 0xffffff00u | (uint32_t)a, Blend::Add);
+  }
 }
 
 void Renderer::drawPeg(const Board& b, const Obj& o, int idx, Pass pass) {
   ObjViz& v = viz_[idx];
   float cx = BX + o.pos.x, cy = BY + o.pos.y;
   if (pass == Pass::Light) {
-    if (v.pulseStart >= 0) drawBigPulse(o.pegType, cx, cy, b.tick - v.pulseStart + 1, v.pulseKind);
+    if (v.pulseStart >= 0) {
+      const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr;
+      drawBigPulse(o.pegType, cx, cy, b.tick - v.pulseStart + 1, v.pulseKind, cd && cd->hasColor ? ((cd->color << 8) | 0xffu) : 0xffffffffu);
+    }
     return;
   }
   if (!o.visible || o.gone || o.popTimer > 0) return;
@@ -523,6 +614,10 @@ void Renderer::drawPeg(const Board& b, const Obj& o, int idx, Pass pass) {
       put(t, {0, 0, t->lw(), t->lh()}, cx - 3.0f - r, cy + 3.0f - r, sh, r * 2, r * 2);
     }
     drawPegGlow(o, cx, cy);
+    return;
+  }
+  if (const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr) {
+    drawCustomPeg(b, o, *cd, cx, cy);
     return;
   }
   Tex* t = img("IMAGE_BALLPEG");
@@ -588,14 +683,17 @@ void Renderer::drawBrickPeg(const Board& b, const Obj& o, int idx, Pass pass) {
         V2 a = (o.brickInner[o.brickInner.size() / 2] + o.brickOuter[o.brickOuter.size() / 2]) * 0.5f;
         c = o.pos + rot(a * o.scale, o.rot);
       }
-      drawBigPulse(o.pegType, BX + c.x, BY + c.y, b.tick - v.pulseStart + 1, v.pulseKind);
+      const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr;
+      drawBigPulse(o.pegType, BX + c.x, BY + c.y, b.tick - v.pulseStart + 1, v.pulseKind, cd && cd->hasColor ? ((cd->color << 8) | 0xffu) : 0xffffffffu);
     }
     return;
   }
   if (!o.visible || o.gone || o.popTimer > 0) return;
-  Tex* t = img("IMAGE_BRICK");
+  const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr;
+  Tex* t = cd && cd->hasColor ? grayImg("IMAGE_BRICK") : img("IMAGE_BRICK");
   if (!t) return;
   int cel = std::clamp(o.pegType - 1, 0, 3) + (o.lit ? 4 : 0);
+  const uint32_t brickTint = cd && cd->hasColor ? ((cd->color << 8) | 0xffu) : 0xffffffffu;
   if (pass == Pass::Shadow) {
     brickMesh(o, t, cel, -3, 3, 0x00000090u, Blend::Normal);
     if (o.lit && o.pegType != 1) {
@@ -604,7 +702,14 @@ void Renderer::drawBrickPeg(const Board& b, const Obj& o, int idx, Pass pass) {
     }
     return;
   }
-  brickMesh(o, t, cel, 0, 0, 0xffffffffu, Blend::Normal);
+  brickMesh(o, t, cel, 0, 0, brickTint, Blend::Normal);
+  if (cd && !o.lit) {
+    const int need = std::max(1, cd->hits);
+    const int progress = cd->clears && need > 1 ? 255 * std::min(o.hits, need - 1) / need : 0;
+    if (progress > 0) brickMesh(o, t, cel + 4, 0, 0, (brickTint & 0xffffff00u) | (uint32_t)progress, Blend::Normal);
+    const int age = b.tick - o.hitTick;
+    if (age >= 0 && age < 12) brickMesh(o, t, cel + 4, 0, 0, 0xffffff00u | (uint32_t)(200 * (12 - age) / 12), Blend::Add);
+  }
 }
 
 void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
@@ -667,7 +772,8 @@ void Renderer::drawBall(const Board& b, const Ball& bl, bool inGun) {
     }
   } hatDraw{this, cx + (bl.hat && bl.hatAge > 0 ? bl.hatPos.x - bl.pos.x : 0.0f), cy + (bl.hat && bl.hatAge > 0 ? bl.hatPos.y - (bl.pos.y - 21.0f) : 0.0f), bl.vel.x, bl.hat};
   if (bl.fire) {
-    if (Tex* t = img("IMAGE_FIREBALL")) putCentered(t, cx, cy, {}, 1.0f, 0.05f * (float)b.tick);
+    const float fs = b.physics.ballRadius == 6.0f ? 1.0f : r / (b.cfg.nights ? 11.0f : 10.0f);
+    if (Tex* t = img("IMAGE_FIREBALL")) putCentered(t, cx, cy, {}, fs, 0.05f * (float)b.tick);
     return;
   }
   if (r == 6.0f) {
@@ -685,17 +791,19 @@ void Renderer::doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0
   Tex* rect = img("IMAGE_GUIDERECT");
   Tex* arrow = img("IMAGE_GUIDEARROW");
   Tex* hitImg = img("IMAGE_GUIDEHIT");
-  const float vx = std::cos(ang) * speed, vy = -speed * std::sin(ang), ay = 0.05f * 0.5f;
+  const float vx = std::cos(ang) * speed, vy = -speed * std::sin(ang), ay = b.physics.gravityY * 0.5f, ax = b.physics.gravityX * 0.5f;
   uint32_t col = fireball ? 0x903010u : superCol ? 0xaaaa60u : 0x109090u;
   Paint add{(col << 8) | 0xffu, Blend::Add};
   bool atHit = hitStep == -1, reached = false;
   int n = 2;
   V2 prev{x0 + vx * 2, y0 + vy * 2 + ay * 4};
+  if (ax != 0.0f) prev.x += ax * 4;
   (void)b;
   if (!(2 < len)) return;
   do {
     n += 4;
     V2 cur{x0 + vx * (float)n, y0 + vy * (float)n + ay * (float)n * (float)n};
+    if (ax != 0.0f) cur.x += ax * (float)n * (float)n;
     V2 at = cur;
     if (n >= 3 && n - 3 < (int)tr.pts.size()) at = tr.pts[(size_t)(n - 3)];
     bool farSeg = n >= len && far;
@@ -740,9 +848,9 @@ void Renderer::drawGuide(const Board& b) {
     len = std::min(l2, len);
   }
   Board::GuideTrace tr = b.guideTrace(b.gunAngle, b.guideOn());
-  V2 m = b.muzzle(b.gunAngle);
+  V2 m = b.muzzle(b.gunAngle, b.physics.ballRadius);
   bool fire = b.master[b.cur] == Board::P_FIREBALL && b.turns[b.cur] > 0;
-  doDrawGuide(b, tr, m.x, m.y, b.gunAngle, 4.0f, tr.hitStep, len, 2, far, fire, b.guideOn());
+  doDrawGuide(b, tr, m.x, m.y, b.gunAngle, b.physics.launchSpeed, tr.hitStep, len, 2, far, fire, b.guideOn());
 }
 
 void Renderer::drawBoardShadow() {
@@ -1008,6 +1116,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   for (auto& bl : b.balls) drawBall(b, bl, false);
   if (b.phase == Phase::Aim) {
     Ball g;
+    g.r = b.physics.ballRadius;
     g.pos = b.muzzleArmed(b.gunAngle);
     drawBall(b, g, true);
     if (hud.showGuide) drawGuide(b);

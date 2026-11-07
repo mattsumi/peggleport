@@ -20,6 +20,8 @@
 #include "log.h"
 #include "lua.h"
 #include "mods/luamod.h"
+#include "mods/luawork.h"
+#include "mods/tls.h"
 #include "sockcompat.h"
 
 namespace fs = std::filesystem;
@@ -132,102 +134,230 @@ bool waitFd(sock_t s, bool write, int ms) {
 }
 bool sendAll(sock_t s, const std::string& d, std::atomic<bool>* stop) {
   size_t off = 0;
-  int idle = 0;
+  auto progress = std::chrono::steady_clock::now();
   while (off < d.size()) {
     int n = (int)send(s, d.data() + off, (int)std::min<size_t>(d.size() - off, 16384), MSG_NOSIGNAL);
-    if (n > 0) { off += (size_t)n; idle = 0; continue; }
-    if (!wouldBlock() || (stop && *stop) || ++idle > 500) return false;
+    if (n > 0) { off += (size_t)n; progress = std::chrono::steady_clock::now(); continue; }
+    if (!wouldBlock() || (stop && *stop) || std::chrono::steady_clock::now() - progress > std::chrono::milliseconds(kTimeoutMs)) return false;
     waitFd(s, true, 20);
   }
   return true;
 }
-bool parseUrl(const std::string& u, std::string& host, int& port, std::string& path, std::string* err) {
-  if (u.rfind("https://", 0) == 0) { *err = "https is not supported (the port has no TLS library): use http:// or net.tcp"; return false; }
-  if (u.rfind("http://", 0) != 0) { *err = "only http:// URLs are supported"; return false; }
-  std::string rest = u.substr(7);
+struct Target {
+  bool tls = false;
+  int port = 0;
+  std::string host, path, hostHeader;
+};
+bool startsWithNoCase(const std::string& s, const char* prefix) {
+  size_t n = std::strlen(prefix);
+  if (s.size() < n) return false;
+  for (size_t i = 0; i < n; i++) if (std::tolower((unsigned char)s[i]) != prefix[i]) return false;
+  return true;
+}
+bool parseUrl(const std::string& u, Target& t, std::string* err) {
+  size_t skip;
+  if (startsWithNoCase(u, "https://")) { t.tls = true; skip = 8; }
+  else if (startsWithNoCase(u, "http://")) { t.tls = false; skip = 7; }
+  else { *err = "only http:// and https:// URLs are supported"; return false; }
+  std::string rest = u.substr(skip);
   size_t sl = rest.find('/');
   std::string hp = sl == std::string::npos ? rest : rest.substr(0, sl);
-  path = sl == std::string::npos ? "/" : rest.substr(sl);
-  size_t c = hp.rfind(':');
-  port = 80;
-  host = hp;
-  if (c != std::string::npos) { host = hp.substr(0, c); port = std::atoi(hp.c_str() + c + 1); }
-  if (host.empty() || port <= 0 || port > 65535 || host.find_first_of(" \r\n\t") != std::string::npos || path.find_first_of(" \r\n") != std::string::npos) { *err = "bad URL"; return false; }
+  t.path = sl == std::string::npos ? "/" : rest.substr(sl);
+  const int defPort = t.tls ? 443 : 80;
+  t.port = defPort;
+  bool v6 = false;
+  if (!hp.empty() && hp[0] == '[') {
+    size_t e = hp.find(']');
+    if (e == std::string::npos || (e + 1 < hp.size() && hp[e + 1] != ':')) { *err = "bad URL"; return false; }
+    v6 = true;
+    t.host = hp.substr(1, e - 1);
+    if (e + 1 < hp.size()) t.port = std::atoi(hp.c_str() + e + 2);
+  } else {
+    size_t c = hp.rfind(':');
+    t.host = hp;
+    if (c != std::string::npos) { t.host = hp.substr(0, c); t.port = std::atoi(hp.c_str() + c + 1); }
+  }
+  if (t.host.empty() || t.port <= 0 || t.port > 65535 || t.host.find_first_of(" \r\n\t") != std::string::npos || t.path.find_first_of(" \r\n") != std::string::npos) { *err = "bad URL"; return false; }
+  t.hostHeader = v6 ? "[" + t.host + "]" : t.host;
+  if (t.port != defPort) t.hostHeader += ":" + std::to_string(t.port);
   return true;
 }
 void post(const std::shared_ptr<Shared>& sh, Ev e) {
   std::lock_guard<std::mutex> g(sh->m);
   if (sh->events.size() < 2048) sh->events.push_back(std::move(e));
 }
+
+struct Link {
+  enum class R { Data, Idle, End, Cut, Fail };
+  sock_t s = BAD_SOCK;
+  std::unique_ptr<TlsStream> tls;
+  Link() = default;
+  Link(const Link&) = delete;
+  Link& operator=(const Link&) = delete;
+  ~Link() { finish(); }
+  bool open(const std::string& host, int port, bool secure, const std::atomic<bool>* stop, std::string* err) {
+    s = dial(host, port, err);
+    if (s == BAD_SOCK) return false;
+    if (!secure) return true;
+    tls = TlsStream::connect(s, host, kTimeoutMs, stop, err);
+    if (tls) return true;
+    closeSock(s);
+    s = BAD_SOCK;
+    return false;
+  }
+  bool send(const std::string& d, std::atomic<bool>* stop, std::string* err) {
+    if (tls) return tls->writeAll(d.data(), d.size(), kTimeoutMs, err);
+    return sendAll(s, d, stop);
+  }
+  R recvSome(char* buf, size_t cap, size_t* got, int waitMs, std::string* err) {
+    *got = 0;
+    if (tls) {
+      switch (tls->read(buf, cap, got, waitMs, err)) {
+        case TlsStream::Status::Ok: return R::Data;
+        case TlsStream::Status::Idle: return R::Idle;
+        case TlsStream::Status::Closed: return R::End;
+        case TlsStream::Status::Cut: return R::Cut;
+        default: return R::Fail;
+      }
+    }
+    int n = (int)recv(s, buf, (int)cap, 0);
+    if (n > 0) { *got = (size_t)n; return R::Data; }
+    if (n == 0) return R::End;
+    if (!wouldBlock()) return R::Fail;
+    if (waitMs > 0) waitFd(s, false, waitMs);
+    return R::Idle;
+  }
+  void finish() {
+    if (tls) { tls->shutdown(); tls.reset(); }
+    if (s != BAD_SOCK) { closeSock(s); s = BAD_SOCK; }
+  }
+};
+
+bool dechunk(const std::string& b, std::string& out) {
+  size_t p = 0;
+  while (p < b.size()) {
+    size_t e = b.find("\r\n", p);
+    if (e == std::string::npos) return false;
+    size_t n = (size_t)std::strtoul(b.substr(p, e - p).c_str(), nullptr, 16);
+    if (n == 0) return true;
+    out.append(b, e + 2, n);
+    if (e + 2 + n + 2 > b.size()) return false;
+    p = e + 2 + n + 2;
+  }
+  return false;
+}
+struct Framing {
+  bool known = false, noBody = false, chunked = false;
+  long long length = -1;
+  size_t bodyStart = 0;
+  void feed(const std::string& resp) {
+    if (known) return;
+    size_t he = resp.find("\r\n\r\n");
+    if (he == std::string::npos) return;
+    std::string head = resp.substr(0, he);
+    for (auto& c : head) c = (char)std::tolower((unsigned char)c);
+    size_t sp = head.find(' ');
+    int status = sp == std::string::npos ? 0 : std::atoi(head.c_str() + sp + 1);
+    noBody = status == 204 || status == 304;
+    chunked = head.find("transfer-encoding: chunked") != std::string::npos;
+    size_t cl = head.find("content-length:");
+    if (cl != std::string::npos) length = std::atoll(head.c_str() + cl + 15);
+    bodyStart = he + 4;
+    known = true;
+  }
+  bool complete(const std::string& resp) const {
+    if (!known) return false;
+    if (noBody) return true;
+    if (chunked) {
+      if (resp.size() < bodyStart + 5 || resp.compare(resp.size() - 5, 5, "0\r\n\r\n") != 0) return false;
+      std::string tmp;
+      return dechunk(resp.substr(bodyStart), tmp);
+    }
+    if (length >= 0) return resp.size() - bodyStart >= (size_t)length;
+    return false;
+  }
+};
+
+void httpExchange(const std::shared_ptr<Shared>& sh, const Target& t, const std::string& method, const std::string& body, const std::vector<std::pair<std::string, std::string>>& hdr, Ev& ev) {
+  Link link;
+  std::string err;
+  if (!link.open(t.host, t.port, t.tls, &sh->stop, &err)) { ev.err = err; return; }
+  std::string req = method + " " + t.path + " HTTP/1.1\r\nHost: " + t.hostHeader + "\r\nUser-Agent: PegglePort-mod/1\r\nAccept: */*\r\nConnection: close\r\n";
+  bool hasLen = false;
+  for (auto& h : hdr) { req += h.first + ": " + h.second + "\r\n"; if (h.first == "Content-Length") hasLen = true; }
+  if (!hasLen && (method == "POST" || !body.empty())) req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+  req += "\r\n" + body;
+  if (!link.send(req, &sh->stop, &err)) { ev.err = err.empty() ? "send failed" : err; return; }
+  enum class How { Reading, Complete, Ended, TimedOut, Broke, Cut } how = How::Reading;
+  std::string resp, rerr;
+  Framing fr;
+  auto lastData = std::chrono::steady_clock::now();
+  char buf[8192];
+  while (resp.size() < kMaxBody + 65536 && !sh->stop) {
+    size_t got = 0;
+    Link::R r = link.recvSome(buf, sizeof buf, &got, 20, &rerr);
+    if (r == Link::R::Data) {
+      resp.append(buf, got);
+      lastData = std::chrono::steady_clock::now();
+      fr.feed(resp);
+      if (fr.complete(resp)) { how = How::Complete; break; }
+      continue;
+    }
+    if (r == Link::R::Idle) {
+      if (std::chrono::steady_clock::now() - lastData > std::chrono::milliseconds(kTimeoutMs)) { how = How::TimedOut; break; }
+      continue;
+    }
+    how = r == Link::R::End ? How::Ended : (r == Link::R::Cut ? How::Cut : How::Broke);
+    break;
+  }
+  size_t he = resp.find("\r\n\r\n");
+  if (he == std::string::npos) {
+    if (how == How::TimedOut) ev.err = "timeout";
+    else if (!rerr.empty()) ev.err = rerr;
+    else ev.err = "bad response";
+    return;
+  }
+  if (link.tls && (how == How::TimedOut || how == How::Broke || how == How::Cut)) {
+    ev.err = how == How::TimedOut ? "timeout" : rerr;
+    return;
+  }
+  ev.status = std::atoi(resp.c_str() + resp.find(' ') + 1);
+  std::string b = resp.substr(he + 4);
+  std::string lh = resp.substr(0, he);
+  for (auto& c : lh) c = (char)std::tolower((unsigned char)c);
+  if (lh.find("transfer-encoding: chunked") != std::string::npos) {
+    std::string dec;
+    dechunk(b, dec);
+    b = dec;
+  }
+  if (b.size() > kMaxBody) b.resize(kMaxBody);
+  ev.body = std::move(b);
+}
 void httpWorker(std::shared_ptr<Shared> sh, int ref, std::string method, std::string url, std::string body, std::vector<std::pair<std::string, std::string>> hdr) {
   Ev ev;
   ev.k = Ev::Http;
   ev.ref = ref;
-  std::string host, path, err;
-  int port;
-  sock_t s = BAD_SOCK;
+  Target t;
+  std::string err;
   netLog(sh, pp::log::Level::Info, "HTTP " + method + " " + shortUrl(url));
-  if (!parseUrl(url, host, port, path, &err)) { ev.err = err; goto done; }
-  s = dial(host, port, &err);
-  if (s == BAD_SOCK) { ev.err = err; goto done; }
-  {
-    std::string req = method + " " + path + " HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: PegglePort-mod/1\r\nAccept: */*\r\nConnection: close\r\n";
-    bool hasLen = false;
-    for (auto& h : hdr) { req += h.first + ": " + h.second + "\r\n"; if (h.first == "Content-Length") hasLen = true; }
-    if (!hasLen && (method == "POST" || !body.empty())) req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-    req += "\r\n" + body;
-    if (!sendAll(s, req, &sh->stop)) { ev.err = "send failed"; goto done; }
-    std::string resp;
-    int idle = 0;
-    char buf[8192];
-    while (resp.size() < kMaxBody + 65536 && !sh->stop) {
-      int n = (int)recv(s, buf, sizeof buf, 0);
-      if (n > 0) { resp.append(buf, (size_t)n); idle = 0; continue; }
-      if (n == 0) break;
-      if (!wouldBlock()) break;
-      if (++idle > kTimeoutMs / 20) { ev.err = "timeout"; break; }
-      waitFd(s, false, 20);
-    }
-    size_t he = resp.find("\r\n\r\n");
-    if (he == std::string::npos) { if (ev.err.empty()) ev.err = "bad response"; goto done; }
-    ev.err.clear();
-    ev.status = std::atoi(resp.c_str() + resp.find(' ') + 1);
-    std::string head = resp.substr(0, he), b = resp.substr(he + 4);
-    std::string lh = head;
-    for (auto& c : lh) c = (char)std::tolower((unsigned char)c);
-    if (lh.find("transfer-encoding: chunked") != std::string::npos) {
-      std::string dec;
-      size_t p = 0;
-      while (p < b.size()) {
-        size_t e = b.find("\r\n", p);
-        if (e == std::string::npos) break;
-        size_t n = (size_t)std::strtoul(b.substr(p, e - p).c_str(), nullptr, 16);
-        if (n == 0) break;
-        dec.append(b, e + 2, n);
-        p = e + 2 + n + 2;
-      }
-      b = dec;
-    }
-    if (b.size() > kMaxBody) b.resize(kMaxBody);
-    ev.body = std::move(b);
-  }
-done:
-  if (s != BAD_SOCK) closeSock(s);
+  if (parseUrl(url, t, &err)) httpExchange(sh, t, method, body, hdr, ev);
+  else ev.err = err;
   if (!ev.err.empty()) netLog(sh, pp::log::Level::Warn, "HTTP " + method + " " + shortUrl(url) + " failed: " + ev.err);
   else netLog(sh, pp::log::Level::Info, "HTTP " + method + " " + shortUrl(url) + " answered " + std::to_string(ev.status) + " (" + std::to_string(ev.body.size()) + " bytes)");
   post(sh, std::move(ev));
   sh->threads--;
 }
-void tcpWorker(std::shared_ptr<Shared> sh, std::shared_ptr<Conn> c, std::string host, int port) {
+void tcpWorker(std::shared_ptr<Shared> sh, std::shared_ptr<Conn> c, std::string host, int port, bool secure) {
   std::string err;
   const std::string peer = host + ":" + std::to_string(port);
-  netLog(sh, pp::log::Level::Info, "TCP connecting to " + peer);
-  sock_t s = dial(host, port, &err);
-  if (s == BAD_SOCK) {
-    netLog(sh, pp::log::Level::Warn, "TCP " + peer + " failed: " + err);
+  const std::string kind = secure ? "TLS" : "TCP";
+  netLog(sh, pp::log::Level::Info, kind + " connecting to " + peer);
+  Link link;
+  if (!link.open(host, port, secure, &sh->stop, &err)) {
+    netLog(sh, pp::log::Level::Warn, kind + " " + peer + " failed: " + err);
     post(sh, {Ev::Close, c->id, 0, "", err});
   } else {
-    netLog(sh, pp::log::Level::Info, "TCP connected to " + peer);
+    netLog(sh, pp::log::Level::Info, kind + " connected to " + peer);
     post(sh, {Ev::Open, c->id, 0, "", ""});
     char buf[16384];
     std::string cause;
@@ -239,17 +369,21 @@ void tcpWorker(std::shared_ptr<Shared> sh, std::shared_ptr<Conn> c, std::string 
         out.swap(c->out);
         closeReq = c->closeReq;
       }
-      if (!out.empty() && !sendAll(s, out, &sh->stop)) { cause = "send failed"; break; }
+      std::string werr;
+      if (!out.empty() && !link.send(out, &sh->stop, &werr)) { cause = werr.empty() ? "send failed" : werr; break; }
       if (closeReq) break;
-      if (!waitFd(s, false, 20)) continue;
-      int n = (int)recv(s, buf, sizeof buf, 0);
-      if (n > 0) { post(sh, {Ev::Data, c->id, 0, std::string(buf, (size_t)n), ""}); continue; }
-      if (n == 0) break;
-      if (!wouldBlock()) { cause = "connection error"; break; }
+      size_t got = 0;
+      std::string rerr;
+      Link::R r = link.recvSome(buf, sizeof buf, &got, 20, &rerr);
+      if (r == Link::R::Data) { post(sh, {Ev::Data, c->id, 0, std::string(buf, got), ""}); continue; }
+      if (r == Link::R::Idle) continue;
+      if (r == Link::R::End) break;
+      cause = rerr.empty() ? "connection error" : rerr;
+      break;
     }
-    closeSock(s);
-    if (cause.empty()) netLog(sh, pp::log::Level::Info, "TCP " + peer + " closed");
-    else netLog(sh, pp::log::Level::Warn, "TCP " + peer + " closed: " + cause);
+    link.finish();
+    if (cause.empty()) netLog(sh, pp::log::Level::Info, kind + " " + peer + " closed");
+    else netLog(sh, pp::log::Level::Warn, kind + " " + peer + " closed: " + cause);
     post(sh, {Ev::Close, c->id, 0, "", cause});
   }
   c->done = true;
@@ -342,6 +476,9 @@ int n_tcp(lua_State* L) {
     return luaL_ref(L, LUA_REGISTRYINDEX);
   };
   h.onOpen = ref("on_open"); h.onData = ref("on_data"); h.onClose = ref("on_close");
+  lua_getfield(L, 3, "tls");
+  const bool secure = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
   h.conn = std::make_shared<Conn>();
   h.conn->id = ns->nextConn++;
   lua_createtable(L, 0, 4);
@@ -353,7 +490,7 @@ int n_tcp(lua_State* L) {
   ns->conns[h.conn->id] = h;
   ns->sh->threads++;
   try {
-    std::thread(tcpWorker, ns->sh, h.conn, host, port).detach();
+    std::thread(tcpWorker, ns->sh, h.conn, host, port, secure).detach();
   } catch (...) {
     ns->sh->threads--;
     luaL_error(L, "cannot start a network thread");
@@ -380,6 +517,7 @@ fs::path fsPath(lua_State* L, int i) {
 int f_read(lua_State* L) {
   std::string t;
   if (!readFile(fsPath(L, 1), t, 1u << 20)) { lua_pushnil(L); return 1; }
+  workSpend(L, (long long)(t.size() >> 5));
   lua_pushlstring(L, t.data(), t.size());
   return 1;
 }
@@ -388,6 +526,7 @@ int f_write(lua_State* L) {
   size_t n;
   const char* d = luaL_checklstring(L, 2, &n);
   if (n > (1u << 20)) luaL_error(L, "file too large (1 MB)");
+  workSpend(L, (long long)(n >> 5));
   std::error_code ec;
   int count = 0;
   for (auto& e : fs::directory_iterator(p.parent_path(), ec)) { (void)e; count++; }

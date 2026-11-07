@@ -221,6 +221,12 @@ static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* 
     customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
     app.showCursorHook = [&](bool custom) { SDL_SetCursor(custom && customCursor ? customCursor : SDL_GetDefaultCursor()); };
     app.showCursorHook(app.settings.customCursors);
+    app.modAssetsHook = [&] {
+      SDL_Cursor* old = customCursor;
+      customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
+      app.showCursorHook(app.settings.customCursors);
+      if (old) SDL_DestroyCursor(old);
+    };
     if (app.settings.fullscreen) SDL_SetWindowFullscreen(win, true);
     app.showLoadingScreen();
 

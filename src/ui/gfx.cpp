@@ -10,8 +10,11 @@
 #include <string>
 #include <array>
 #include <cctype>
+#include <fstream>
+#include <iterator>
 
 #include "image.h"
+#include "log.h"
 
 namespace pp::ui {
 
@@ -170,10 +173,9 @@ void Gfx::popClip() {
   applyClip();
 }
 
-Tex* Gfx::img(const std::string& idOrPath) {
-  auto it = cache_.find(idOrPath);
-  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
-  Tex T;
+void Gfx::fillTex(Tex& T, const std::string& idOrPath) {
+  if (T.t) SDL_DestroyTexture(T.t);
+  T = Tex();
   std::string path = idOrPath;
   if (const ResImage* ri = man_.image(idOrPath)) {
     path = ri->path;
@@ -196,8 +198,76 @@ Tex* Gfx::img(const std::string& idOrPath) {
       }
     }
   }
-  auto& slot = cache_[idOrPath] = T;
-  if (!slot.valid()) vfsLogMiss("image", idOrPath == path ? idOrPath : idOrPath + " (" + path + ")");
+}
+
+Tex* Gfx::img(const std::string& idOrPath) {
+  auto it = cache_.find(idOrPath);
+  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
+  auto& slot = cache_[idOrPath];
+  fillTex(slot, idOrPath);
+  if (!slot.valid()) {
+    std::string path = idOrPath;
+    if (const ResImage* ri = man_.image(idOrPath)) path = ri->path;
+    vfsLogMiss("image", idOrPath == path ? idOrPath : idOrPath + " (" + path + ")");
+  }
+  return slot.valid() ? &slot : nullptr;
+}
+
+void Gfx::reloadAssets(const VfsChange& change) {
+  if (!change.any) return;
+  const bool manifest = change.touches("properties/resources.xml");
+  if (manifest) {
+    man_ = Manifest();
+    haveMan_ = man_.load(vfs_);
+  }
+  int refreshed = 0;
+  for (auto it = cache_.begin(); it != cache_.end();) {
+    if (it->first.rfind("file:", 0) == 0) {
+      if (it->second.t) SDL_DestroyTexture(it->second.t);
+      it = cache_.erase(it);
+      continue;
+    }
+    ++it;
+  }
+  for (auto& [key, T] : cache_) {
+    std::string path = key;
+    if (const ResImage* ri = man_.image(key)) path = ri->path;
+    if (!manifest && !change.touchesImage(path) && !change.touchesImage(T.path)) continue;
+    fillTex(T, key);
+    refreshed++;
+  }
+  for (auto& [_, t] : boxCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  boxCache_.clear();
+  rgbaCache_.clear();
+  if (manifest || change.touchesFolder("fonts")) fp_ = makeDefaultFontProvider(r_, this);
+  pp::log::info("ui", "refreshed " + std::to_string(refreshed) + " of " + std::to_string(cache_.size()) + " cached images");
+}
+
+Tex* Gfx::imgFile(const std::string& file) {
+  const std::string key = "file:" + file;
+  auto it = cache_.find(key);
+  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
+  Tex T;
+  std::ifstream f(file, std::ios::binary);
+  std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  Image im;
+  if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {
+    T.w = im.w;
+    T.h = im.h;
+    T.path = file;
+    if (r_) {
+      T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h);
+      if (T.t) {
+        SDL_UpdateTexture(T.t, nullptr, im.rgba.data(), im.w * 4);
+        SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+      } else {
+        T.w = 0;
+      }
+    }
+  }
+  auto& slot = cache_[key] = T;
   return slot.valid() ? &slot : nullptr;
 }
 

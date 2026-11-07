@@ -123,6 +123,25 @@ void Audio::loadManifest() {
   }
 }
 
+void Audio::reloadAssets(const VfsChange& change) {
+  if (!change.any) return;
+  const bool all = change.touches("properties/resources.xml");
+  std::vector<std::string> drop;
+  for (auto& [id, smp] : cache_) {
+    auto m = manifest_.find(id);
+    if (all || m == manifest_.end() || change.touches(m->second.first + ".ogg")) drop.push_back(id);
+  }
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& id : drop) {
+      const Sample* s = cache_[id].get();
+      voices_.erase(std::remove_if(voices_.begin(), voices_.end(), [&](const Voice& v) { return v.s == s; }), voices_.end());
+      cache_.erase(id);
+    }
+  }
+  if (all) loadManifest();
+}
+
 const Sample* Audio::sample(const std::string& id) {
   auto c = cache_.find(id);
   if (c != cache_.end()) return c->second.get();
@@ -235,6 +254,10 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
           break;
         }
         if (e.a == 102) { play("AAH", 0, 1, 1); break; }
+        if (e.a >= masters::kFirstPower && e.a < masters::kPowerSlots) {
+          play("POWERUP", 0, 1, 1);
+          break;
+        }
         if (e.a <= 0 || e.a > 14) break;
         if (e.a == 5) play(e.b ? "EXPLODE" : "POWERUP_SPACEBLAST", e.b ? -24.0f : 0.0f);
         else if (e.a == 6) play(e.b == 0 ? "POWERUP_SPOOKYBALL" : e.b == 1 ? "SPOOKYBALL2" : "SPOOKYBALL3");

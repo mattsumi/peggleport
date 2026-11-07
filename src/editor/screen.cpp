@@ -762,6 +762,16 @@ void EditorScreen::tabObject(float x, float y0, float w) {
     }
     propRow(x, y, w, d.label, val, click, wheel, numeric);
   }
+  if (pegOf(*n)) {
+    const std::string cur = ed.customType(n);
+    y += 3;
+    T(x, y, "- Mod peg type", kLine + 0x303030);
+    y += fh_ + 2;
+    propRow(x, y, w, "Custom type", cur.empty() ? "-" : cur, [this, cur](int b) {
+      if (b != 1) return;
+      startPrompt("Custom type (mod id:type, or empty)", cur, [this](const std::string& t) { ed.setCustomType(t); dirtyLayout(); });
+    }, [](int) {}, false);
+  }
   y += 4;
   button({x, y, w, 22}, moverOf(*ed.level, *n) ? "Mover: edit..." : "Add mover...", [&] { tab_ = 1; scroll_[1] = 0; });
 }
@@ -840,6 +850,15 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   y += 25;
   num("Balls (0=10)", ed.meta.balls, "balls", 1);
   num("Orange target", ed.meta.orange, "orange", 1);
+  y += 4;
+  T(x, y, "Physics (- = original)", kGold);
+  y += fh_ + 2;
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) {
+    const char* label = physicsKey(k).name;
+    const std::string key = physicsKey(k).alias;
+    const std::string value = ed.meta.physics.has(k) ? physicsFormat(ed.meta.physics.v.at(k)) : std::string();
+    text(label, value, key.c_str());
+  }
   y += 4;
   T(x, y, "Mod folder", kGold);
   y += fh_ + 2;

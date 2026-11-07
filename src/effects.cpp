@@ -411,6 +411,7 @@ void Renderer::fxSpaceBlast(float x, float y) {
 void Renderer::fxPegSparks(const Obj& o, float cx, float cy) {
   static const uint32_t rgb[5] = {0xa8c8ff, 0xffb060, 0xff90ff, 0x90ff90, 0xffff90};
   uint32_t col = rgb[std::clamp(o.pegType == 1 ? 0 : o.pegType == 2 ? 1 : o.pegType == 3 ? 2 : o.pegType == 4 ? 3 : 4, 0, 4)];
+  if (const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr; cd && cd->hasColor) col = cd->color;
   FxState& S = fx_;
   int n = 10 + S.rand(6);
   for (int i = 0; i < n; i++) {
@@ -652,6 +653,15 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
       if (e.a > 0 && e.a < 13 && names[e.a][0]) {
         FxText& t = fxText(names[e.a], S.lastHit.x, S.lastHit.y, -1);
         t.color = 0x88ff88;
+        t.age = -35;
+        t.vy = -0.5f;
+        t.fadeOut = 10;
+        t.life = 150;
+        t.layer = 1;
+      }
+      if (const ModMaster* mm = e.a >= masters::kFirstPower ? masters::byPower(e.a) : nullptr) {
+        FxText& t = fxText(mm->banner, S.lastHit.x, S.lastHit.y, -1);
+        t.color = mm->color;
         t.age = -35;
         t.vy = -0.5f;
         t.fadeOut = 10;

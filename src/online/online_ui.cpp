@@ -42,12 +42,14 @@ void Prefs::load(const std::filesystem::path& file) {
     if (k == "lobby") lobby = v;
     else if (k == "mode") mode = std::clamp(std::atoi(v.c_str()), 0, 2);
     else if (k == "master") master = std::clamp(std::atoi(v.c_str()), 0, 10);
+    else if (k == "mastermod") masterMod = v;
     else if (k == "level") level = v;
   }
 }
 void Prefs::save(const std::filesystem::path& file) const {
   std::ofstream f(file);
   f << "lobby=" << lobby << "\nmode=" << mode << "\nmaster=" << master << "\nlevel=" << level << "\n";
+  if (!masterMod.empty()) f << "mastermod=" << masterMod << "\n";
 }
 
 static void splitHostPort(const std::string& in, std::string* host, int* port) {
@@ -115,8 +117,13 @@ class OnlineScreen : public Screen {
       if (levels_[i].name == prefs_.level) levelIdx_ = (int)i;
     mode_ = prefs_.mode;
     master_ = prefs_.master;
-    nMasters_ = a.game == Game::Nights ? 11 : 10;
-    master_ = std::clamp(master_, 0, nMasters_ - 1);
+    nMasters_ = masterTotal(a.game == Game::Nights);
+    master_ = std::clamp(master_, 0, (a.game == Game::Nights ? 11 : 10) - 1);
+    if (!prefs_.masterMod.empty()) {
+      const auto& mods = masters::all();
+      for (size_t k = 0; k < mods.size(); k++)
+        if (mods[k].key() == prefs_.masterMod) master_ = (a.game == Game::Nights ? 11 : 10) + (int)k;
+    }
 
     auto edit = [&](int id, float x, float y, float w, size_t maxChars) {
       auto e = std::make_unique<NetEdit>();
@@ -178,7 +185,9 @@ class OnlineScreen : public Screen {
   void savePrefs() {
     prefs_.lobby = lobbyEdit_->value;
     prefs_.mode = mode_;
-    prefs_.master = master_;
+    const int nb = app.game == Game::Nights ? 11 : 10;
+    prefs_.master = std::min(master_, nb - 1);
+    prefs_.masterMod = master_ >= nb ? masterKeyAt(app.game == Game::Nights, master_) : std::string();
     if (!levels_.empty()) prefs_.level = levels_[levelIdx_].name;
     if (!app.cfg.noSave) {
       std::error_code ec;
@@ -297,7 +306,7 @@ class OnlineScreen : public Screen {
     mi.seed = app.rand();
     mi.boardWidth = lb.cfg.boardWidth;
     for (int i = 0; i < 4; i++) mi.master[i] = lb.cfg.master[i];
-    for (int i = 0; i < players; i++) mi.master[i] = Board::masterByName(masterKey((master_ + i) % nMasters_));
+    for (int i = 0; i < players; i++) mi.master[i] = Board::masterByName(masterKeyAt(app.game == Game::Nights, (master_ + i) % nMasters_));
     mi.level = lb.name;
     mi.contentHash = pp::online::matchContentHash(lb);
     lb_ = lb;
@@ -475,6 +484,10 @@ class OnlineScreen : public Screen {
       std::string err;
       const MatchInfo& mi = sess_->info();
       LevelBundle lb;
+      if (!mi.missingMaster.empty()) {
+        leaveRoom("The host picked the Master \"" + mi.missingMaster + "\" from a mod that you do not have, so you cannot join this room.", 1);
+        return;
+      }
       if (!loadLevel(mi.level, &lb, &err)) { leaveRoom("You do not have the level \"" + mi.level + "\" that the host chose (" + err + ").", 1); return; }
       if (pp::online::matchContentHash(lb) != mi.contentHash) {
         leaveRoom("Your copy of \"" + mi.level + "\" (or your mods) differs from the host's, so the game would not stay in sync.", 1);
@@ -581,7 +594,18 @@ class OnlineScreen : public Screen {
     g.drawString("PLAIN", 214, 290, "Master", 0xffffff, 1);
     std::string lvl = levels_.empty() ? "-" : levels_[levelIdx_].title.empty() ? levels_[levelIdx_].name : levels_[levelIdx_].title;
     g.drawString("PLAIN", 470, 237, lvl.substr(0, 22), 0xffff88, 1, Align::Center);
-    g.drawString("PLAIN", 470, 291, masterDisplayName((master_)), 0xffff88, 1, Align::Center);
+    g.drawString("PLAIN", 470, 291, masterNameAt(app.game == Game::Nights, master_), 0xffff88, 1, Align::Center);
+    if (const auto& mods = masters::all(); !mods.empty()) {
+      const int nb = app.game == Game::Nights ? 11 : 10;
+      std::string line = std::to_string(master_ + 1) + " of " + std::to_string(nMasters_);
+      uint32_t col = 0xaaaaaa;
+      if (master_ >= nb && master_ - nb < (int)mods.size()) {
+        const ModMaster& m = mods[(size_t)(master_ - nb)];
+        line = m.powerName + "  -  mod " + m.modId;
+        col = 0x88ff88;
+      }
+      g.drawString("PLAIN", 470, 311, line.substr(0, 48), col, 1, Align::Center);
+    }
     g.drawWrapped("PLAIN", {214, 330, 410, 40}, "Friends join with the room code or the invite link. You can start once everybody is ready.", 0xcccccc);
   }
 
@@ -602,6 +626,7 @@ class OnlineScreen : public Screen {
       if (i == 0 && !known && isHost_) nm = playerName();
       g.drawString("PLAIN", 132, y + 19, "Seat " + std::to_string(i + 1), 0xaaaaff);
       g.drawString("PLAIN", 220, y + 19, nm, known || (i == 0 && isHost_) ? 0xffffff : 0x777777);
+      if (!masters::all().empty() && i < 4) g.drawString("PLAIN", 440, y + 19, masterNameForPower(mi.master[mi.party ? 0 : i]).substr(0, 18), 0xc0d0ff);
       std::string st = i == 0 ? "host" : !known ? "waiting" : roster[i].ready ? "ready" : "not ready";
       g.drawString("PLAIN", 668, y + 19, st, st == "ready" || st == "host" ? 0x90ff90 : 0xffe070, 1, Align::Right);
     }

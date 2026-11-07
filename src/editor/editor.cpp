@@ -58,7 +58,33 @@ static bool spit(const fs::path& p, const void* data, size_t n) {
 }
 static bool spit(const fs::path& p, const std::string& s) { return spit(p, s.data(), s.size()); }
 
+static std::vector<const Node*> builtNodes(const Level& L);
+
+std::string Editor::customType(const NodeP& n) const {
+  auto it = customTypes.find(n.get());
+  return it == customTypes.end() ? std::string() : it->second;
+}
+
+void Editor::setCustomType(const std::string& key) {
+  std::string k;
+  for (char c : key)
+    if (c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != ',' && c != '=') k.push_back(c);
+  int n = 0;
+  for (auto& node : sel) {
+    if (!pegOf(*node)) continue;
+    if (k.empty()) customTypes.erase(node.get());
+    else customTypes[node.get()] = k;
+    n++;
+  }
+  if (n) {
+    metaDirty = true;
+    status = k.empty() ? "custom type removed" : "custom type " + k + " on " + std::to_string(n) + " peg(s)";
+    changed();
+  }
+}
+
 void Editor::resetHistory() {
+  customTypes.clear();
   undo_.clear();
   redo_.clear();
   open_ = false;
@@ -153,11 +179,18 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   meta.name = lb.name;
   meta.title = lb.title;
   meta.background = lb.background;
+  meta.master = lb.master;
   meta.boardWidth = lb.cfg.boardWidth;
   meta.balls = lb.cfg.balls;
   meta.orange = lb.cfg.orange;
+  meta.physics = lb.cfg.physics;
   savedPath.clear();
   finishLoad();
+  {
+    auto nodes = builtNodes(*level);
+    for (auto& [idx, key] : lb.cfg.pegTypes)
+      if (idx >= 0 && (size_t)idx < nodes.size() && pegOf(*nodes[(size_t)idx])) customTypes[nodes[(size_t)idx]] = key;
+  }
   status = "opened " + lb.name + " (" + std::to_string(objects().size()) + " objects)";
   return true;
 }
@@ -233,6 +266,19 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   if (meta.orange != 25) ini << "orange = " << meta.orange << "\n";
   if (!meta.background.empty() && meta.background != meta.name) ini << "background = " << meta.background << "\n";
   if (!meta.master.empty()) ini << "master = " << meta.master << "\n";
+  for (int k = 0; k < PhysicsParams::KeyCount; k++)
+    if (meta.physics.has(k)) ini << physicsKey(k).alias << " = " << physicsFormat(meta.physics.v.at(k)) << "\n";
+  if (!customTypes.empty()) {
+    auto nodes = builtNodes(*level);
+    std::map<std::string, std::string> byType;
+    for (size_t i = 0; i < nodes.size(); i++) {
+      auto it = customTypes.find(nodes[i]);
+      if (it == customTypes.end()) continue;
+      std::string& list = byType[it->second];
+      list += (list.empty() ? "" : ", ") + std::to_string(i);
+    }
+    for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
+  }
   spit(lv / (meta.name + ".ini"), ini.str());
   std::vector<std::pair<std::string, std::string>> levels;
   {
@@ -622,7 +668,12 @@ void Editor::setMeta(const std::string& k, const std::string& v) {
   else if (k == "board_width") meta.boardWidth = std::clamp(std::atoi(v.c_str()), 650, 1400);
   else if (k == "balls") meta.balls = std::clamp(std::atoi(v.c_str()), 0, 99);
   else if (k == "orange") meta.orange = std::clamp(std::atoi(v.c_str()), 0, 500);
-  else return;
+  else if (int pk = 0; physicsKeyByName(k, pk)) {
+    double d = 0;
+    if (v.empty() || v == "-") meta.physics.clear(pk);
+    else if (physicsParseNumber(v, d)) meta.physics.set(pk, d);
+    else return;
+  } else return;
   metaDirty = true;
   changed();
 }
@@ -800,6 +851,7 @@ BoardConfig Editor::boardConfig(uint32_t seed) const {
   c.boardWidth = std::max(650, meta.boardWidth);
   c.balls = meta.balls;
   c.orange = meta.orange;
+  c.physics = meta.physics;
   c.seed = seed;
   int m = meta.master.empty() ? 0 : Board::masterByName(meta.master);
   for (int i = 0; i < 4; i++) c.master[i] = m;

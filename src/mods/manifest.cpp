@@ -13,6 +13,7 @@
 #include <map>
 #include <filesystem>
 
+#include "mods/hostreg.h"
 #include "mods/json.h"
 #include "vfs.h"
 
@@ -49,17 +50,7 @@ std::string sanitizeId(const std::string& s) {
   }
   return o.empty() ? "mod" : o;
 }
-bool safeRelPath(const std::string& rel) {
-  if (rel.empty() || rel[0] == '/' || rel[0] == '\\' || rel.find(':') != std::string::npos || rel.find('\0') != std::string::npos) return false;
-  std::string seg;
-  for (size_t i = 0; i <= rel.size(); i++) {
-    if (i == rel.size() || rel[i] == '/' || rel[i] == '\\') {
-      if (seg == "..") return false;
-      seg.clear();
-    } else seg += rel[i];
-  }
-  return true;
-}
+bool safeRelPath(const std::string& rel) { return modhost::relPathOk(rel); }
 
 static std::vector<std::string> splitList(const std::string& s) {
   std::vector<std::string> v;

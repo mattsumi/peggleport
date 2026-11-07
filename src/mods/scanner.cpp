@@ -15,9 +15,9 @@ namespace pp::mods {
 
 const char* kScanDisclaimer =
     "This scan is best effort. It looks for network API use, URLs and library imports in the files of the mod, but it cannot prove "
-    "a mod never goes online: a determined author can hide network use inside a native plugin (packed or encrypted code, names "
-    "built at run time). Lua mods without the net permission run in a sandbox that has no sockets at all; native plugins are not "
-    "sandboxed. Only enable mods you trust.";
+    "a mod never goes online: a determined author can hide network use in the code (packed or encrypted code, names built at run "
+    "time). Lua mods without the net permission run in a sandbox that has no sockets at all, and native plugins run in a separate "
+    "restricted helper process (the permission dialog says what your system can enforce). Only enable mods you trust.";
 
 bool ScanReport::usesNet() const {
   if (declaredNet) return true;
@@ -166,7 +166,7 @@ void scanNativeBytes(const std::string& file, std::string_view b, ScanReport& r)
     std::memcpy(&m, b.data(), 4);
     if (m == 0xfeedfaceu || m == 0xfeedfacfu || m == 0xcefaedfeu || m == 0xcffaedfeu || m == 0xcafebabeu || m == 0xbebafecau) fmt = "Mach-O (macOS)";
   }
-  add(r, Finding::Native, file, 0, std::string("native code, format: ") + fmt + " (not sandboxed)");
+  add(r, Finding::Native, file, 0, std::string("native code, format: ") + fmt);
   std::set<std::string> strs;
   std::string cur;
   auto flush = [&] {

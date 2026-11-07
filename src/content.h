@@ -16,7 +16,7 @@ uint64_t fnv1a(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
 struct LevelBundle {
   std::shared_ptr<const Level> base, level;
-  std::string name, title, background, source;
+  std::string name, title, background, source, master;
   BoardConfig cfg;
   uint64_t contentHash = 0;
 };

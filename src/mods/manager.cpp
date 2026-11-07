@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -13,6 +14,8 @@
 #include <string>
 #include <filesystem>
 
+#include "masters.h"
+#include "mods/hostproto.h"
 #include "mods/json.h"
 #include "sim.h"
 #include "vfs.h"
@@ -37,6 +40,7 @@ void failMod(std::vector<std::unique_ptr<ModInfo>>& mods, std::unique_ptr<ModInf
   m->m.id = id;
   m->m.name = name;
   m->state = ModInfo::Failed;
+  m->discoveryFailed = true;
   m->error = err;
   pp::log::error("mod:" + id, "cannot load: " + err);
   mods.push_back(std::move(m));
@@ -86,21 +90,24 @@ void ModManager::loadConfig(std::vector<std::string>& enabled) {
   if (auto* e = j.get("enabled")) for (auto& x : e->a) enabled.push_back(x.asStr());
   if (auto* o = j.get("order")) for (auto& x : o->a) order_.push_back(x.asStr());
   if (auto* c = j.get("consent")) for (auto& [k, v] : c->o) consent_[k] = v.asStr();
+  if (auto* u = j.get("unrestricted")) for (auto& [k, v] : u->o) unrestricted_[k] = v.asStr();
 }
 
 bool ModManager::save() const {
   if (userDir_.empty()) return false;
   Json j = Json::object();
   j.set("version", Json::num(1));
-  Json en = Json::array(), ord = Json::array(), con = Json::object();
+  Json en = Json::array(), ord = Json::array(), con = Json::object(), unr = Json::object();
   for (auto& m : mods_) {
     ord.a.push_back(Json::str(m->m.id));
     if (m->enabled && !m->fromCli) en.a.push_back(Json::str(m->m.id));
   }
   for (auto& [h, id] : consent_) con.set(h, Json::str(id));
+  for (auto& [h, id] : unrestricted_) unr.set(h, Json::str(id));
   j.set("enabled", en);
   j.set("order", ord);
   j.set("consent", con);
+  if (!unrestricted_.empty()) j.set("unrestricted", unr);
   std::error_code ec;
   fs::create_directories(userDir_, ec);
   std::ofstream f(userDir_ / "mods.json", std::ios::binary);
@@ -196,9 +203,11 @@ void ModManager::logDiscovered(const ModInfo& mi) {
 }
 
 void ModManager::discover(const std::vector<std::string>& cliMods) {
+  cli_ = cliMods;
   mods_.clear();
   order_.clear();
   consent_.clear();
+  unrestricted_.clear();
   std::vector<std::string> enabled;
   loadConfig(enabled);
   std::error_code ec;
@@ -224,7 +233,10 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
       mi->enabled = mi->state != ModInfo::Failed;
     }
   }
-  for (auto& m : mods_) m->consented = consent_.count(m->hashHex) > 0;
+  for (auto& m : mods_) {
+    m->consented = consent_.count(m->hashHex) > 0;
+    m->unrestricted = unrestricted_.count(m->hashHex) > 0;
+  }
   std::vector<std::unique_ptr<ModInfo>> sorted;
   for (auto& id : order_)
     for (auto& m : mods_) if (m && m->m.id == id) { sorted.push_back(std::move(m)); break; }
@@ -233,24 +245,113 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
   std::sort(rest.begin(), rest.end(), [](auto& a, auto& b) { return a->m.priority != b->m.priority ? a->m.priority > b->m.priority : a->m.id < b->m.id; });
   for (auto& m : rest) sorted.push_back(std::move(m));
   mods_ = std::move(sorted);
+  folderSig_ = folderSignature();
   pp::log::info("mods", std::to_string(mods_.size()) + " mod(s) found");
+}
+
+std::string ModManager::folderSignature() const {
+  if (userDir_.empty()) return {};
+  std::error_code ec;
+  fs::path root = modsDir();
+  if (!fs::is_directory(root, ec)) return "none";
+  std::vector<std::string> rows;
+  for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
+    if (ec) break;
+    std::string nm = it->path().filename().string();
+    if (!nm.empty() && nm[0] == '.') {
+      if (it->is_directory(ec)) it.disable_recursion_pending();
+      continue;
+    }
+    std::string row = it->path().lexically_relative(root).generic_string();
+    if (it->is_regular_file(ec)) {
+      row += "|" + std::to_string((unsigned long long)it->file_size(ec));
+      row += "|" + std::to_string((long long)it->last_write_time(ec).time_since_epoch().count());
+    }
+    rows.push_back(std::move(row));
+  }
+  std::sort(rows.begin(), rows.end());
+  uint64_t h = 1469598103934665603ull;
+  for (auto& r : rows) {
+    h = fnvMix(h, r.data(), r.size());
+    h = fnvMix(h, "\n", 1);
+  }
+  return hex64(h) + ":" + std::to_string(rows.size());
+}
+
+bool ModManager::folderChanged() const { return !userDir_.empty() && folderSignature() != folderSig_; }
+
+std::string ModManager::loadPlan() const {
+  std::string s;
+  for (auto& m : mods_)
+    if (m->willLoad()) s += m->m.id + ":" + m->hashHex + (m->unrestricted ? "!" : "") + ";";
+  return s;
+}
+
+std::string ModManager::statusText() const {
+  int failed = 0, waiting = 0;
+  for (auto& m : mods_) {
+    if (m->enabled && m->state == ModInfo::Failed) failed++;
+    if (m->enabled && m->state == ModInfo::NeedsConsent) waiting++;
+  }
+  std::string s = std::to_string(activeCount()) + " of " + std::to_string(mods_.size()) + (mods_.size() == 1 ? " mod active" : " mods active");
+  if (failed) s += ", " + std::to_string(failed) + " could not load";
+  if (waiting) s += ", " + std::to_string(waiting) + " waiting for your OK";
+  return s;
+}
+
+void ModManager::rediscover() {
+  std::map<std::string, bool> wasEnabled;
+  std::map<std::string, size_t> rank;
+  for (size_t i = 0; i < mods_.size(); i++) {
+    wasEnabled[mods_[i]->m.id] = mods_[i]->enabled;
+    rank[mods_[i]->m.id] = i;
+  }
+  discover(cli_);
+  for (auto& m : mods_) {
+    auto it = wasEnabled.find(m->m.id);
+    if (it != wasEnabled.end() && !m->fromCli && !m->discoveryFailed) m->enabled = it->second;
+  }
+  std::stable_sort(mods_.begin(), mods_.end(), [&](const std::unique_ptr<ModInfo>& a, const std::unique_ptr<ModInfo>& b) {
+    auto ia = rank.find(a->m.id), ib = rank.find(b->m.id);
+    const size_t ra = ia == rank.end() ? rank.size() : ia->second, rb = ib == rank.end() ? rank.size() : ib->second;
+    return ra < rb;
+  });
 }
 
 bool ModManager::setEnabled(const std::string& id, bool on) {
   ModInfo* m = find(id);
-  if (!m || m->state == ModInfo::Failed) return false;
+  if (!m || m->discoveryFailed) return false;
   m->enabled = on;
-  pp::log::info("mod:" + id, on ? "enabled (loads the next time the game starts)" : "disabled (unloads the next time the game starts)");
+  pp::log::info("mod:" + id, on ? "enabled" : "disabled");
   return m->fromCli ? true : save();
 }
 bool ModManager::setConsent(const std::string& id, bool grant) {
   ModInfo* m = find(id);
   if (!m) return false;
   m->consented = grant;
-  if (grant) consent_[m->hashHex] = id;
-  else consent_.erase(m->hashHex);
+  if (grant) {
+    consent_[m->hashHex] = id;
+  } else {
+    consent_.erase(m->hashHex);
+    unrestricted_.erase(m->hashHex);
+    m->unrestricted = false;
+  }
   pp::log::info("mod:" + id, grant ? "consent given for this exact version (content hash " + m->hashHex + ")" : "consent withdrawn");
   return save();
+}
+bool ModManager::setUnrestricted(const std::string& id, bool grant) {
+  ModInfo* m = find(id);
+  if (!m) return false;
+  m->unrestricted = grant;
+  if (grant) unrestricted_[m->hashHex] = id;
+  else unrestricted_.erase(m->hashHex);
+  pp::log::info("mod:" + id, grant ? "allowed to run without restrictions for this exact version (content hash " + m->hashHex + ")" : "running without restrictions is no longer allowed");
+  return save();
+}
+bool ModManager::needsUnrestrictedStep(const ModInfo& m) const {
+  if (m.m.native.empty() || !m.consented || m.unrestricted) return false;
+  NativeStatus ps = NativeMod::probe();
+  return ps.probed && !ps.full();
 }
 void ModManager::move(const std::string& id, int delta) {
   for (size_t i = 0; i < mods_.size(); i++)
@@ -258,7 +359,7 @@ void ModManager::move(const std::string& id, int delta) {
       long j = std::clamp<long>((long)i + delta, 0, (long)mods_.size() - 1);
       if ((size_t)j != i) {
         std::swap(mods_[i], mods_[(size_t)j]);
-        pp::log::info("mod:" + id, "load order changed (applies the next time the game starts)");
+        pp::log::info("mod:" + id, "load order changed");
       }
       save();
       return;
@@ -293,8 +394,11 @@ void ModManager::activate(Vfs* vfs) {
   for (auto& mp : mods_) {
     ModInfo& m = *mp;
     const std::string src = "mod:" + m.m.id;
-    if (m.state == ModInfo::Failed) continue;
+    if (m.discoveryFailed) continue;
+    if (m.failedOnLoad && m.enabled) continue;
+    m.failedOnLoad = false;
     m.state = ModInfo::Off;
+    m.error.clear();
     if (!m.enabled) continue;
     if (m.needsConsent()) {
       m.state = ModInfo::NeedsConsent;
@@ -302,15 +406,24 @@ void ModManager::activate(Vfs* vfs) {
       continue;
     }
     if (m.m.api > kModApi) {
-      m.state = ModInfo::Failed;
-      m.error = "needs a newer mod API";
+      failLoad(m, "needs a newer mod API");
       pp::log::error(src, "not loaded: " + m.error);
       continue;
     }
+    m.needsUnrestricted = false;
+    if (!m.m.native.empty() && !m.unrestricted) {
+      NativeStatus ps = NativeMod::probe();
+      m.protections = ps.protections;
+      if (ps.probed && !ps.full()) {
+        m.state = ModInfo::NeedsConsent;
+        m.needsUnrestricted = true;
+        pp::log::warn(src, "not loaded: this plugin could not be restricted on this system (" + NativeMod::missingText(ps.protections) + "). It loads only if you allow it to run without restrictions");
+        continue;
+      }
+    }
     std::string err;
     if (vfs && !vfs->mountMod(m.dir, &err)) {
-      m.state = ModInfo::Failed;
-      m.error = err;
+      failLoad(m, err);
       host_.log(m.m.id, pp::log::Level::Error, "not loaded: " + err);
       continue;
     }
@@ -318,28 +431,39 @@ void ModManager::activate(Vfs* vfs) {
       m.lua = std::make_unique<LuaMod>(m.m, m.dir, host_);
       host_.board = nullptr;
       if (!m.lua->open(&err)) {
-        m.state = ModInfo::Failed;
-        m.error = err;
+        failLoad(m, err);
         host_.log(m.m.id, pp::log::Level::Error, "failed to load: " + err);
         m.lua.reset();
+        if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
     }
     if (!m.m.native.empty()) {
       fs::path lib = resolveNative(m.dir, m.m);
       if (lib.empty()) {
-        m.state = ModInfo::Failed;
-        m.error = "native library not found for this platform: " + m.m.native;
+        failLoad(m, "native library not found for this platform: " + m.m.native);
         host_.log(m.m.id, pp::log::Level::Error, "not loaded: " + m.error);
+        m.lua.reset();
+        if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
-      m.native = NativeMod::load(lib, m.m, host_, &err);
+      NativeStatus ns;
+      NativeOptions no;
+      no.dir = m.dir;
+      no.allowUnrestricted = m.unrestricted;
+      no.status = &ns;
+      m.native = NativeMod::load(lib, m.m, host_, &err, no);
+      m.protections = ns.protections;
       if (!m.native) {
-        m.state = ModInfo::Failed;
-        m.error = err;
+        failLoad(m, err);
         host_.log(m.m.id, pp::log::Level::Error, "native plugin failed: " + err);
+        m.lua.reset();
+        if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
+      m.helperRuns = true;
+      if (!ns.full()) host_.log(m.m.id, pp::log::Level::Warn, "the native plugin runs without full restrictions (" + NativeMod::missingText(ns.protections) + ") because you allowed it");
+      else host_.log(m.m.id, pp::log::Level::Info, "native plugin runs in a restricted helper process: " + NativeMod::protectionText(ns.protections) + " [" + ns.detail + "]");
     }
     m.state = ModInfo::Active;
     std::string what;
@@ -348,29 +472,192 @@ void ModManager::activate(Vfs* vfs) {
     if (what.empty()) what = "data only";
     host_.log(m.m.id, pp::log::Level::Info, "loaded " + m.m.name + " " + m.m.version + " (" + what + (m.m.cosmetic ? ", cosmetic" : "") + ")");
   }
+  buildPegTypes();
   setHash_ = computeSetHash();
+  installMasters();
   bool code = false;
   for (auto& m : mods_) if (m->state == ModInfo::Active && m->hasCode()) code = true;
   g_modSetHash = setHash_;
+  refreshTypeSig();
   if (code) { g_simHooks = this; installed_ = true; }
   g_mods = this;
+  appliedPlan_ = loadPlan();
+  activated_ = true;
   pp::log::info("mods", std::to_string(activeCount()) + " of " + std::to_string(mods_.size()) + " mod(s) active");
+}
+
+ReloadResult ModManager::reload(Vfs& vfs) {
+  const auto t0 = std::chrono::steady_clock::now();
+  ReloadResult r;
+  auto finish = [&] {
+    r.total = (int)mods_.size();
+    r.active = activeCount();
+    for (auto& m : mods_)
+      if (m->enabled && m->state == ModInfo::Failed) r.failed++;
+    r.ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+  };
+  pp::log::info("mods", "applying mod changes");
+  bool rescan = folderChanged();
+  if (!rescan && activated_ && loadPlan() == appliedPlan_) {
+    r.skipped = true;
+    settleStates();
+    finish();
+    pp::log::info("mods", "nothing to change: " + statusText());
+    return r;
+  }
+  if (!rescan) {
+    for (auto& m : mods_)
+      if (m->willLoad() && m->hasCode() && hashModDir(m->dir) != m->hash) {
+        pp::log::warn("mod:" + m->m.id, "its files changed after the scan; looking at the mods folder again");
+        rescan = true;
+        break;
+      }
+  }
+  const std::string before = vfs.modSignature();
+  std::set<std::string> keys;
+  vfs.modKeys(keys);
+  deactivate();
+  if (rescan) rediscover();
+  vfs.unmountMods();
+  activate(&vfs);
+  r.rescanned = rescan;
+  r.changed = rescan || before != vfs.modSignature();
+  if (r.changed) {
+    vfs.modKeys(keys);
+    r.assets.any = true;
+    r.assets.keys = std::move(keys);
+  }
+  finish();
+  pp::log::info("mods", "mod changes applied: " + statusText() + " (" + std::to_string(r.ms) + " ms)");
+  return r;
+}
+
+void ModManager::failLoad(ModInfo& m, const std::string& err) {
+  m.state = ModInfo::Failed;
+  m.failedOnLoad = true;
+  m.error = err;
+}
+
+void ModManager::settleStates() {
+  for (auto& m : mods_) {
+    if (m->discoveryFailed || m->willLoad()) continue;
+    m->failedOnLoad = false;
+    const ModInfo::State want = m->enabled && m->needsConsent() ? ModInfo::NeedsConsent : ModInfo::Off;
+    if (m->state == want) continue;
+    m->state = want;
+    m->error.clear();
+    if (want == ModInfo::NeedsConsent) pp::log::warn("mod:" + m->m.id, "not loaded: it uses the network or native code and needs your consent first");
+  }
 }
 
 void ModManager::deactivate() {
   if (installed_ && g_simHooks == this) g_simHooks = nullptr;
   installed_ = false;
+  activated_ = false;
+  appliedPlan_.clear();
   if (g_modSetHash == setHash_) g_modSetHash = 0;
-  if (g_mods == this) g_mods = nullptr;
+  if (g_mods == this) {
+    g_mods = nullptr;
+    masters::clear();
+  }
+  if (g_pegTypes == &pegTable_) g_pegTypes = nullptr;
+  g_modTypeSig = 0;
+  pegTable_.defs.clear();
+  pegOwners_.clear();
+  binds_.clear();
   for (auto& m : mods_) {
     m->lua.reset();
     m->native.reset();
+    m->helperRuns = false;
     if (m->state == ModInfo::Active) {
       pp::log::info("mod:" + m->m.id, "unloaded");
       m->state = ModInfo::Off;
     }
   }
   queue_.clear();
+}
+
+void ModManager::refreshTypeSig() {
+  if (pegTable_.defs.empty() && masters::all().empty()) {
+    g_modTypeSig = 0;
+    return;
+  }
+  uint64_t h = 1469598103934665603ull;
+  for (const PegTypeDef& d : pegTable_.defs) {
+    const std::string k = d.key();
+    h = fnvMix(h, k.data(), k.size());
+    h = fnvMix(h, "\n", 1);
+  }
+  for (const ModMaster& m : masters::all()) {
+    const std::string k = m.key();
+    h = fnvMix(h, k.data(), k.size());
+    h = fnvMix(h, &m.power, sizeof m.power);
+  }
+  g_modTypeSig = h;
+}
+
+void ModManager::installMasters() {
+  struct Item {
+    ModMaster mm;
+    MasterBind bind;
+  };
+  std::vector<Item> items;
+  auto portraitFor = [&](ModInfo& m, const std::string& id, const std::string& rel) -> std::string {
+    if (rel.empty()) return "";
+    std::error_code ec;
+    if (!safeRelPath(rel) || !fs::is_regular_file(m.dir / rel, ec)) {
+      host_.log(m.m.id, pp::log::Level::Warn, "Master '" + id + "': the portrait file '" + rel + "' was not found in the mod folder, a placeholder is used");
+      return "";
+    }
+    return (m.dir / rel).string();
+  };
+  for (auto& mp : mods_) {
+    ModInfo& m = *mp;
+    if (m.state != ModInfo::Active || m.m.cosmetic) continue;
+    auto fill = [&](const auto& d, bool native, size_t idx) {
+      Item it;
+      it.mm.modId = m.m.id;
+      it.mm.id = d.id;
+      it.mm.name = d.name;
+      it.mm.description = d.description;
+      it.mm.powerName = d.powerName;
+      it.mm.powerDescription = d.powerDescription;
+      it.mm.banner = d.banner;
+      it.mm.portrait = d.portrait;
+      it.mm.portraitFile = portraitFor(m, d.id, d.portrait);
+      it.mm.turns = d.turns;
+      it.mm.trigger = d.trigger;
+      it.mm.color = d.color;
+      it.bind = {&m, native, idx};
+      items.push_back(std::move(it));
+    };
+    if (m.lua)
+      for (size_t i = 0; i < m.lua->masters.size(); i++) fill(m.lua->masters[i], false, i);
+    if (m.native)
+      for (size_t i = 0; i < m.native->masters().size(); i++) fill(m.native->masters()[i], true, i);
+  }
+  std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.mm.modId != b.mm.modId ? a.mm.modId < b.mm.modId : a.mm.id < b.mm.id; });
+  std::vector<Item> kept;
+  for (auto& it : items) {
+    if (!kept.empty() && kept.back().mm.key() == it.mm.key()) {
+      host_.log(it.mm.modId, pp::log::Level::Warn, "Master '" + it.mm.id + "' is registered twice, the second one is ignored");
+      continue;
+    }
+    if ((int)kept.size() >= masters::kMaxMods) {
+      host_.log(it.mm.modId, pp::log::Level::Warn, "Master '" + it.mm.id + "' is ignored: the game takes at most " + std::to_string(masters::kMaxMods) + " Masters from mods");
+      continue;
+    }
+    kept.push_back(std::move(it));
+  }
+  std::vector<ModMaster> list;
+  binds_.clear();
+  for (auto& it : kept) {
+    list.push_back(it.mm);
+    binds_.push_back(it.bind);
+  }
+  masters::install(std::move(list));
+  for (auto& m : masters::all())
+    host_.log(m.modId, pp::log::Level::Info, "Master '" + m.id + "' (" + m.name + ") is available as power " + std::to_string(m.power));
 }
 
 std::string ModManager::report() const {
@@ -416,7 +703,7 @@ void ModManager::levelStart(Board& b) {
       for (auto& o : b.objs) if (o.pegType > 0) n++;
       lua_pushinteger(L, n); lua_setfield(L, -2, "pegs");
     });
-    if (m.native) m.native->levelStart();
+    if (m.native) { m.native->levelStart(); checkNative(m); }
   });
   flush(b);
 }
@@ -426,7 +713,7 @@ void ModManager::stepBegin(Board& b) {
   Scope sc(*this, &b, Ctx::Sim);
   eachSim([&](ModInfo& m) {
     if (m.lua) m.lua->callSim("on_tick", 1, [&](lua_State* L) { lua_pushinteger(L, b.tick); });
-    if (m.native) m.native->tick();
+    if (m.native) { m.native->tick(); checkNative(m); }
   });
   flush(b);
 }
@@ -469,7 +756,7 @@ void ModManager::event(Board& b, int type, int a, int bb, int c, int ball) {
       int n = type == Event::PegLit || type == Event::Power || type == Event::StyleShot || type == Event::ShotEnd ? 2 : (type == Event::Shot || type == Event::LevelDone ? 1 : 0);
       m.lua->callSim(hook, n, push);
     }
-    if (m.native) m.native->event(type, a, bb, c, ball);
+    if (m.native) { m.native->event(type, a, bb, c, ball); checkNative(m); }
   });
 }
 
@@ -483,9 +770,105 @@ bool ModManager::power(Board& b, int pegIdx, int pw, bool silent) {
           m.lua->activatePower(p, b.cur, pegIdx);
           if (p.replace) replaced = true;
         }
-    if (m.native && m.native->power(pegIdx, pw)) replaced = true;
+    if (m.native) {
+      if (m.native->power(pegIdx, pw)) replaced = true;
+      checkNative(m);
+    }
   });
   return replaced;
+}
+
+void ModManager::basePhysics(PhysicsParams& p) {
+  eachSim([&](ModInfo& m) {
+    if (m.lua) m.lua->loadPhysics.applyTo(p);
+    if (m.native) m.native->loadPhysics().applyTo(p);
+  });
+}
+
+void ModManager::buildPegTypes() {
+  struct Item {
+    PegTypeDef def;
+    PegOwner owner;
+  };
+  std::vector<Item> items;
+  for (auto& mp : mods_) {
+    ModInfo& m = *mp;
+    if (m.state != ModInfo::Active || m.m.cosmetic) continue;
+    if (m.lua)
+      for (auto& r : m.lua->pegTypes) items.push_back({r.def, {&m, r.hitRef, r.clearRef, nullptr}});
+    if (m.native)
+      for (auto& r : m.native->pegTypes()) {
+        bool dup = false;
+        for (auto& it : items) dup |= it.def.mod == r.def.mod && it.def.id == r.def.id;
+        if (dup) {
+          host_.log(m.m.id, pp::log::Level::Warn, "peg type '" + r.def.id + "' is defined twice in this mod; the second one is ignored");
+          continue;
+        }
+        items.push_back({r.def, {&m, 0, 0, &r}});
+      }
+  }
+  std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.def.mod != b.def.mod ? a.def.mod < b.def.mod : a.def.id < b.def.id; });
+  pegTable_.defs.clear();
+  pegOwners_.clear();
+  for (auto& it : items) {
+    pegTable_.defs.push_back(it.def);
+    pegOwners_.push_back(it.owner);
+  }
+  g_pegTypes = pegTable_.defs.empty() ? nullptr : &pegTable_;
+  if (!items.empty()) pp::log::info("mods", std::to_string(items.size()) + " peg type(s) defined");
+}
+
+void ModManager::pegCustom(Board& b, int pegIdx, int what, int ball, int custom) {
+  if (custom < 1 || custom > (int)pegOwners_.size()) return;
+  const PegOwner& ow = pegOwners_[(size_t)custom - 1];
+  if (!ow.mod || ow.mod->state != ModInfo::Active) return;
+  Scope sc(*this, &b, Ctx::Sim);
+  if (ow.nat) {
+    if (ow.mod->native) {
+      ow.mod->native->pegHook(*ow.nat, what == 1, pegIdx, ball);
+      checkNative(*ow.mod);
+    }
+    return;
+  }
+  const int ref = what == 1 ? ow.clearRef : ow.hitRef;
+  if (ref && ow.mod->lua) ow.mod->lua->callPegHook(ref, pegIdx, ball);
+}
+
+void ModManager::masterCall(Board& b, int player, int power, int what, int pegIdx) {
+  const int i = power - masters::kFirstPower;
+  if (i < 0 || i >= (int)binds_.size()) return;
+  MasterBind& bd = binds_[(size_t)i];
+  if (!bd.mi || bd.mi->state != ModInfo::Active) return;
+  Scope sc(*this, &b, Ctx::Sim);
+  const int saved = b.cur;
+  const bool swap = player >= 0 && player < 4 && player != saved;
+  if (swap) b.cur = player;
+  if (bd.native && bd.mi->native) {
+    bd.mi->native->masterCall(bd.mi->native->masters()[bd.idx], what, player, pegIdx);
+    checkNative(*bd.mi);
+  } else if (!bd.native && bd.mi->lua) bd.mi->lua->callMaster(bd.mi->lua->masters[bd.idx], what, player, pegIdx);
+  if (swap) {
+    flush(b);
+    b.cur = saved;
+  }
+}
+
+void ModManager::checkNative(ModInfo& m) {
+  if (!m.native || !m.native->dead()) return;
+  m.error = m.native->deadReason();
+  m.state = ModInfo::Failed;
+  m.native.reset();
+  m.helperRuns = false;
+}
+
+std::string ModInfo::protectionLine() const {
+  if (m.native.empty()) return "";
+  if (state == Active && helperRuns) {
+    if (protections == modhost::kAllProtections) return "restricted helper";
+    return "helper without full limits";
+  }
+  if (needsUnrestricted) return "cannot be restricted here";
+  return "";
 }
 
 void ModManager::apply(Board& b, const ModCmd& c) {
@@ -516,6 +899,12 @@ void ModManager::apply(Board& b, const ModCmd& c) {
     case ModCmd::Say:
       b.banner = c.s;
       b.bannerTimer = 150;
+      break;
+    case ModCmd::SetPhysics:
+      b.setPhysics(c.pe);
+      break;
+    case ModCmd::SetPegType:
+      if (int t = findPegType(c.s)) b.setPegType(c.i, t);
       break;
     case ModCmd::StylePoints:
       b.style[cur] += c.i;
@@ -549,7 +938,7 @@ void ModManager::frame(DrawSink& sink, const Board& b) {
       lua_pushinteger(L, b.score[std::clamp(b.cur, 0, 3)]); lua_setfield(L, -2, "score");
       lua_pushinteger(L, b.frames); lua_setfield(L, -2, "frame");
     });
-    if (m->native) m->native->frame();
+    if (m->native) { m->native->frame(); checkNative(*m); }
   }
 }
 void ModManager::pump() {

@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BIN=${1:?usage: macos_app.sh PEGGLEPORT_BINARY [OUT_DIR] [VERSION]}
+BIN=${1:?usage: macos_app.sh PEGGLEPORT_BINARY [OUT_DIR] [VERSION] [MODHOST_BINARY]}
 OUT=${2:-.}
 VERSION=${3:-0.0.0}
+MODHOST=${4:-$(dirname "$BIN")/pp_modhost}
 [ -f "$BIN" ] || { echo "macos_app.sh: $BIN not found" >&2; exit 1; }
+[ -f "$MODHOST" ] || { echo "macos_app.sh: $MODHOST not found" >&2; exit 1; }
 
 APP="$OUT/PegglePort.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/peggleport"
-chmod +x "$APP/Contents/MacOS/peggleport"
+cp "$MODHOST" "$APP/Contents/MacOS/pp_modhost"
+chmod +x "$APP/Contents/MacOS/peggleport" "$APP/Contents/MacOS/pp_modhost"
 
 SHORT=$(printf '%s' "$VERSION" | sed -E 's/^v//' | grep -E '^[0-9]+(\.[0-9]+){0,2}$' || echo 0.0.0)
 
@@ -57,7 +60,7 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 if command -v plutil >/dev/null 2>&1; then plutil -lint "$APP/Contents/Info.plist" >/dev/null; fi
 if command -v codesign >/dev/null 2>&1; then codesign --force --deep -s - "$APP" >/dev/null 2>&1 || true; fi
 if command -v otool >/dev/null 2>&1; then
-  ext=$(otool -L "$BIN" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/usr/lib/|/System/)' || true)
+  ext=$( (otool -L "$BIN"; otool -L "$MODHOST") | grep -v ':$' | awk '{print $1}' | grep -v -E '^(/usr/lib/|/System/)' || true)
   [ -n "$ext" ] && { echo "macos_app.sh: warning: the binary links non-system libraries (the app will not run on other Macs):" >&2; echo "$ext" >&2; }
 fi
 echo "$APP"

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -159,6 +160,10 @@ class ProfileMgr {
   std::vector<uint8_t> serializeUsers() const;
   bool deserializeUsers(const std::vector<uint8_t>& d);
   static bool validName(const std::string& n);
+  std::string modMaster(const PlayerInfo& p, int slot) const;
+  void setModMaster(const PlayerInfo& p, int slot, const std::string& key);
+  bool saveModMasters();
+  std::filesystem::path modMastersPath() const;
 
  private:
   PlayerInfo* find(const std::string& name);
@@ -167,6 +172,9 @@ class ProfileMgr {
   std::filesystem::path dir_;
   std::vector<std::unique_ptr<PlayerInfo>> profiles_;
   uint32_t nextId_ = 1, nextSeq_ = 1;
+  std::map<uint32_t, std::array<std::string, 2>> modChars_;
+  bool modDirty_ = false;
+  void loadModMasters();
 };
 
 struct Settings {

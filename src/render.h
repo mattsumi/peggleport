@@ -12,6 +12,7 @@
 #include "effects.h"
 #include "font.h"
 #include "image.h"
+#include "pegtypes.h"
 #include "sim.h"
 #include "vfs.h"
 #include "visopts.h"
@@ -62,6 +63,7 @@ class Renderer {
                       int lineSpacing = -1, float scale = 1);
   int wrappedHeight(Font* f, int wrapWidth, std::string_view s, int lineSpacing = -1) const;
   void beginCanvas(int canvasW = 800);
+  void reloadAssets(const VfsChange& change);
 
  private:
   struct Tex {
@@ -77,6 +79,7 @@ class Renderer {
   };
   Tex* tex(const std::string& path, int rows = 1, int cols = 1, const std::string& mask = "", int alphaColor = -1);
   Tex* img(const std::string& resId);
+  Tex* grayImg(const std::string& resId);
   void put(Tex* t, SDL_FRect srcLogical, float x, float y, Paint p = {}, float w = -1, float h = -1, float rotRad = 0, float pivotX = 0, float pivotY = 0);
   void putCel(Tex* t, int cel, float x, float y, Paint p = {});
   void putCelAt(Tex* t, int col, int row, float x, float y, Paint p = {});
@@ -109,7 +112,8 @@ class Renderer {
   void drawPeg(const Board& b, const Obj& o, int idx, Pass pass);
   void drawBrickPeg(const Board& b, const Obj& o, int idx, Pass pass);
   void drawPegGlow(const Obj& o, float cx, float cy);
-  void drawBigPulse(int pegType, float cx, float cy, int age, int kind);
+  void drawCustomPeg(const Board& b, const Obj& o, const PegTypeDef& d, float cx, float cy);
+  void drawBigPulse(int pegType, float cx, float cy, int age, int kind, uint32_t tint = 0xffffffffu);
   void drawBall(const Board& b, const Ball& bl, bool inGun);
   void drawGuide(const Board& b);
   void doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0, float y0, float ang, float speed, int hitStep, int len, int start,
@@ -128,6 +132,7 @@ class Renderer {
   void drawHud(const Board& b, const Hud& hud);
   void drawFrame(int dw);
   void drawPortrait(const Board& b, int dw);
+  void drawModPortrait(const Board& b, int dw);
   void drawOrbFront(const Board& b, int dw);
   struct Portrait {
     std::string key;

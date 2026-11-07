@@ -57,6 +57,7 @@ add_library(pp_core STATIC
   src/vfs.cpp
   src/level.cpp
   src/sim.cpp
+  src/masters.cpp
   src/rules.cpp
   src/rules_powers.cpp
   src/zen.cpp
@@ -130,13 +131,13 @@ include(FetchContent)
 FetchContent_Declare(lua GIT_REPOSITORY https://github.com/lua/lua.git GIT_TAG v5.4.8 GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(lua)
 
-set(_lua_names lapi lauxlib lbaselib lcode lcorolib lctype ldebug ldo ldump lfunc lgc llex lmathlib lmem lobject lopcodes lparser lstring lstrlib ltable ltablib ltm lundump lutf8lib lvm lzio)
+set(_lua_names lapi lauxlib lctype ldebug ldo ldump lfunc lgc llex lmathlib lmem lopcodes lparser ltable lundump lzio)
 set(PP_LUA_SOURCES "")
 foreach(_n ${_lua_names})
   list(APPEND PP_LUA_SOURCES ${lua_SOURCE_DIR}/${_n}.c)
 endforeach()
 set_source_files_properties(${PP_LUA_SOURCES} PROPERTIES LANGUAGE CXX)
-add_library(pp_lua STATIC ${PP_LUA_SOURCES} src/mods/lua_lstate.cpp)
+add_library(pp_lua STATIC ${PP_LUA_SOURCES} src/mods/lua_lstate.cpp src/mods/lua_lbaselib.cpp src/mods/lua_lcode.cpp src/mods/lua_lcorolib.cpp src/mods/lua_lobject.cpp src/mods/lua_lstring.cpp src/mods/lua_lstrlib.cpp src/mods/lua_ltablib.cpp src/mods/lua_ltm.cpp src/mods/lua_lutf8lib.cpp src/mods/lua_lvm.cpp)
 target_include_directories(pp_lua PUBLIC ${lua_SOURCE_DIR})
 set_target_properties(pp_lua PROPERTIES CXX_STANDARD 17 POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
@@ -145,14 +146,38 @@ else()
   target_compile_options(pp_lua PRIVATE -ffp-contract=off -fno-fast-math -w)
 endif()
 
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+set(GEN_FILES OFF CACHE BOOL "" FORCE)
+set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+FetchContent_Declare(mbedtls GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git GIT_TAG v3.6.7 GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(mbedtls)
+
 find_package(Threads REQUIRED)
+if(WIN32)
+  set(PP_HOSTPROC_SOURCE src/mods/hostproc_win.cpp)
+  set(PP_SANDBOX_SOURCE src/modhost/sandbox_win.cpp)
+elseif(APPLE)
+  set(PP_HOSTPROC_SOURCE src/mods/hostproc_posix.cpp)
+  set(PP_SANDBOX_SOURCE src/modhost/sandbox_mac.cpp)
+else()
+  set(PP_HOSTPROC_SOURCE src/mods/hostproc_posix.cpp)
+  set(PP_SANDBOX_SOURCE src/modhost/sandbox_linux.cpp)
+endif()
 add_library(pp_mods STATIC
   src/mods/json.cpp src/mods/manifest.cpp src/mods/zip.cpp src/mods/scanner.cpp
-  src/mods/luamod.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp)
+  src/mods/luamod.cpp src/mods/tls.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp ${PP_HOSTPROC_SOURCE})
 target_include_directories(pp_mods PUBLIC src third_party include)
 target_link_libraries(pp_mods PUBLIC pp_core pp_flags pp_lua SDL3::SDL3 ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(pp_mods PRIVATE mbedtls mbedx509 mbedcrypto)
 if(WIN32)
-  target_link_libraries(pp_mods PUBLIC ws2_32)
+  target_link_libraries(pp_mods PUBLIC ws2_32 crypt32 bcrypt)
+endif()
+if(APPLE)
+  target_link_libraries(pp_mods PUBLIC "-framework Security" "-framework CoreFoundation")
 endif()
 
 add_library(pp_editor_core STATIC src/editor/model.cpp src/editor/json.cpp src/editor/editor.cpp)
@@ -164,7 +189,7 @@ add_library(pp_ui STATIC
   src/ui/res.cpp src/ui/text.cpp src/ui/text_font.cpp src/ui/gfx.cpp src/ui/widgets.cpp src/ui/dialog.cpp src/ui/dialogs.cpp
   src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/launcher.cpp src/ui/nights.cpp
   src/ui/character_dialog.cpp src/ui/slot_dialog.cpp src/ui/replay.cpp src/ui/replay_ui.cpp src/ui/hooks.cpp src/ui/visuals_dialog.cpp
-  src/ui/mods_screen.cpp src/ui/consent_dialog.cpp src/ui/log_view.cpp
+  src/ui/mods_screen.cpp src/ui/mod_apply.cpp src/ui/consent_dialog.cpp src/ui/log_view.cpp
   src/online/online_ui.cpp src/online/online_match.cpp)
 target_include_directories(pp_ui PUBLIC src third_party)
 target_compile_definitions(pp_ui PUBLIC PP_UI_HAVE_FONT)
@@ -177,6 +202,13 @@ target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_edito
 
 add_executable(pp_lobbyd src/lobbyd.cpp)
 target_link_libraries(pp_lobbyd PRIVATE pp_core)
+
+add_executable(pp_modhost src/modhost/main.cpp ${PP_SANDBOX_SOURCE})
+target_include_directories(pp_modhost PRIVATE src include)
+target_link_libraries(pp_modhost PRIVATE pp_flags ${CMAKE_DL_LIBS} Threads::Threads)
+if(WIN32)
+  target_link_libraries(pp_modhost PRIVATE advapi32 ws2_32)
+endif()
 
 add_library(hello_native MODULE examples/plugin/hello_native.c)
 target_include_directories(hello_native PRIVATE include)
@@ -196,4 +228,4 @@ endif()
 add_custom_command(TARGET hello_native POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/examples/plugin/hello_native.ini" "${CMAKE_BINARY_DIR}/examples/mods/hello_native/mod.ini")
 
-set_target_properties(peggleport pp_lobbyd PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set_target_properties(peggleport pp_lobbyd pp_modhost PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

@@ -15,7 +15,10 @@ music and sound) is read from your own installation at run time.
 | [libogg](https://github.com/xiph/ogg) | v1.3.5 | container for the Vorbis sound effects | BSD-3-Clause |
 | [libvorbis](https://github.com/xiph/vorbis) | v1.3.7 | decoding the sound effects | BSD-3-Clause |
 | [Lua](https://github.com/lua/lua) | v5.4.8 | mod scripting (only the base, table, string, math, utf8 and coroutine libraries are compiled in) | MIT |
+| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) | v3.6.7 | TLS for mods that use https (the trusted root certificates come from the operating system) | Apache-2.0 |
 | [stb_image](https://github.com/nothings/stb) | v2.30, vendored in `third_party/` | PNG, JPEG, TGA and GIF decoding | public domain or MIT |
+
+Mbed TLS is offered under Apache-2.0 or GPL-2.0-or-later; PegglePort uses it under Apache-2.0. Its sample programs are switched off, like OpenJPEG's codec tools.
 
 SDL3 carries a few small parts of its own (stb_image and stb_truetype for its helpers, dlmalloc, FreeBSD libm routines, HIDAPI). OpenJPEG's
 optional codec tools are switched off. Their notices are in the fetched source trees.

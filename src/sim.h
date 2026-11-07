@@ -10,7 +10,9 @@
 
 #include "gun.h"
 #include "level.h"
+#include "masters.h"
 #include "mods/simhooks.h"
+#include "physics.h"
 #include "physobj.h"
 #include "vec2.h"
 
@@ -49,6 +51,8 @@ struct Obj {
   int sound = 0;
   int subId = 0;
   int pegType = 0;
+  int custom = 0, hits = 0, hitTick = -1000000;
+  float radius0 = 0;
   bool canBeOrange = false, lit = false;
   int zoneMode = 0;
   int litAge = 0, popTimer = 0, flash = 0;
@@ -160,6 +164,8 @@ struct BoardConfig {
   ChallengeRules ch;
   bool liveSpin = false;
   int tryNumber = 1;
+  PhysicsEdit physics;
+  std::vector<std::pair<int, std::string>> pegTypes;
 };
 
 struct LevelResult {
@@ -187,11 +193,16 @@ class Board {
   static int tryBonus(int tryNumber);
   V2 pivot() const { return {W * 0.5f, 30.0f}; }
   float armedBallRadius() const;
+  float ballRadiusFor(bool fire) const;
+  void setPhysics(const PhysicsEdit& e);
+  void derivePhysics();
   V2 muzzleArmed(float a) const { return muzzle(a, armedBallRadius()); }
   V2 muzzle(float a, float ballRadius = gun::DEF_RADIUS) const;
   std::vector<V2> guide(float a, int steps = 110) const;
   uint64_t hash() const;
   void pegHit(int oi, bool byPower = false);
+  bool setPegType(int oi, int custom);
+  int levelIndexOf(int oi) const { return oi >= (int)baseCount_ ? oi - (int)baseCount_ : -1; }
   void startSlow();
   void stopSlow();
   bool levelWon(bool strict) const;
@@ -247,6 +258,8 @@ class Board {
   std::vector<Event> events;
   bool emit = true;
   bool noModHooks = false;
+  uint64_t modSig = 0;
+  void syncModTypes();
   struct FxRec { Event e; int tick; std::string note; };
   std::vector<FxRec> fxlog;
   uint32_t fxTotal = 0;
@@ -265,7 +278,7 @@ class Board {
   enum Power { P_NONE, P_GUIDE, P_FLIPPERS, P_MULTIBALL, P_PYRAMID, P_SPACEBLAST, P_SPOOKY, P_ZEN, P_EXTENDER, P_FLOWER,
                P_NUDGE, P_TIMEBOMB, P_FIREBALL, P_LUCKYSPIN, P_CHAIN };
   static const char* powerName(int id);
-  static int masterByName(const std::string& name);
+  static int masterByName(const std::string& name, bool allowMods = true);
   int master[4]{}, turns[4]{}, spookyCount[4]{}, style[4]{};
   int frames = 0;
   bool slowOn = false, slowC3 = false;
@@ -304,7 +317,7 @@ class Board {
   int feverBallsPaid = 0;
   int tallyDisp = 0, tallyDelay = 0;
   int tripleTick = 0;
-  int pturn[4][16]{};
+  int pturn[4][masters::kPowerSlots]{};
   bool extenderFlag = false;
   bool flippersFx = false;
   int multiSerial = 0;
@@ -317,6 +330,11 @@ class Board {
   void setPyramid(bool on);
   void setPowerActive(int power, bool on);
   void doPowerup(int pegIdx, int power, bool silent);
+  void doModPower(int pegIdx, int power, bool silent);
+  void modMasterStart();
+  void modMasterTurn();
+  void modMasterShot();
+  bool modMasterInUse() const;
   void doMultiball(Ball* ball, int pegIdx);
   void doSpaceBlast(Ball* ball, int pegIdx);
   void doFlower(Ball* ball, int pegIdx);
@@ -329,6 +347,7 @@ class Board {
   int superCount[4]{};
   int styleReq[24]{};
   float grav_ = 0.05f, gunSpeed_ = 4.0f;
+  PhysicsParams physics;
   bool superOn = false, ultraOn = false;
   int triplerCount[4]{}, hatCount[4]{};
   bool shotBanked = false;
@@ -413,6 +432,9 @@ class Board {
   void beginTurn(bool next);
   void levelDone();
   void eraseFromSets(int oi);
+  bool customHit(int oi, bool force);
+  void applyPegTypes();
+  size_t baseCount_ = 0;
   bool clearedLevel() const;
   void setLState(int s);
   void addBalls(int n, bool fromBucket);

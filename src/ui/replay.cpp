@@ -55,17 +55,33 @@ void getCfg(R& r, BoardConfig& c) {
 }
 constexpr uint32_t kMagic = 0x50525050;
 constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersionPhysics = 2;
+
+void putPhysics(W& w, const PhysicsEdit& e) {
+  w.u32(e.mask);
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) w.f32(e.v.at(k));
+}
+void getPhysics(R& r, PhysicsEdit& e) {
+  uint32_t mask = r.u32();
+  PhysicsEdit t;
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) {
+    float v = r.f32();
+    if ((mask >> k) & 1u) t.set(k, (double)v);
+  }
+  if (!r.bad) e = t;
+}
 }
 
 std::string replayExt(int game) { return game == 1 ? ".pegn" : ".pego"; }
 
 bool ReplayData::save(const std::string& path) const {
   W w;
-  w.u32(kMagic); w.u32(kVersion);
+  w.u32(kMagic); w.u32(cfg.physics.any() ? kVersionPhysics : kVersion);
   w.i32(game); w.str(level); w.str(title); w.str(player);
   w.u32((uint32_t)(when & 0xffffffff)); w.u32((uint32_t)(when >> 32));
   w.i32(score); w.i32(shots); w.i32(startTick);
   putCfg(w, cfg);
+  if (cfg.physics.any()) putPhysics(w, cfg.physics);
   w.u32((uint32_t)log.size());
   for (const auto& e : log) { w.i32(e.tick); w.u32(e.kind); w.i32(e.a); w.i32(e.b); }
   std::error_code ec;
@@ -86,13 +102,16 @@ bool ReplayData::load(const std::string& path, ReplayData& out) {
   while ((n = std::fread(tmp, 1, sizeof tmp, f)) > 0) buf.insert(buf.end(), tmp, tmp + n);
   std::fclose(f);
   R r{buf};
-  if (r.u32() != kMagic || r.u32() != kVersion) return false;
+  if (r.u32() != kMagic) return false;
+  const uint32_t version = r.u32();
+  if (version != kVersion && version != kVersionPhysics) return false;
   ReplayData d;
   d.game = r.i32(); d.level = r.str(); d.title = r.str(); d.player = r.str();
   uint32_t lo = r.u32(), hi = r.u32();
   d.when = (int64_t)(((uint64_t)hi << 32) | lo);
   d.score = r.i32(); d.shots = r.i32(); d.startTick = r.i32();
   getCfg(r, d.cfg);
+  if (version == kVersionPhysics) getPhysics(r, d.cfg.physics);
   uint32_t cnt = r.u32();
   if (r.bad || cnt > 5000000) return false;
   d.log.resize(cnt);

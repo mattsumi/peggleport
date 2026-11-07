@@ -10,11 +10,14 @@ class ConsentDialog : public Dialog {
  public:
   ConsentDialog(App& a, const std::string& modId, bool ask);
   void onButton(int id) override;
-  std::string modId;
+  std::string modId, hash;
   bool ask;
+  int step = 0;
+  bool followUp = false;
   bool closed = false;
   bool hosted = false;
-  static std::string text(const std::string& modId, bool ask = true);
+  static int stepFor(const std::string& modId, bool ask);
+  static std::string text(const std::string& modId, int step);
 };
 
 }

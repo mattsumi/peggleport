@@ -76,6 +76,8 @@ class Gfx {
   void popClip();
 
   Tex* img(const std::string& idOrPath);
+  void reloadAssets(const VfsChange& change);
+  Tex* imgFile(const std::string& file);
   void preload(const std::string& id) { img(id); }
   void draw(Tex* t, float x, float y, Mode m = {});
   void drawCel(Tex* t, float x, float y, int col, int row, Mode m = {});
@@ -116,6 +118,7 @@ class Gfx {
   std::map<std::array<int, 8>, Tex> boxCache_;
   std::map<const Tex*, std::vector<uint8_t>> rgbaCache_;
   Tex* boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int H);
+  void fillTex(Tex& T, const std::string& idOrPath);
   std::unique_ptr<FontProvider> fp_;
   float s_ = 1, ox_ = 0, oy_ = 0, orgX_ = 0, orgY_ = 0;
   int cw_ = 800, ch_ = 600, ow_ = 800, oh_ = 600;

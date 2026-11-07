@@ -581,6 +581,7 @@ void App::doConfirmRestartAdventureDialog() {
 
 void App::tick() {
   updates_++;
+  serviceModApply();
   updateMovers();
   for (auto& d : dialogs_) d->update();
   if (logView_ && logView_->visible()) logView_->update();

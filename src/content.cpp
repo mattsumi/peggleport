@@ -82,6 +82,46 @@ std::vector<StageLevel> listStageLevels(const Vfs& vfs) {
   return out;
 }
 
+static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int, std::string>>& out) {
+  auto trim = [](std::string t) {
+    size_t a = t.find_first_not_of(" \t\r\n"), b = t.find_last_not_of(" \t\r\n");
+    return a == std::string::npos ? std::string() : t.substr(a, b - a + 1);
+  };
+  auto number = [](const std::string& t, int& v) {
+    if (t.empty() || t.size() > 6 || t.find_first_not_of("0123456789") != std::string::npos) return false;
+    v = std::atoi(t.c_str());
+    return true;
+  };
+  std::istringstream in(text);
+  std::string line;
+  while (std::getline(in, line)) {
+    line = trim(line);
+    if (line.empty() || line[0] == '#' || line[0] == ';' || line[0] == '[') continue;
+    const size_t eq = line.find('=');
+    if (eq == std::string::npos || trim(line.substr(0, eq)) != "peg") continue;
+    const std::string val = trim(line.substr(eq + 1));
+    const size_t colon = val.find(':');
+    if (colon == std::string::npos) continue;
+    const std::string type = trim(val.substr(colon + 1));
+    if (type.empty()) continue;
+    const std::string ids = val.substr(0, colon) + ",";
+    size_t pos = 0;
+    while (pos < ids.size() && out.size() < 4096) {
+      const size_t e = ids.find(',', pos);
+      const std::string tok = trim(ids.substr(pos, e - pos));
+      pos = e + 1;
+      int a = 0, b = 0;
+      const size_t dash = tok.find('-');
+      if (dash != std::string::npos) {
+        if (!number(trim(tok.substr(0, dash)), a) || !number(trim(tok.substr(dash + 1)), b) || b < a) continue;
+        for (int k = a; k <= b && out.size() < 4096; k++) out.push_back({k, type});
+      } else if (number(tok, a)) {
+        out.push_back({a, type});
+      }
+    }
+  }
+}
+
 static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
   out = LevelBundle();
   std::vector<uint8_t> lvBytes, sideBytes, baseBytes;
@@ -138,10 +178,25 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     for (char c : out.name)
       if (std::isalpha((unsigned char)c)) pre.push_back(c);
       else break;
-    int m = pre == "Master" ? 0 : Board::masterByName(pre);
-    if (ini.count("master")) m = Board::masterByName(ini["master"]);
+    int m = pre == "Master" ? 0 : Board::masterByName(pre, false);
+    if (ini.count("master")) {
+      m = Board::masterByName(ini["master"]);
+      out.master = ini["master"];
+    }
     for (int i = 0; i < 4; i++) out.cfg.master[i] = m;
   }
+  for (const auto& [key, text] : ini) {
+    int pk = 0;
+    if (!physicsKeyByName(key, pk)) continue;
+    double d = 0;
+    if (!physicsParseNumber(text, d)) {
+      pp::log::warn("game", out.name + ": the level ini key " + key + " is not a number and is ignored");
+      continue;
+    }
+    if (physicsClamp(pk, d) != (float)d) pp::log::warn("game", out.name + ": " + key + " = " + text + " is outside " + std::to_string(physicsKey(pk).lo) + " to " + std::to_string(physicsKey(pk).hi) + " and is limited");
+    out.cfg.physics.set(pk, d);
+  }
+  parsePegTypeLines(std::string(sideBytes.begin(), sideBytes.end()), out.cfg.pegTypes);
   out.background = ini.count("background") ? ini["background"] : out.name;
   out.title = ini.count("title") ? ini["title"] : out.name;
   if (!ini.count("title"))

@@ -32,6 +32,12 @@ static int masterIndexByName(const std::string& name) {
   return -1;
 }
 
+static int modPowerFor(App& app, int slot) {
+  if (!app.curProfile) return 0;
+  const ModMaster* m = masters::byKey(app.profiles.modMaster(*app.curProfile, slot));
+  return m ? m->power : 0;
+}
+
 GameScreen::GameScreen(App& a, bool fromAdventure, bool newLevel) : Screen(a) {
   (void)fromAdventure;
   (void)newLevel;
@@ -98,6 +104,13 @@ bool GameScreen::startLevel(const std::string& name) {
   if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack) mi = std::clamp(app.curProfile ? app.curProfile->char1 : 0, 0, 10);
   if (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
   cfg.master[0] = Board::masterByName(kMasterNames[mi]);
+  {
+    const StageInfo* sp = app.stages.stage(stage);
+    const bool char1Used = !(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) || (sp && sp->pack) ||
+                           (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0));
+    if (char1Used)
+      if (const int mp = modPowerFor(app, 0)) cfg.master[0] = mp;
+  }
   cfg.boardWidth = app.boardWidthForNewBoard();
   bool adv = app.gameMode == GameMode::Adventure;
   setRuleInputs(cfg, app.curProfile, adv ? 5 * app.curStage + app.curLevel : -1, app.game == Game::Nights,
@@ -134,7 +147,11 @@ bool GameScreen::startLevel(const std::string& name) {
   cfg.players = duel_ ? 2 : 1;
   cfg.duel = duel_;
   human2_ = duel_ && app.gameMode == GameMode::Duel && app.curProfile && !app.curProfile->computerPlayer;
-  if (duel_) cfg.master[1] = Board::masterByName(kMasterNames[std::clamp(app.curProfile ? randomMaster(app.curProfile->char2) : 1, 0, app.game == Game::Nights ? 10 : 9)]);
+  if (!duel_ && lb_.cfg.master[0] >= masters::kFirstPower && masters::byPower(lb_.cfg.master[0])) cfg.master[0] = lb_.cfg.master[0];
+  if (duel_) {
+    cfg.master[1] = Board::masterByName(kMasterNames[std::clamp(app.curProfile ? randomMaster(app.curProfile->char2) : 1, 0, app.game == Game::Nights ? 10 : 9)]);
+    if (const int mp = modPowerFor(app, 1)) cfg.master[1] = mp;
+  }
   demo_ = app.gameMode == GameMode::Demo;
   if (duelChallenge) {
     int oi = masterIndexByName(ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)]);
