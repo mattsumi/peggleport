@@ -185,17 +185,11 @@ void ModsScreen::update() {
   if (dlg_) {
     dlg_->update();
     if (dlg_->closed) {
-<<<<<<< HEAD
       touched_ = dlg_->modId;
-      dlg_.reset();
-      dirty_ = true;
-=======
       std::string again = dlg_->followUp ? dlg_->modId : std::string();
       dlg_.reset();
       dirty_ = true;
-      status_ = "Restart the game to apply the consent decision.";
       if (!again.empty()) openConsent(again, true);
->>>>>>> feature/mod-native-sandbox
     }
     return;
   }
@@ -239,15 +233,9 @@ void ModsScreen::onButton(int id) {
   size_t i = (size_t)(id % 1000);
   if (i >= mm->mods().size()) return;
   ModInfo& mi = *mm->mods()[i];
-<<<<<<< HEAD
   if (id >= 4000) { const std::string mid = mi.m.id; mm->move(mid, +1); changed(mid); }
   else if (id >= 3000) { const std::string mid = mi.m.id; mm->move(mid, -1); changed(mid); }
-  else if (id >= 2000) app.showModConsent(mi.m.id, mi.needsConsent());
-=======
-  if (id >= 4000) { mm->move(mi.m.id, +1); dirty_ = true; status_ = "Load order changed (applies after a restart)."; }
-  else if (id >= 3000) { mm->move(mi.m.id, -1); dirty_ = true; status_ = "Load order changed (applies after a restart)."; }
   else if (id >= 2000) app.showModConsent(mi.m.id, mi.needsConsent() || mm->needsUnrestrictedStep(mi));
->>>>>>> feature/mod-native-sandbox
 }
 
 void ModsScreen::keyDown(int key, int) {
@@ -274,14 +262,9 @@ void ModsScreen::drawLayer(Gfx& g) {
       std::string who = (mi.m.author.empty() ? "" : "by " + mi.m.author + "   ") + mi.m.description;
       g.drawString("PLAIN2", 40, y + 38, fit(g, "PLAIN2", who, 480), 0xdddddd);
       uint32_t col = mi.state == ModInfo::Active ? 0x80ff80 : mi.state == ModInfo::NeedsConsent ? 0xffe060 : mi.state == ModInfo::Failed ? 0xff7070 : 0xa0a0a0;
-<<<<<<< HEAD
       std::string st = std::string(mi.stateName()) + (mi.enabled && mi.state == ModInfo::Off && app.modApplyPending() ? " (applying)" : "") + (mi.error.empty() ? "" : ": " + mi.error);
-      g.drawString("PLAIN2", 40, y + 56, fit(g, "PLAIN2", st + "   |   " + mi.scan.summary(), 700), col);
-=======
-      std::string st = std::string(mi.stateName()) + (mi.enabled && mi.state == ModInfo::Off ? " (loads on restart)" : "") + (mi.error.empty() ? "" : ": " + mi.error);
       std::string pl = mi.protectionLine();
       g.drawString("PLAIN2", 40, y + 56, fit(g, "PLAIN2", st + "   |   " + mi.scan.summary() + (pl.empty() ? "" : "   |   " + pl), 700), col);
->>>>>>> feature/mod-native-sandbox
     }
   }
   g.drawString("PLAIN2", 400, 520, fit(g, "PLAIN2", status_, 740), 0xffffaa, 1, Align::Center);

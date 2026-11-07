@@ -66,14 +66,10 @@ std::string ConsentDialog::text(const std::string& id, int step) {
 }
 
 ConsentDialog::ConsentDialog(App& a, const std::string& id, bool askConsent)
-<<<<<<< HEAD
-    : Dialog(a, D_ModConsent, true, askConsent ? "TRUST THIS MOD?" : "MOD SCAN", text(id, askConsent), askConsent ? "" : "OK", askConsent ? BUTTONS_YES_NO : BUTTONS_FOOTER), modId(id), ask(askConsent) {
-  if (mods::ModInfo* mi = mods::g_mods ? mods::g_mods->find(id) : nullptr) hash = mi->hashHex;
-=======
     : Dialog(a, D_ModConsent, true, stepFor(id, askConsent) == 2 ? "RUN WITHOUT LIMITS?" : askConsent ? "TRUST THIS MOD?" : "MOD SCAN", text(id, stepFor(id, askConsent)), askConsent ? "" : "OK", askConsent ? BUTTONS_YES_NO : BUTTONS_FOOTER), modId(id), ask(askConsent) {
   step = stepFor(id, askConsent);
   if (step == 0) ask = false;
->>>>>>> feature/mod-native-sandbox
+  if (mods::ModInfo* mi = mods::g_mods ? mods::g_mods->find(id) : nullptr) hash = mi->hashHex;
   textAlign = -1;
   linesFont = "PLAIN2";
   if (step == 2) setYesNo("Run anyway", "Keep off");
@@ -82,23 +78,18 @@ ConsentDialog::ConsentDialog(App& a, const std::string& id, bool askConsent)
 
 void ConsentDialog::onButton(int id) {
   if (scrollActive && !scrollingOff) return;
-<<<<<<< HEAD
-  if (ask && id == ID_YES && mods::g_mods) {
+  if (mods::g_mods && step == 1 && id == ID_YES) {
     mods::ModInfo* mi = mods::g_mods->find(modId);
     if (mi && mi->hashHex == hash) {
       mods::g_mods->setConsent(modId, true);
+      followUp = mods::g_mods->needsUnrestrictedStep(*mi);
       app.requestModApply();
     } else {
       log::warn("mod:" + modId, "the mod changed while its permission dialog was open, so nothing was allowed; press Allow... again");
     }
-=======
-  if (mods::g_mods && step == 1 && id == ID_YES) {
-    mods::g_mods->setConsent(modId, true);
-    mods::ModInfo* mi = mods::g_mods->find(modId);
-    followUp = mi && mods::g_mods->needsUnrestrictedStep(*mi);
   } else if (mods::g_mods && step == 2) {
     mods::g_mods->setUnrestricted(modId, id == ID_YES);
->>>>>>> feature/mod-native-sandbox
+    app.requestModApply();
   }
   closed = true;
   if (!hosted) doScrollOff();
