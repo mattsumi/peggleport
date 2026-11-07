@@ -667,7 +667,8 @@ void Renderer::drawBall(const Board& b, const Ball& bl, bool inGun) {
     }
   } hatDraw{this, cx + (bl.hat && bl.hatAge > 0 ? bl.hatPos.x - bl.pos.x : 0.0f), cy + (bl.hat && bl.hatAge > 0 ? bl.hatPos.y - (bl.pos.y - 21.0f) : 0.0f), bl.vel.x, bl.hat};
   if (bl.fire) {
-    if (Tex* t = img("IMAGE_FIREBALL")) putCentered(t, cx, cy, {}, 1.0f, 0.05f * (float)b.tick);
+    const float fs = b.physics.ballRadius == 6.0f ? 1.0f : r / (b.cfg.nights ? 11.0f : 10.0f);
+    if (Tex* t = img("IMAGE_FIREBALL")) putCentered(t, cx, cy, {}, fs, 0.05f * (float)b.tick);
     return;
   }
   if (r == 6.0f) {
