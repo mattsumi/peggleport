@@ -102,7 +102,7 @@ void ModsScreen::rebuild() {
     c->x = 36;
     c->y = y;
     add(std::move(c));
-    bool pending = mi.needsConsent();
+    bool pending = mi.needsConsent() || mm->needsUnrestrictedStep(mi);
     Button* b = patchButton(2000 + i, pending ? "Allow..." : "Scan report", "IMAGE_DLG_BUTTON3", 540, y - 2);
     b->w = 112;
     Button* up = patchButton(3000 + i, "Up", "IMAGE_DLG_BUTTON3", 660, y - 2);
@@ -151,7 +151,13 @@ void ModsScreen::drawOverlay(Gfx& g) {
 void ModsScreen::update() {
   if (dlg_) {
     dlg_->update();
-    if (dlg_->closed) { dlg_.reset(); dirty_ = true; status_ = "Restart the game to apply the consent decision."; }
+    if (dlg_->closed) {
+      std::string again = dlg_->followUp ? dlg_->modId : std::string();
+      dlg_.reset();
+      dirty_ = true;
+      status_ = "Restart the game to apply the consent decision.";
+      if (!again.empty()) openConsent(again, true);
+    }
     return;
   }
   Panel::update();
@@ -195,7 +201,7 @@ void ModsScreen::onButton(int id) {
   ModInfo& mi = *mm->mods()[i];
   if (id >= 4000) { mm->move(mi.m.id, +1); dirty_ = true; status_ = "Load order changed (applies after a restart)."; }
   else if (id >= 3000) { mm->move(mi.m.id, -1); dirty_ = true; status_ = "Load order changed (applies after a restart)."; }
-  else if (id >= 2000) app.showModConsent(mi.m.id, mi.needsConsent());
+  else if (id >= 2000) app.showModConsent(mi.m.id, mi.needsConsent() || mm->needsUnrestrictedStep(mi));
 }
 
 void ModsScreen::keyDown(int key, int) {
@@ -223,7 +229,8 @@ void ModsScreen::drawLayer(Gfx& g) {
       g.drawString("PLAIN2", 40, y + 38, fit(g, "PLAIN2", who, 480), 0xdddddd);
       uint32_t col = mi.state == ModInfo::Active ? 0x80ff80 : mi.state == ModInfo::NeedsConsent ? 0xffe060 : mi.state == ModInfo::Failed ? 0xff7070 : 0xa0a0a0;
       std::string st = std::string(mi.stateName()) + (mi.enabled && mi.state == ModInfo::Off ? " (loads on restart)" : "") + (mi.error.empty() ? "" : ": " + mi.error);
-      g.drawString("PLAIN2", 40, y + 56, fit(g, "PLAIN2", st + "   |   " + mi.scan.summary(), 700), col);
+      std::string pl = mi.protectionLine();
+      g.drawString("PLAIN2", 40, y + 56, fit(g, "PLAIN2", st + "   |   " + mi.scan.summary() + (pl.empty() ? "" : "   |   " + pl), 700), col);
     }
   }
   g.drawString("PLAIN2", 400, 520, fit(g, "PLAIN2", status_, 740), 0xffffaa, 1, Align::Center);

@@ -12,9 +12,12 @@ class ConsentDialog : public Dialog {
   void onButton(int id) override;
   std::string modId;
   bool ask;
+  int step = 0;
+  bool followUp = false;
   bool closed = false;
   bool hosted = false;
-  static std::string text(const std::string& modId, bool ask = true);
+  static int stepFor(const std::string& modId, bool ask);
+  static std::string text(const std::string& modId, int step);
 };
 
 }
