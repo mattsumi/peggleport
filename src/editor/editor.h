@@ -4,6 +4,7 @@
 #include <set>
 #include <cstdint>
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <vector>
 #include <string>
@@ -40,6 +41,9 @@ class Editor {
   std::string status;
   std::vector<Issue> issues;
   int revision = 0;
+  std::map<const Node*, std::string> customTypes;
+  std::string customType(const NodeP& n) const;
+  void setCustomType(const std::string& key);
 
   void newLevel(const std::string& name, int boardWidth = 650);
   bool loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err);

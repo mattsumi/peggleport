@@ -762,6 +762,16 @@ void EditorScreen::tabObject(float x, float y0, float w) {
     }
     propRow(x, y, w, d.label, val, click, wheel, numeric);
   }
+  if (pegOf(*n)) {
+    const std::string cur = ed.customType(n);
+    y += 3;
+    T(x, y, "- Mod peg type", kLine + 0x303030);
+    y += fh_ + 2;
+    propRow(x, y, w, "Custom type", cur.empty() ? "-" : cur, [this, cur](int b) {
+      if (b != 1) return;
+      startPrompt("Custom type (mod id:type, or empty)", cur, [this](const std::string& t) { ed.setCustomType(t); dirtyLayout(); });
+    }, [](int) {}, false);
+  }
   y += 4;
   button({x, y, w, 22}, moverOf(*ed.level, *n) ? "Mover: edit..." : "Add mover...", [&] { tab_ = 1; scroll_[1] = 0; });
 }
