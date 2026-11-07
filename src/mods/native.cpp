@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,7 @@ struct NativeMod::Impl {
   std::string id;
   HostServices* host = nullptr;
   std::unique_ptr<HostProcess> proc;
+  std::mutex mu;
   uint32_t mask = 0;
   uint32_t prot = 0;
   bool dead = false;
@@ -197,6 +199,7 @@ bool applyEffects(NativeMod::Impl& I, mh::Reader& r, mh::Context ctx) {
 }
 
 bool callHook(NativeMod::Impl& I, mh::Hook h, int32_t a, int32_t b, int32_t* ret) {
+  std::lock_guard<std::mutex> lock(I.mu);
   if (I.dead || !I.proc) return false;
   const mh::Context ctx = contextOf(I);
   const int timeoutMs = h == mh::HFrame ? kFrameMs : kSimMs;

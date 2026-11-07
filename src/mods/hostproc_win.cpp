@@ -99,7 +99,7 @@ bool buildRestrictedToken(HANDLE* out, std::string* err) {
   ZeroMemory(&tml, sizeof tml);
   tml.Label.Attributes = SE_GROUP_INTEGRITY;
   tml.Label.Sid = low;
-  BOOL set = SetTokenInformation(restricted, TokenIntegrityLevel, &tml, sizeof tml + GetLengthSid(low));
+  BOOL set = SetTokenInformation(restricted, TokenIntegrityLevel, &tml, (DWORD)(sizeof tml + GetLengthSid(low)));
   LocalFree(low);
   if (!set) {
     CloseHandle(restricted);
