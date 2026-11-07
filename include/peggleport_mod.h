@@ -1,6 +1,7 @@
 #ifndef PEGGLEPORT_MOD_H
 #define PEGGLEPORT_MOD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -8,6 +9,7 @@ extern "C" {
 #endif
 
 #define PP_MOD_ABI_VERSION 1
+#define PP_MOD_ABI_MINOR 1
 
 #if defined(_WIN32)
 #define PP_MOD_EXPORT __declspec(dllexport)
@@ -42,6 +44,26 @@ typedef struct PPModHooks {
   void (*shutdown)(void);
 } PPModHooks;
 
+typedef struct PPPegTypeDef {
+  uint32_t struct_size;
+  const char* id;
+  const char* name;
+  const char* image;
+  const char* lit_image;
+  const char* const* stages;
+  int32_t stage_count;
+  uint32_t color;
+  int32_t base;
+  int32_t score;
+  int32_t counts_as_orange;
+  int32_t hits_to_clear;
+  int32_t indestructible;
+  float bounce;
+  float radius_scale;
+  void (*on_hit)(int32_t peg, int32_t ball);
+  void (*on_clear)(int32_t peg);
+} PPPegTypeDef;
+
 typedef struct PPModApi {
   uint32_t abi_version;
   uint32_t struct_size;
@@ -65,7 +87,13 @@ typedef struct PPModApi {
   void (*draw_rect)(float x, float y, float w, float h, uint32_t rgba, int32_t fill);
   void (*draw_circle)(float x, float y, float r, uint32_t rgba, int32_t fill);
   void (*draw_text)(float x, float y, const char* text, uint32_t rgba);
+  uint32_t abi_minor;
+  int32_t (*register_peg_type)(const PPPegTypeDef* def);
+  void (*set_peg_type)(int32_t peg, const char* type);
+  int32_t (*peg_custom)(int32_t peg, char* out, int32_t cap, int32_t* hits);
 } PPModApi;
+
+#define PP_MOD_API_HAS(api, field) ((api)->struct_size >= offsetof(PPModApi, field) + sizeof((api)->field))
 
 #ifdef __cplusplus
 }

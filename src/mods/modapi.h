@@ -15,7 +15,7 @@ namespace pp::mods {
 enum class Ctx { None, Load, Sim, Draw, Ui };
 
 struct ModCmd {
-  enum K { AddScore, HitPeg, AddBalls, SetBallVel, Say, StylePoints } k = Say;
+  enum K { AddScore, HitPeg, AddBalls, SetBallVel, Say, StylePoints, SetPegType } k = Say;
   int i = 0;
   double a = 0, b = 0;
   std::string s;

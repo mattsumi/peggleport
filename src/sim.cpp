@@ -13,6 +13,7 @@
 #include "dmath.h"
 #include "brick.h"
 #include "gun.h"
+#include "pegtypes.h"
 #include "physball.h"
 #include "sim_internal.h"
 
@@ -289,11 +290,13 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   W = std::max(650, cfg.boardWidth);
   players = std::clamp(cfg.players, 1, 4);
   if (base) addLevel(*base, true);
+  baseCount_ = objs.size();
   addLevel(*lv, false);
   if (W > 650) widen();
   rng.seed(cfg.seed);
   for (int p = 0; p < 4; p++) master[p] = cfg.master[p];
   setupPegs();
+  if (!cfg.pegTypes.empty()) applyPegTypes();
   int balls0 = cfg.balls > 0 ? cfg.balls : (cfg.duel ? 6 : 10);
   for (int p = 0; p < players; p++) ballsLeft[p] = balls0;
   score[0] = cfg.startScore;
@@ -419,6 +422,10 @@ bool Board::collide(Ball& b, int bi, const std::vector<int>* pre, V2* firstHit) 
     phys::Target t;
     t.user = i;
     t.bounce = o.bounce;
+    if (o.custom) {
+      const PegTypeDef* cd = pegTypeDef(o.custom);
+      if (cd && cd->bounce != 1.0f) t.bounce = (o.bounce != 0.0f ? o.bounce : (cls == 0 ? 0.9f : 0.82f)) * cd->bounce;
+    }
     t.slide = o.slide;
     t.maxVel = o.maxBounceVel;
     t.stopReset = o.stopReset;
@@ -662,6 +669,7 @@ uint64_t Board::hash() const {
     h = mix(h, o.gone); h = mix(h, o.lit); h = mix(h, o.pegType); h = mix(h, o.popTimer); h = mix(h, o.mtick);
     h = mix(h, o.pos.x); h = mix(h, o.pos.y); h = mix(h, o.rot); h = mix(h, o.collidable);
     if (o.moveCount) { h = mix(h, o.moveCount); h = mix(h, o.canMove); }
+    if (o.custom) { h = mix(h, o.custom); h = mix(h, o.hits); h = mix(h, o.hitTick); h = mix(h, o.radius); }
   }
   for (auto& b : balls) {
     h = mix(h, b.pos.x); h = mix(h, b.pos.y); h = mix(h, b.vel.x); h = mix(h, b.vel.y); h = mix(h, b.stuck);

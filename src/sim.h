@@ -49,6 +49,8 @@ struct Obj {
   int sound = 0;
   int subId = 0;
   int pegType = 0;
+  int custom = 0, hits = 0, hitTick = -1000000;
+  float radius0 = 0;
   bool canBeOrange = false, lit = false;
   int zoneMode = 0;
   int litAge = 0, popTimer = 0, flash = 0;
@@ -160,6 +162,7 @@ struct BoardConfig {
   ChallengeRules ch;
   bool liveSpin = false;
   int tryNumber = 1;
+  std::vector<std::pair<int, std::string>> pegTypes;
 };
 
 struct LevelResult {
@@ -192,6 +195,7 @@ class Board {
   std::vector<V2> guide(float a, int steps = 110) const;
   uint64_t hash() const;
   void pegHit(int oi, bool byPower = false);
+  bool setPegType(int oi, int custom);
   void startSlow();
   void stopSlow();
   bool levelWon(bool strict) const;
@@ -413,6 +417,9 @@ class Board {
   void beginTurn(bool next);
   void levelDone();
   void eraseFromSets(int oi);
+  bool customHit(int oi, bool force);
+  void applyPegTypes();
+  size_t baseCount_ = 0;
   bool clearedLevel() const;
   void setLState(int s);
   void addBalls(int n, bool fromBucket);

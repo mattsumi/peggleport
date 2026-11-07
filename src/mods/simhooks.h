@@ -12,6 +12,7 @@ struct SimHooks {
   virtual void stepEnd(Board& b) = 0;
   virtual void event(Board& b, int type, int a, int bb, int c, int ball) = 0;
   virtual bool power(Board& b, int pegIdx, int power, bool silent) = 0;
+  virtual void pegCustom(Board& b, int pegIdx, int what, int ball, int custom) { (void)b; (void)pegIdx; (void)what; (void)ball; (void)custom; }
 };
 
 inline SimHooks* g_simHooks = nullptr;

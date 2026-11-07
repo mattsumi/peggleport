@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <cctype>
 
+#include "log.h"
+#include "pegtypes.h"
 #include "sim.h"
 #include "sim_internal.h"
 #include "physball.h"
@@ -94,11 +96,11 @@ void Board::makeScorePeg() {
   std::vector<int> blue;
   for (int i : otherSet_) {
     int t = objs[i].pegType;
-    if (t == 3 && i != purple_) {
+    if (t == 3 && i != purple_ && !objs[i].custom) {
       purple_ = i;
       return;
     }
-    if (t == 1) blue.push_back(i);
+    if (t == 1 && !objs[i].custom) blue.push_back(i);
   }
   if (purple_ >= 0) {
     if (blue.empty()) return;
@@ -124,7 +126,7 @@ void Board::makePowerupPeg() {
     if (t == 4) {
       prev = objs[i].pos;
       greens++;
-    } else if (t == 1 && objs[i].pos.y < ymax) {
+    } else if (t == 1 && objs[i].pos.y < ymax && !objs[i].custom) {
       vec.push_back(i);
     }
   }
@@ -132,7 +134,7 @@ void Board::makePowerupPeg() {
   if (want <= 0) return;
   if (vec.empty()) {
     for (int i : otherSet_)
-      if (objs[i].pegType == 1 && objs[i].canBeOrange) vec.push_back(i);
+      if (objs[i].pegType == 1 && objs[i].canBeOrange && !objs[i].custom) vec.push_back(i);
     if (vec.empty()) return;
   }
   shuffle(vec);
@@ -415,6 +417,7 @@ void Board::pegHit(int oi, bool byPower) {
     ball->slideT = stateTick;
   }
   if (o.lit) return;
+  if (o.custom && !customHit(oi, byPower)) return;
   totalHits++;
   if (!byPower && ball && ball->slot == 0) {
     hitHist.push_back({stateTick, o.pegType, ball->pos});
@@ -496,7 +499,10 @@ void Board::pegHit(int oi, bool byPower) {
     }
   }
   int base = o.pegType == 2 ? 100 : o.pegType == 3 ? 500 : 10;
-  if (mult >= 100 && base >= 500) base = 100;
+  const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr;
+  const bool fixedScore = cd && cd->score > 0;
+  if (fixedScore) base = cd->score;
+  if (!fixedScore && mult >= 100 && base >= 500) base = 100;
   int p = mult * base;
   pegSum += p;
   incShotScore(pegsHitShot * p + pegSum);
@@ -506,6 +512,7 @@ void Board::pegHit(int oi, bool byPower) {
   if (o.pegType == 2) result.orangeHit++;
   ev(Event::PegHit, pegsHitShot, shotScore, byPower ? (flowerK > 0 ? 1 + flowerK : 1) : 0);
   ev(Event::PegLit, oi, p | (fever ? 0x40000000 : 0), byPower ? (flowerK > 0 ? 1 + flowerK : 1) : 0);
+  if (cd && cd->onClear && g_simHooks && !noModHooks) g_simHooks->pegCustom(*this, oi, 1, curBall_, o.custom);
   if (o.pegType == 3) {
     ev(Event::PointBoost);
     say("Point Boost!", 80);
@@ -523,6 +530,96 @@ void Board::pegHit(int oi, bool byPower) {
     greenHits++;
     greenFlag = true;
     doPower(oi);
+  }
+}
+
+bool Board::customHit(int oi, bool force) {
+  Obj& o = objs[(size_t)oi];
+  const PegTypeDef* d = pegTypeDef(o.custom);
+  if (!d) return true;
+  Ball* ball = (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[(size_t)curBall_] : nullptr;
+  const bool hooks = g_simHooks && !noModHooks && d->onHit;
+  const bool fire = ball && ball->fire;
+  if (!d->clears && force) return false;
+  if (d->clears && d->hits <= 1) {
+    o.hits = 1;
+    o.hitTick = tick;
+    if (hooks) g_simHooks->pegCustom(*this, oi, 0, curBall_, o.custom);
+    return true;
+  }
+  const bool direct = force || fire;
+  if (!direct && tick - o.hitTick < kPegHitGap) return false;
+  o.hitTick = tick;
+  if (direct && d->clears) o.hits = d->hits;
+  else if (o.hits < 1000000) o.hits++;
+  if (hooks) g_simHooks->pegCustom(*this, oi, 0, curBall_, o.custom);
+  if (!d->clears) {
+    int mult = multiplier(orangeLeft);
+    if (cfg.clearLevel && orangeLeft <= 0) mult = 10;
+    int base = d->score > 0 ? d->score : (o.pegType == 2 ? 100 : o.pegType == 3 ? 500 : 10);
+    incShotScore(mult * base);
+    ev(Event::Bump, fire ? 1 : 0);
+    return false;
+  }
+  if (o.hits >= d->hits) return true;
+  ev(Event::Bump, fire ? 1 : 0);
+  return false;
+}
+
+bool Board::setPegType(int oi, int custom) {
+  if (oi < 0 || oi >= (int)objs.size()) return false;
+  Obj& o = objs[(size_t)oi];
+  const PegTypeDef* d = pegTypeDef(custom);
+  if (!d || !o.pegType || o.gone || o.lit) return false;
+  bool wantOrange;
+  if (!d->clears) wantOrange = false;
+  else if (d->orange == 1) wantOrange = true;
+  else if (d->orange == 0) wantOrange = false;
+  else wantOrange = d->base == 2 || (o.pegType == 2 && d->base == 1);
+  const int kind = wantOrange ? 2 : (d->base == 2 ? 1 : d->base);
+  auto take = [&](std::vector<int>& v) {
+    auto it = std::lower_bound(v.begin(), v.end(), oi);
+    if (it != v.end() && *it == oi) { v.erase(it); return true; }
+    return false;
+  };
+  const bool wasOrange = std::binary_search(orangeSet_.begin(), orangeSet_.end(), oi);
+  const bool wasOther = std::binary_search(otherSet_.begin(), otherSet_.end(), oi);
+  if (kind == 2 && !wasOrange && (int)orangeSet_.size() >= kMaxOrangePegs) return false;
+  take(orangeSet_);
+  take(otherSet_);
+  if (wasOrange) { orangeLeft--; orangeTotal--; }
+  if (oi == purple_) purple_ = -1;
+  o.pegType = kind;
+  o.custom = custom;
+  o.hits = 0;
+  o.hitTick = -1000000;
+  if (d->clears && (wasOrange || wasOther || (o.visible && o.collidable))) {
+    if (kind == 2) { insertSorted(orangeSet_, oi); orangeLeft++; orangeTotal++; }
+    else insertSorted(otherSet_, oi);
+  }
+  result.orangeTotal = orangeTotal;
+  if (o.shape == Shape::Circle && (o.radius0 != 0.0f || d->radiusScale != 1.0f)) {
+    if (o.radius0 == 0.0f) o.radius0 = o.radius;
+    o.radius = o.radius0 * d->radiusScale;
+    rebuild(o);
+    if ((size_t)oi < sapIn_.size() && sapIn_[(size_t)oi]) {
+      sapRemove(oi);
+      sapIn_[(size_t)oi] = 0;
+    }
+  }
+  return true;
+}
+
+void Board::applyPegTypes() {
+  for (const auto& [n, key] : cfg.pegTypes) {
+    const int custom = findPegType(key);
+    if (!custom) {
+      pp::log::warn("game", "this level uses the peg type '" + key + "' but no loaded mod provides it; those pegs stay normal");
+      continue;
+    }
+    if (n < 0) continue;
+    const size_t oi = baseCount_ + (size_t)n;
+    if (oi < objs.size()) setPegType((int)oi, custom);
   }
 }
 
@@ -714,6 +811,11 @@ void Board::endShot() {
   if (clearedLevel()) {
     for (int i : otherSet_) hitList_.push_back(i);
     otherSet_.clear();
+    for (int i = 0; i < (int)objs.size(); i++) {
+      const Obj& o = objs[(size_t)i];
+      const PegTypeDef* d = o.custom ? pegTypeDef(o.custom) : nullptr;
+      if (d && !d->clears && o.pegType && !o.gone && !o.lit && o.visible) hitList_.push_back(i);
+    }
   }
   int pending = (int)hitList_.size() - popIdx_;
   if (pegsHitShot > 0) {
@@ -1071,7 +1173,9 @@ void Board::clearFlipperZones() {
       insertSorted(otherSet_, i);
     }
   }
-  std::vector<int> vec = otherSet_;
+  std::vector<int> vec;
+  for (int i : otherSet_)
+    if (!objs[(size_t)i].custom) vec.push_back(i);
   shuffle(vec);
   removedOrange = std::min(removedOrange, (int)vec.size());
   for (int k = 0; k < removedOrange; k++) {

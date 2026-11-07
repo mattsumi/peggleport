@@ -71,6 +71,7 @@ class ModManager final : public SimHooks {
   void stepEnd(Board& b) override;
   void event(Board& b, int type, int a, int bb, int c, int ball) override;
   bool power(Board& b, int pegIdx, int power, bool silent) override;
+  void pegCustom(Board& b, int pegIdx, int what, int ball, int custom) override;
 
   void flush(Board& b);
 
@@ -85,6 +86,14 @@ class ModManager final : public SimHooks {
   uint64_t setHash_ = 0;
   bool installed_ = false;
   bool queueFull_ = false;
+  struct PegOwner {
+    ModInfo* mod = nullptr;
+    int hitRef = 0, clearRef = 0;
+    const NativeMod::PegTypeReg* nat = nullptr;
+  };
+  PegTypeTable pegTable_;
+  std::vector<PegOwner> pegOwners_;
+  void buildPegTypes();
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);
   void addMod(const std::filesystem::path& src, bool cli);

@@ -348,6 +348,7 @@ void ModManager::activate(Vfs* vfs) {
     if (what.empty()) what = "data only";
     host_.log(m.m.id, pp::log::Level::Info, "loaded " + m.m.name + " " + m.m.version + " (" + what + (m.m.cosmetic ? ", cosmetic" : "") + ")");
   }
+  buildPegTypes();
   setHash_ = computeSetHash();
   bool code = false;
   for (auto& m : mods_) if (m->state == ModInfo::Active && m->hasCode()) code = true;
@@ -362,6 +363,9 @@ void ModManager::deactivate() {
   installed_ = false;
   if (g_modSetHash == setHash_) g_modSetHash = 0;
   if (g_mods == this) g_mods = nullptr;
+  if (g_pegTypes == &pegTable_) g_pegTypes = nullptr;
+  pegTable_.defs.clear();
+  pegOwners_.clear();
   for (auto& m : mods_) {
     m->lua.reset();
     m->native.reset();
@@ -488,6 +492,52 @@ bool ModManager::power(Board& b, int pegIdx, int pw, bool silent) {
   return replaced;
 }
 
+void ModManager::buildPegTypes() {
+  struct Item {
+    PegTypeDef def;
+    PegOwner owner;
+  };
+  std::vector<Item> items;
+  for (auto& mp : mods_) {
+    ModInfo& m = *mp;
+    if (m.state != ModInfo::Active || m.m.cosmetic) continue;
+    if (m.lua)
+      for (auto& r : m.lua->pegTypes) items.push_back({r.def, {&m, r.hitRef, r.clearRef, nullptr}});
+    if (m.native)
+      for (auto& r : m.native->pegTypes()) {
+        bool dup = false;
+        for (auto& it : items) dup |= it.def.mod == r.def.mod && it.def.id == r.def.id;
+        if (dup) {
+          host_.log(m.m.id, pp::log::Level::Warn, "peg type '" + r.def.id + "' is defined twice in this mod; the second one is ignored");
+          continue;
+        }
+        items.push_back({r.def, {&m, 0, 0, &r}});
+      }
+  }
+  std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.def.mod != b.def.mod ? a.def.mod < b.def.mod : a.def.id < b.def.id; });
+  pegTable_.defs.clear();
+  pegOwners_.clear();
+  for (auto& it : items) {
+    pegTable_.defs.push_back(it.def);
+    pegOwners_.push_back(it.owner);
+  }
+  g_pegTypes = pegTable_.defs.empty() ? nullptr : &pegTable_;
+  if (!items.empty()) pp::log::info("mods", std::to_string(items.size()) + " peg type(s) defined");
+}
+
+void ModManager::pegCustom(Board& b, int pegIdx, int what, int ball, int custom) {
+  if (custom < 1 || custom > (int)pegOwners_.size()) return;
+  const PegOwner& ow = pegOwners_[(size_t)custom - 1];
+  if (!ow.mod || ow.mod->state != ModInfo::Active) return;
+  Scope sc(*this, &b, Ctx::Sim);
+  if (ow.nat) {
+    if (ow.mod->native) ow.mod->native->pegHook(*ow.nat, what == 1, pegIdx, ball);
+    return;
+  }
+  const int ref = what == 1 ? ow.clearRef : ow.hitRef;
+  if (ref && ow.mod->lua) ow.mod->lua->callPegHook(ref, pegIdx, ball);
+}
+
 void ModManager::apply(Board& b, const ModCmd& c) {
   const bool shotLive = b.phase == Phase::Shot || b.phase == Phase::Popping;
   const int cur = std::clamp(b.cur, 0, 3);
@@ -516,6 +566,9 @@ void ModManager::apply(Board& b, const ModCmd& c) {
     case ModCmd::Say:
       b.banner = c.s;
       b.bannerTimer = 150;
+      break;
+    case ModCmd::SetPegType:
+      if (int t = findPegType(c.s)) b.setPegType(c.i, t);
       break;
     case ModCmd::StylePoints:
       b.style[cur] += c.i;
