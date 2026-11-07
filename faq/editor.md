@@ -45,6 +45,7 @@ The `:` key opens a one line command box for typed commands, which some people p
 ## What things are
 
 * **Pegs** are circles with a peg block. Blue and orange are saved as "variable" pegs like the shipped levels: the game picks the real oranges at the start of every game, and the colour you see in the editor is only a preview. Green and purple are fixed.
+* **Mod peg types**: select a peg and type a name into the **Custom type** field of the Object tab, for example `ice` or `mymod:ice`. **To mod** saves it as a `peg` line in the level's `.ini`, and the game gives the peg that type when the mod that defines it is on. The editor still draws the peg as a normal one, and opening a level with `peg` lines keeps them. The modding guide has the details.
 * **Round and bumper**: any radius. A bumper has no peg properties.
 * **Bricks** have all the brick settings of the game (type, subdivisions, radius or length, sweep, end angles, thickness, rotation) and can also be a peg.
 * **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. **Lines** are single walls. **Holes** have a score, an out delay and a size.
@@ -58,7 +59,7 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 * **Save** writes the level to where it came from, or into your mod folder when it is new.
 * **To mod** (Ctrl/Cmd+Shift+S) writes
   * `mods/<modname>/levels/<Level>.dat`,
-  * `<Level>.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`,
+  * `<Level>.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`, and a `peg` line for every mod peg type you set (see Mod peg types),
   * `levels/mod_levels.cfg`, which makes a Quick Play stage for every five levels,
   * a `mod.ini` when the folder has none, and a 200 by 177 thumbnail in `levels/cached_thumbnails/` for the Quick Play tile.
 * New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.
