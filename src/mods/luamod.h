@@ -9,6 +9,7 @@
 
 #include "mods/manifest.h"
 #include "mods/modapi.h"
+#include "pegtypes.h"
 
 struct lua_State;
 
@@ -17,6 +18,10 @@ namespace pp::mods {
 struct MenuEntry {
   std::string label;
   int ref = 0;
+};
+struct PegTypeReg {
+  PegTypeDef def;
+  int hitRef = 0, clearRef = 0;
 };
 struct PowerDef {
   std::string name, description;
@@ -39,6 +44,7 @@ class LuaMod {
   bool runMenu(int index);
   bool callRef(int ref, int nargs, const std::function<void(lua_State*)>& push);
   bool activatePower(const PowerDef& p, int player, int peg);
+  bool callPegHook(int ref, int peg, int ball);
   std::string eval(const std::string& code, std::string* result, bool sim = false);
 
   Ctx ctx() const;
@@ -48,6 +54,7 @@ class LuaMod {
   std::vector<MenuEntry> menus;
   std::vector<PowerDef> powers;
   PhysicsEdit loadPhysics;
+  std::vector<PegTypeReg> pegTypes;
   size_t memoryUsed() const;
   size_t memoryPeak() const;
   bool memoryDenied() const;

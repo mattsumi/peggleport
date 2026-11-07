@@ -2,9 +2,11 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "mods/manifest.h"
 #include "mods/modapi.h"
+#include "pegtypes.h"
 
 namespace pp::mods {
 
@@ -18,6 +20,13 @@ class NativeMod {
   bool power(int pegIdx, int power);
   void frame();
   const PhysicsEdit& loadPhysics() const;
+  struct PegTypeReg {
+    PegTypeDef def;
+    void (*onHit)(int32_t, int32_t) = nullptr;
+    void (*onClear)(int32_t) = nullptr;
+  };
+  const std::vector<PegTypeReg>& pegTypes() const;
+  void pegHook(const PegTypeReg& r, bool clear, int peg, int ball);
   struct Impl;
 
  private:

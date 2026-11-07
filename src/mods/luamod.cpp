@@ -365,7 +365,15 @@ int l_math_atan(lua_State* L) { lua_pushnumber(L, dm::atan2(luaL_checknumber(L, 
 
 void pushPeg(lua_State* L, const Board& b, int i) {
   const Obj& o = b.objs[(size_t)i];
-  lua_createtable(L, 0, 9);
+  lua_createtable(L, 0, 12);
+  if (const int li = b.levelIndexOf(i); li >= 0) { lua_pushinteger(L, li); lua_setfield(L, -2, "index"); }
+  if (o.custom) {
+    if (const PegTypeDef* d = pegTypeDef(o.custom)) {
+      const std::string key = d->mod == IM(L)->mod->manifest().id ? d->id : d->key();
+      lua_pushstring(L, key.c_str()); lua_setfield(L, -2, "custom");
+      lua_pushinteger(L, o.hits); lua_setfield(L, -2, "hits");
+    }
+  }
   lua_pushinteger(L, i); lua_setfield(L, -2, "id");
   lua_pushnumber(L, o.pos.x); lua_setfield(L, -2, "x");
   lua_pushnumber(L, o.pos.y); lua_setfield(L, -2, "y");
@@ -456,6 +464,36 @@ int m_add_score(lua_State* L) { lua_Integer n = luaL_checkinteger(L, 1); queueCm
 int m_hit_peg(lua_State* L) { queueCmd(L, {ModCmd::HitPeg, (int)luaL_checkinteger(L, 1), 0, 0, ""}); return 0; }
 int m_add_balls(lua_State* L) { queueCmd(L, {ModCmd::AddBalls, (int)std::clamp<lua_Integer>(luaL_checkinteger(L, 1), -99, 99), 0, 0, ""}); return 0; }
 int m_set_ball_velocity(lua_State* L) { queueCmd(L, {ModCmd::SetBallVel, (int)luaL_checkinteger(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), ""}); return 0; }
+std::string qualifyPegType(lua_State* L, const std::string& t) {
+  if (t.find(':') != std::string::npos) return t;
+  Impl* I = IM(L);
+  for (auto& r : I->mod->pegTypes)
+    if (r.def.id == t) return r.def.mod + ":" + t;
+  return t;
+}
+int m_set_peg_type(lua_State* L) {
+  lua_Integer id = luaL_checkinteger(L, 1);
+  std::string t = luaL_checkstring(L, 2);
+  if (id < 0 || id > 100000) luaL_error(L, "set_peg_type: bad peg id");
+  queueCmd(L, {ModCmd::SetPegType, (int)id, 0, 0, qualifyPegType(L, t.substr(0, 80))});
+  return 0;
+}
+int m_set_peg_types(lua_State* L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  std::vector<std::pair<int, std::string>> list;
+  lua_pushnil(L);
+  while (lua_next(L, 1)) {
+    if (lua_isinteger(L, -2) && lua_type(L, -1) == LUA_TSTRING) {
+      lua_Integer id = lua_tointeger(L, -2);
+      if (id >= 0 && id <= 100000) list.push_back({(int)id, std::string(lua_tostring(L, -1)).substr(0, 80)});
+    }
+    lua_pop(L, 1);
+    if (list.size() > 4000) luaL_error(L, "set_peg_types: too many entries");
+  }
+  std::sort(list.begin(), list.end());
+  for (auto& [id, t] : list) queueCmd(L, {ModCmd::SetPegType, id, 0, 0, qualifyPegType(L, t)});
+  return 0;
+}
 int m_say(lua_State* L) { queueCmd(L, {ModCmd::Say, 0, 0, 0, std::string(luaL_checkstring(L, 1)).substr(0, 60)}); return 0; }
 int m_style_shot(lua_State* L) {
   std::string nm = std::string(luaL_checkstring(L, 1)).substr(0, 40);
@@ -645,6 +683,96 @@ int l_register_power(lua_State* L) {
   return 0;
 }
 
+int l_register_peg_type(lua_State* L) {
+  Impl* I = IM(L);
+  if (I->ctx != Ctx::Load) luaL_error(L, "register_peg_type can only be used while the mod loads (at the top of a script or in on_load)");
+  if (I->mod->manifest().cosmetic) luaL_error(L, "a cosmetic mod cannot define peg types");
+  luaL_checktype(L, 1, LUA_TTABLE);
+  if (I->mod->pegTypes.size() >= 64) luaL_error(L, "register_peg_type: a mod can define up to 64 peg types");
+  PegTypeReg r;
+  PegTypeDef& d = r.def;
+  d.mod = I->mod->manifest().id;
+  auto field = [&](const char* k) { lua_getfield(L, 1, k); return lua_type(L, -1); };
+  auto text = [&](const char* k, std::string& out, size_t max, bool path) {
+    if (field(k) != LUA_TNIL) {
+      if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "register_peg_type: '%s' must be a string", k);
+      out = lua_tostring(L, -1);
+      if (out.size() > max) luaL_error(L, "register_peg_type: '%s' is too long", k);
+      if (path && !safeRelPath(out)) luaL_error(L, "register_peg_type: '%s' must be a path inside the mod folder", k);
+    }
+    lua_pop(L, 1);
+  };
+  auto number = [&](const char* k, double& out) {
+    bool set = false;
+    if (field(k) != LUA_TNIL) {
+      if (!lua_isnumber(L, -1)) luaL_error(L, "register_peg_type: '%s' must be a number", k);
+      out = lua_tonumber(L, -1);
+      if (!std::isfinite(out)) luaL_error(L, "register_peg_type: '%s' must be a finite number", k);
+      set = true;
+    }
+    lua_pop(L, 1);
+    return set;
+  };
+  text("id", d.id, 32, false);
+  if (d.id.empty()) luaL_error(L, "register_peg_type: 'id' is required");
+  for (char c : d.id)
+    if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) luaL_error(L, "register_peg_type: 'id' may only use letters, digits, '_' and '-'");
+  for (auto& o : I->mod->pegTypes)
+    if (o.def.id == d.id) luaL_error(L, "register_peg_type: the id '%s' is already used by this mod", d.id.c_str());
+  d.name = d.id;
+  text("name", d.name, 60, false);
+  text("image", d.image, 200, true);
+  text("lit_image", d.litImage, 200, true);
+  if (field("stages") != LUA_TNIL) {
+    if (!lua_istable(L, -1)) luaL_error(L, "register_peg_type: 'stages' must be a list of image paths");
+    for (lua_Integer i = 1; i <= 16; i++) {
+      lua_rawgeti(L, -1, i);
+      if (lua_isnil(L, -1)) { lua_pop(L, 1); break; }
+      if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "register_peg_type: 'stages' must be a list of image paths");
+      std::string sp = lua_tostring(L, -1);
+      if (sp.size() > 200 || !safeRelPath(sp)) luaL_error(L, "register_peg_type: every stage must be a path inside the mod folder");
+      d.stages.push_back(sp);
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+  double v = 0;
+  if (number("color", v)) { d.color = (uint32_t)((lua_Unsigned)(lua_Integer)v & 0xffffffu); d.hasColor = true; }
+  if (field("base") != LUA_TNIL) {
+    if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "register_peg_type: 'base' must be \"blue\", \"orange\", \"purple\" or \"green\"");
+    std::string b = lua_tostring(L, -1);
+    if (b == "blue") d.base = 1;
+    else if (b == "orange") d.base = 2;
+    else if (b == "purple") d.base = 3;
+    else if (b == "green") d.base = 4;
+    else luaL_error(L, "register_peg_type: 'base' must be \"blue\", \"orange\", \"purple\" or \"green\"");
+  }
+  lua_pop(L, 1);
+  if (number("score", v)) d.score = (int)std::clamp(v, 0.0, 1000000.0);
+  if (field("counts_as_orange") != LUA_TNIL) d.orange = lua_toboolean(L, -1) ? 1 : 0;
+  lua_pop(L, 1);
+  if (number("hits_to_clear", v)) d.hits = (int)std::clamp(v, 1.0, 100.0);
+  if (field("clears_on_hit") != LUA_TNIL) d.clears = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  if (number("bounce", v)) d.bounce = (float)std::clamp(v, 0.1, 3.0);
+  if (number("radius_scale", v)) d.radiusScale = (float)std::clamp(v, 0.5, 3.0);
+  if (!d.clears && d.orange == 1) {
+    emit(HS(L), d.mod, pp::log::Level::Warn, "peg type '" + d.id + "' never clears, so it cannot count as an orange peg; counts_as_orange is ignored");
+    d.orange = 0;
+  }
+  if (!d.clears) d.hits = 1;
+  for (const char* k : {"on_hit", "on_clear"}) {
+    int t = field(k);
+    if (t == LUA_TNIL) { lua_pop(L, 1); continue; }
+    if (t != LUA_TFUNCTION) luaL_error(L, "register_peg_type: '%s' must be a function", k);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    if (k[3] == 'h') { r.hitRef = ref; d.onHit = true; }
+    else { r.clearRef = ref; d.onClear = true; }
+  }
+  I->mod->pegTypes.push_back(r);
+  return 0;
+}
+
 void setFuncs(lua_State* L, const char* table, const luaL_Reg* fns) {
   lua_newtable(L);
   luaL_setfuncs(L, fns, 0);
@@ -699,7 +827,7 @@ bool LuaMod::open(std::string* err) {
   for (const char* n : {"tan", "asin", "acos", "exp", "log", "random", "randomseed", "pow", "sinh", "cosh", "tanh", "log10", "ldexp", "frexp"}) nilField("math", n);
   auto setG = [&](const char* n, lua_CFunction f) { lua_pushcfunction(L, f); lua_setglobal(L, n); };
   setG("print", l_log); setG("log", l_log); setG("tostring", l_tostring); setG("load", l_load); setG("require", l_require); setG("__aborted", l_aborted); setG("__burn", l_burn);
-  setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power);
+  setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power); setG("register_peg_type", l_register_peg_type);
   lua_getglobal(L, "math");
   lua_pushcfunction(L, l_math_random); lua_setfield(L, -2, "random");
   lua_pushcfunction(L, l_math_sin); lua_setfield(L, -2, "sin");
@@ -726,7 +854,7 @@ bool LuaMod::open(std::string* err) {
                                    {"shot_score", b_shot_score}, {"player", b_player}, {"fever", b_fever}, {"width", b_width}, {"master", b_master}, {"phase", b_phase},
                                    {"peg", b_peg}, {"pegs", b_pegs}, {"peg_count", b_peg_count}, {"bricks", b_bricks}, {"balls", b_balls}, {"ball_count", b_ball_count},
                                    {"add_score", m_add_score}, {"hit_peg", m_hit_peg}, {"add_balls", m_add_balls}, {"set_ball_velocity", m_set_ball_velocity},
-                                   {"say", m_say}, {"style_shot", m_style_shot}, {nullptr, nullptr}};
+                                   {"say", m_say}, {"style_shot", m_style_shot}, {"set_peg_type", m_set_peg_type}, {"set_peg_types", m_set_peg_types}, {nullptr, nullptr}};
   static const luaL_Reg physics[] = {{"set", p_set}, {"get", p_get}, {nullptr, nullptr}};
   static const luaL_Reg state[] = {{"get", s_get}, {"set", s_set}, {"add", s_add}, {nullptr, nullptr}};
   static const luaL_Reg ui[] = {{"menu", u_menu}, {"message", u_message}, {nullptr, nullptr}};
@@ -901,6 +1029,19 @@ bool LuaMod::activatePower(const PowerDef& p, int player, int peg) {
   std::string e;
   if (pcallBudgeted(2, 0, false, Ctx::Sim, &e)) return true;
   reportError(im_.get(), host_, man_.id, "error in power '" + p.name + "': " + e);
+  return false;
+}
+
+bool LuaMod::callPegHook(int ref, int peg, int ball) {
+  if (!L_ || !host_.board || peg < 0 || peg >= (int)host_.board->objs.size()) return false;
+  lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);
+  if (!lua_isfunction(L_, -1)) { lua_pop(L_, 1); return false; }
+  pushPeg(L_, *host_.board, peg);
+  lua_pushinteger(L_, ball);
+  std::string e;
+  if (pcallBudgeted(2, 0, false, Ctx::Sim, &e)) return true;
+  errors++;
+  reportError(im_.get(), host_, man_.id, "error in a peg type callback: " + e);
   return false;
 }
 

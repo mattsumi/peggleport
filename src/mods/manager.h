@@ -80,6 +80,7 @@ class ModManager final : public SimHooks {
   void event(Board& b, int type, int a, int bb, int c, int ball) override;
   bool power(Board& b, int pegIdx, int power, bool silent) override;
   void basePhysics(PhysicsParams& p) override;
+  void pegCustom(Board& b, int pegIdx, int what, int ball, int custom) override;
 
   void flush(Board& b);
 
@@ -101,6 +102,14 @@ class ModManager final : public SimHooks {
   void rediscover();
   void settleStates();
   void failLoad(ModInfo& m, const std::string& err);
+  struct PegOwner {
+    ModInfo* mod = nullptr;
+    int hitRef = 0, clearRef = 0;
+    const NativeMod::PegTypeReg* nat = nullptr;
+  };
+  PegTypeTable pegTable_;
+  std::vector<PegOwner> pegOwners_;
+  void buildPegTypes();
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);
   void addMod(const std::filesystem::path& src, bool cli);
