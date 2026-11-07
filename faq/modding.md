@@ -8,7 +8,7 @@ PegglePort has three kinds of mods. They all live in the same place and go throu
 | Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers | sandbox | only when the scan finds network use |
 | Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | not sandboxed | always |
 
-The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs`, `trace_hooks`, and a prebuilt `hello_native` when your platform has one) and the source of the native example in `examples/plugin`.
+The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs`, `trace_hooks`, `frost_queen` with two new Masters, and a prebuilt `hello_native` when your platform has one) and the source of the native example in `examples/plugin`.
 
 ## Installing and turning mods on
 
@@ -82,7 +82,7 @@ Limits: every gameplay hook gets an instruction budget, there is a memory limit,
 
 | Context | Where | You may |
 |---|---|---|
-| Load | the top of your script and `on_load` | define globals and hooks, `register_power`, `ui.menu` |
+| Load | the top of your script and `on_load` | define globals and hooks, `register_power`, `register_master`, `ui.menu` |
 | Sim | the `on_*` gameplay hooks and power callbacks | read the board, use `state.*` and `rng_*`, queue changes. No global writes, no `net` |
 | Draw | `on_frame` | read the board, use `draw.*` and globals |
 | Ui | `ui.menu` callbacks and `net` callbacks | globals, `ui.message`, `net` and `fs` |
@@ -110,7 +110,7 @@ Hooks run in load order, for every board (a Peg Party match has one per player),
 
 ### Reading the board (Sim and Draw)
 
-`board.tick()`, `board.score([player])`, `board.orange_left()`, `board.orange_total()`, `board.balls_left([player])`, `board.shot_score()`, `board.player()`, `board.fever()`, `board.width()`, `board.master([player])`, `board.phase()` (`"aim"`, `"shot"`, `"popping"` or `"over"`), `board.peg_count()`, `board.peg(id)`, `board.pegs()`, `board.bricks()`, `board.ball_count()` and `board.balls()`.
+`board.tick()`, `board.score([player])`, `board.orange_left()`, `board.orange_total()`, `board.balls_left([player])`, `board.shot_score()`, `board.player()`, `board.fever()`, `board.width()`, `board.master([player])`, `board.master_key([player])`, `board.phase()` (`"aim"`, `"shot"`, `"popping"` or `"over"`), `board.peg_count()`, `board.peg(id)`, `board.pegs()`, `board.bricks()`, `board.ball_count()` and `board.balls()`.
 
 `board.pegs()` returns a list of `{id, x, y, type, lit, gone, shape, radius, rot}` where `type` is `blue`, `orange`, `purple` or `green`. `board.balls()` returns `{id, x, y, vx, vy, r, fire, alive}`. Coordinates are board pixels with the origin at the top left of the playfield. Object ids are indexes that stay the same for the whole level.
 
@@ -134,7 +134,7 @@ The events these cause call your hooks again, up to 8 rounds per tick.
 
 ### Powers, menu and drawing
 
-* `register_power{name=, replaces="Flower Power" | "Fireball" | "Tula" | 9, mode="replace" | "extra", on_activate=function(player, peg) end}` hooks a built-in Master power. Whenever it would fire, `on_activate` runs first, and with mode `"replace"` the built-in effect is skipped. To try it, pick that Master in Quick Play. New Master characters are not supported.
+* `register_power{name=, replaces="Flower Power" | "Fireball" | "Tula" | 9, mode="replace" | "extra", on_activate=function(player, peg) end}` hooks a built-in Master power. Whenever it would fire, `on_activate` runs first, and with mode `"replace"` the built-in effect is skipped. To try it, pick that Master in Quick Play. It only changes the powers that are already in the game. To add a whole new Master with a name, a portrait and a power of its own, use `register_master` (see "Master characters" below).
 * `ui.menu(label, fn)` adds a button to the Mods screen. `ui.message(text)` shows a line there.
 * `draw.rect(x, y, w, h, rgba[, fill])`, `draw.circle(x, y, r, rgba[, fill])`, `draw.text(x, y, s, rgba[, align, scale])`, `draw.image(path, x, y[, scale, alpha])`, `draw.screen(true)` to switch to 800x600 screen coordinates, `draw.rgb(r, g, b[, a])` and `draw.hsv(h, s, v[, a])`. Colours are `0xRRGGBBAA`.
 * `log(text)` writes to the log. It is also what `print` does.
@@ -155,9 +155,70 @@ Gameplay hooks run on every player's computer and must give identical results.
 * `pairs()` order is stable for string keys, but not for tables or functions used as keys.
 * A mod with `determinism = cosmetic` gets no gameplay hooks and cannot change state. It only has `on_load`, `on_frame`, menu and network callbacks, and it does not count in the match comparison.
 
+## Master characters
+
+A mod can add new Master characters. They are listed after the original ones in the character choice and in the online room, with their own name, portrait and power. The power is not one of the 14 built-in ones: it is made of your callbacks, which can use everything a gameplay hook can use (`board.add_score`, `board.hit_peg`, `board.add_balls`, `board.set_ball_velocity`, `board.say`, `board.style_shot`, `state.*`, `rng_*`). Use `register_power` when you only want to change what an original Master does.
+
+Call `register_master` while the mod loads, at the top of a script or in `on_load`:
+
+```lua
+register_master {
+  id = "frost", name = "Frost Queen", description = "She rules the winter board.",
+  power_name = "Frost Snap", power_description = "For 3 shots every shot is worth 250 more.",
+  portrait = "images/frost.png", turns = 3, trigger = "green_peg",
+  banner = "Frost Snap!", color = 0x66ccff,
+  on_activate = function(player, peg) board.add_balls(1) end,
+  on_shot = function(player) board.add_score(250) end,
+  on_end = function(player) log("over") end,
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Required. 1 to 32 letters, digits, `-` or `_` (kept in lower case). It has to be unique inside your mod and cannot be the name of an original Master. Together with your mod id it makes the key `modid:id`, which is how saves, level files and online rooms name the Master |
+| `name` | Shown in the menus, up to 40 characters. Defaults to the id |
+| `description` | A line or two about the character, shown in the character choice |
+| `power_name`, `power_description` | The name of the power and what it does, shown below the description. The name defaults to `Master Power` |
+| `portrait` | A picture file inside your mod folder, for example `images/frost.png` (PNG or JPEG, up to 4096 by 4096 pixels and 4 MB). It is shown in the character choice and in the round window above the cannon. Without one, the game draws a badge with the first letter of the name in your colour |
+| `turns` | 1 to 99, default 3. How many shots the power lasts once it is granted |
+| `trigger` | `"green_peg"` (default), `"every_shot"` or `"level_start"`, see below |
+| `banner` | The text that pops up where the power is granted. Defaults to the power name with `!` |
+| `color` | `0xRRGGBB` for the banner text and the badge. Default is a light green |
+| `on_activate(player, peg)` | Runs when the power is granted. `peg` is the object id of the green peg, or -1 when there is none |
+| `on_shot(player)` | Runs every time a shot is fired while the power has turns left |
+| `on_end(player)` | Runs when the last turn of the power is over |
+
+The three triggers:
+
+* `green_peg` is how the original Masters work. Hitting a green peg grants the power for the next `turns` shots, shows the banner and runs `on_activate`. Hitting another green peg while it is on tops it up to `turns` again, it does not add up.
+* `every_shot` means the power is always on. `on_activate` and then `on_shot` run each time a shot is fired. `turns` is not used, green pegs do nothing special and `on_end` never runs.
+* `level_start` grants the power once when the level starts, for `turns` shots. `on_activate` runs right away. Green pegs do nothing special.
+
+The callbacks run like the other gameplay hooks: changes are queued and applied at the end of the tick, global writes are not allowed, and anything you want to remember goes in `state.*`. `board.master(player)` gives the number of the Master, 16 or more for a Master from a mod, and `board.master_key(player)` gives `modid:id` (or `nil` for an original Master). `on_power` still reports only the 14 original powers.
+
+One mod can add up to 16 Masters and all mods together up to 48. A mod with `determinism = cosmetic` cannot add Masters. The numbers from 16 on are handed out in order of mod id and then Master id, so players with the same mods always get the same numbers.
+
+### Choosing a mod Master
+
+* In the character choice (Duel) the original Masters come first. When mods add Masters, a **Mods >** button appears under each grid. It pages through the mod Masters, ten to a page, and **< Back** returns to the originals. Mod Masters are always unlocked. Point at one to read its name, power and description.
+* Your pick is stored in `mod-masters.ini` in your `userdata` folder, next to your profile. The profile file itself is not touched and keeps the last original Master you picked. If the mod is removed or switched off, you play with that original Master again, and the pick comes back when the mod does. Picking an original Master clears it.
+* Where the game uses your own character, a mod Master you picked works too: Duel, and the Quick Play stages that use your character (level packs and mod levels).
+* A level can name a Master in its `.ini`: `master = frost` or `master = modid:frost`. It is used for single player when the level is played.
+* The computer player can play a mod Master. When it plans a shot it treats the power as no power at all.
+
+### Online
+
+Mod Masters are in the **Master** choice when you create a room, after the original ones. The seats get consecutive Masters from your pick, as before. The host sends the Master by its key, so a guest who is missing the mod is told which Master it is and does not join. The usual comparison of the active gameplay mods still decides whether a guest can join, so everybody has the same Masters and powers.
+
+### Example
+
+`examples/mods/frost_queen` adds two Masters: Frost Queen with a portrait, a green peg power that lights a few more pegs and adds score on every shot, and Gleam, which is always on and has no portrait. Copy the folder into your `mods` folder and tick it in the Mods screen. The picture was made with a small script and does not come from the game.
+
 ## Native plugins
 
 The header `include/peggleport_mod.h` is plain C and versioned (`PP_MOD_ABI_VERSION`). Your library exports `int32_t pp_mod_init(const PPModApi*)`, fills a `PPModHooks` structure and calls `api->register_hooks`. The hooks are `on_level_start`, `on_tick`, `on_shot`, `on_peg_hit`, `on_ball_lost`, `on_level_end`, `on_power`, `on_activate_power` (return 1 to replace the built-in power), `on_frame` and a final cleanup hook. The API offers `log`, board queries, the same queued changes as Lua, `state_set` and `state_get`, `rng_next` and `draw_*` calls (inside `on_frame` only).
+
+A plugin can add Masters too. The header has a `PPMasterDef` structure (the same fields as the Lua table, plus plain C callbacks `on_activate(player, peg)`, `on_shot(player)` and `on_end(player)`) and `api->register_master(&def)`, which you call from `pp_mod_init` after `register_hooks`. It returns 0 when the Master was accepted. Set `struct_size` of the definition to `sizeof` it and use the `PP_MASTER_TRIGGER_*` values for `trigger`. The header grew by appending: `PP_MOD_ABI_VERSION` stays 1, `PP_MOD_ABI_MINOR` is 1 and the API structure ends with `abi_minor` and `register_master`. Plugins built against the older header keep loading. A plugin that wants to run on older games as well checks `api->struct_size` before it looks at `register_master`.
 
 The same sync rules as for Lua apply. There is no sandbox. The plugin runs with all the rights of the game and is loaded only after you allowed this exact version of it.
 
@@ -177,7 +238,7 @@ This is a best-effort check. A native plugin can hide what it does, and the dial
 
 ## Limits
 
-* No new Master characters, peg types or physics.
+* No new peg types or physics.
 * `https://` does not work.
 * Changing the mod list or permissions needs a restart.
 * The time limits do not interrupt one very long library call.
