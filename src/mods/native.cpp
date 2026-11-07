@@ -8,10 +8,13 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "mods/hostproc.h"
 #include "mods/hostproto.h"
+#include "mods/hostreg.h"
+#include "pegtypes.h"
 #include "sim.h"
 
 namespace fs = std::filesystem;
@@ -25,6 +28,7 @@ constexpr int kStartMs = 10000;
 constexpr int kInitMs = 5000;
 constexpr int kByeMs = 300;
 const char* kHookNames[] = {"on_level_start", "on_tick", "on_shot", "on_peg_hit", "on_ball_lost", "on_level_end", "on_power", "on_activate_power", "on_frame", "cleanup"};
+const char* kCallNames[] = {"on_hit of a peg type", "on_clear of a peg type", "on_activate of a Master", "on_shot of a Master", "on_end of a Master"};
 }
 
 bool NativeStatus::full() const { return protections == mh::kAllProtections; }
@@ -38,8 +42,16 @@ struct NativeMod::Impl {
   uint32_t prot = 0;
   bool dead = false;
   bool loaded = false;
+  PhysicsEdit loadPhysics;
+  std::vector<NativeMod::PegTypeReg> pegTypes;
+  std::vector<NativeMasterDef> masters;
   std::string why;
   std::vector<uint8_t> tx, rx;
+  std::vector<std::pair<int, uint16_t>> keyOf;
+  std::vector<std::string> keys;
+  std::vector<uint32_t> customPeg;
+  std::vector<uint16_t> customKey;
+  std::vector<int32_t> customHits;
   std::chrono::steady_clock::time_point logWindow;
   int logCount = 0;
   bool logNoted = false;
@@ -81,7 +93,7 @@ mh::Context contextOf(const NativeMod::Impl& I) {
   return mh::CtxNone;
 }
 
-void writeSnapshot(mh::Writer& w, const Board& b) {
+void writeSnapshot(mh::Writer& w, const Board& b, NativeMod::Impl& I) {
   w.i32(b.tick);
   for (int p = 0; p < 4; p++) w.i32(b.liveScore(p));
   w.i32(b.orangeLeft);
@@ -89,7 +101,13 @@ void writeSnapshot(mh::Writer& w, const Board& b) {
   const size_t no = b.objs.size();
   w.u32((uint32_t)no);
   uint8_t* d = w.grow(no * mh::kPegWire);
-  for (const Obj& o : b.objs) {
+  I.keyOf.clear();
+  I.keys.clear();
+  I.customPeg.clear();
+  I.customKey.clear();
+  I.customHits.clear();
+  for (size_t i = 0; i < no; i++) {
+    const Obj& o = b.objs[i];
     mh::PegRec r;
     r.type = (int16_t)o.pegType;
     r.lit = o.lit ? 1 : 0;
@@ -99,6 +117,19 @@ void writeSnapshot(mh::Writer& w, const Board& b) {
     r.radius = o.radius;
     std::memcpy(d, &r, sizeof r);
     d += sizeof r;
+    if (o.custom <= 0) continue;
+    const PegTypeDef* def = pegTypeDef(o.custom);
+    if (!def) continue;
+    size_t at = 0;
+    while (at < I.keyOf.size() && I.keyOf[at].first != o.custom) at++;
+    if (at == I.keyOf.size()) {
+      if (I.keys.size() >= mh::kMaxSnapKeys) continue;
+      I.keyOf.push_back({o.custom, (uint16_t)I.keys.size()});
+      I.keys.push_back(def->mod == I.id ? def->id : def->key());
+    }
+    I.customPeg.push_back((uint32_t)i);
+    I.customKey.push_back(I.keyOf[at].second);
+    I.customHits.push_back((int32_t)o.hits);
   }
   const size_t nb = b.balls.size();
   w.u32((uint32_t)nb);
@@ -123,6 +154,23 @@ void writeSnapshot(mh::Writer& w, const Board& b) {
     w.str(kv.first);
     w.f64(kv.second);
     put++;
+  }
+  const bool phys = !b.physics.isDefault();
+  const size_t nc = I.customPeg.size();
+  w.u8((uint8_t)((phys ? mh::SnapPhysics : 0) | (nc ? mh::SnapCustom : 0)));
+  if (phys)
+    for (int k = 0; k < PhysicsParams::KeyCount; k++) w.f32(b.physics.at(k));
+  if (nc) {
+    w.u32((uint32_t)nc);
+    d = w.grow(nc * mh::kCustomWire);
+    for (size_t i = 0; i < nc; i++) {
+      std::memcpy(d, &I.customPeg[i], 4);
+      std::memcpy(d + 4, &I.customKey[i], 2);
+      std::memcpy(d + 6, &I.customHits[i], 4);
+      d += mh::kCustomWire;
+    }
+    w.u32((uint32_t)I.keys.size());
+    for (const std::string& k : I.keys) w.str(k);
   }
 }
 
@@ -183,6 +231,32 @@ bool applyEffects(NativeMod::Impl& I, mh::Reader& r, mh::Context ctx) {
         if (ctx == mh::CtxDraw && hs.sink) hs.sink->circle(x, y, rad, c, f != 0, false);
         break;
       }
+      case mh::ESetPhysics: {
+        PhysicsEdit e;
+        if (!mh::getPhysics(r, e)) return false;
+        if (ctx == mh::CtxSim && hs.queue && e.any()) {
+          ModCmd c;
+          c.k = ModCmd::SetPhysics;
+          c.pe = e;
+          hs.queue(c);
+        }
+        break;
+      }
+      case mh::ESetPegType: {
+        int32_t peg = r.i32();
+        std::string t = r.str(80);
+        if (!r.ok()) return false;
+        if (ctx == mh::CtxSim && hs.queue) {
+          if (t.find(':') == std::string::npos)
+            for (auto& reg : I.pegTypes)
+              if (reg.def.id == t) {
+                t = reg.def.mod + ":" + t;
+                break;
+              }
+          hs.queue({ModCmd::SetPegType, peg, 0, 0, t});
+        }
+        break;
+      }
       case mh::EText: {
         float x = r.f32(), y = r.f32();
         std::string s = r.str(1000);
@@ -198,22 +272,8 @@ bool applyEffects(NativeMod::Impl& I, mh::Reader& r, mh::Context ctx) {
   return r.ok();
 }
 
-bool callHook(NativeMod::Impl& I, mh::Hook h, int32_t a, int32_t b, int32_t* ret) {
-  std::lock_guard<std::mutex> lock(I.mu);
-  if (I.dead || !I.proc) return false;
-  const mh::Context ctx = contextOf(I);
-  const int timeoutMs = h == mh::HFrame ? kFrameMs : kSimMs;
-  I.tx.clear();
-  mh::Writer w(I.tx);
-  w.beginFrame(mh::MHook);
-  w.u8(h);
-  w.i32(a);
-  w.i32(b);
-  w.u8(ctx);
-  if (ctx != mh::CtxNone) writeSnapshot(w, *I.host->board);
-  w.endFrame();
+bool exchange(NativeMod::Impl& I, const std::string& name, int timeoutMs, mh::Context ctx, int32_t* ret) {
   auto start = std::chrono::steady_clock::now();
-  const std::string name = kHookNames[h];
   IoResult io = I.proc->send(I.tx, timeoutMs);
   if (io != IoResult::Ok) {
     fail(I, io == IoResult::Timeout ? "the native plugin did not take the call to " + name + " within " + std::to_string(timeoutMs) + " ms" : "the native plugin helper is gone (" + I.proc->exitText() + ")");
@@ -263,6 +323,71 @@ bool callHook(NativeMod::Impl& I, mh::Hook h, int32_t a, int32_t b, int32_t* ret
   }
 }
 
+bool callHook(NativeMod::Impl& I, mh::Hook h, int32_t a, int32_t b, int32_t* ret) {
+  std::lock_guard<std::mutex> lock(I.mu);
+  if (I.dead || !I.proc) return false;
+  const mh::Context ctx = contextOf(I);
+  const int timeoutMs = h == mh::HFrame ? kFrameMs : kSimMs;
+  I.tx.clear();
+  mh::Writer w(I.tx);
+  w.beginFrame(mh::MHook);
+  w.u8(h);
+  w.i32(a);
+  w.i32(b);
+  w.u8(ctx);
+  if (ctx != mh::CtxNone) writeSnapshot(w, *I.host->board, I);
+  w.endFrame();
+  return exchange(I, kHookNames[h], timeoutMs, ctx, ret);
+}
+
+bool callBack(NativeMod::Impl& I, mh::Call kind, uint32_t handle, int32_t a, int32_t b) {
+  std::lock_guard<std::mutex> lock(I.mu);
+  if (I.dead || !I.proc) return false;
+  const mh::Context ctx = contextOf(I);
+  I.tx.clear();
+  mh::Writer w(I.tx);
+  w.beginFrame(mh::MCall);
+  w.u8(kind);
+  w.u32(handle);
+  w.i32(a);
+  w.i32(b);
+  w.u8(ctx);
+  if (ctx != mh::CtxNone) writeSnapshot(w, *I.host->board, I);
+  w.endFrame();
+  return exchange(I, kCallNames[kind], kSimMs, ctx, nullptr);
+}
+
+bool readRegistrations(mh::Reader& r, const std::string& modId, PhysicsEdit& phys, std::vector<NativeMod::PegTypeReg>& pegs, std::vector<NativeMasterDef>& masters) {
+  if (!mh::getPhysics(r, phys)) return false;
+  const uint32_t np = r.u32();
+  if (!r.ok() || np > mh::kMaxPegTypes) return false;
+  std::vector<PegTypeDef> defs;
+  for (uint32_t i = 0; i < np; i++) {
+    mh::RawPegType raw;
+    PegTypeDef d;
+    if (!mh::getPegType(r, raw) || !mh::buildPegType(raw, modId, defs, d)) return false;
+    defs.push_back(d);
+    NativeMod::PegTypeReg reg;
+    reg.def = d;
+    reg.handle = i;
+    pegs.push_back(reg);
+  }
+  const uint32_t nm = r.u32();
+  if (!r.ok() || nm > mh::kMaxMasters) return false;
+  std::vector<mh::MasterSpec> specs;
+  for (uint32_t i = 0; i < nm; i++) {
+    mh::RawMaster raw;
+    mh::MasterSpec sp;
+    if (!mh::getMaster(r, raw) || mh::buildMaster(raw, specs, sp) != 0) return false;
+    specs.push_back(sp);
+    NativeMasterDef def;
+    static_cast<mh::MasterSpec&>(def) = sp;
+    def.handle = i;
+    masters.push_back(def);
+  }
+  return r.ok();
+}
+
 std::string join(const std::vector<std::string>& v) {
   std::string o;
   for (size_t i = 0; i < v.size(); i++) o += (i ? ", " : "") + v[i];
@@ -290,7 +415,7 @@ bool readReady(HostProcess& p, NativeStatus& st, std::string* err) {
   return true;
 }
 
-void sendInit(HostProcess& p, const std::string& lib, const std::string& dir, const std::string& id, bool probeOnly, std::vector<uint8_t>& tx, std::string* err) {
+void sendInit(HostProcess& p, const std::string& lib, const std::string& dir, const std::string& id, bool probeOnly, bool cosmetic, std::vector<uint8_t>& tx, std::string* err) {
   tx.clear();
   mh::Writer w(tx);
   w.beginFrame(mh::MInit);
@@ -299,6 +424,7 @@ void sendInit(HostProcess& p, const std::string& lib, const std::string& dir, co
   w.str(dir);
   w.str(id);
   w.u8(probeOnly ? 1 : 0);
+  w.u8(cosmetic ? 1 : 0);
   w.endFrame();
   if (p.send(tx, 5000) != IoResult::Ok && err) *err = "cannot talk to the plugin helper (" + p.exitText() + ")";
 }
@@ -341,7 +467,7 @@ NativeStatus NativeMod::probe() {
     return cached;
   }
   std::vector<uint8_t> tx;
-  sendInit(*proc, "", "", "", true, tx, &err);
+  sendInit(*proc, "", "", "", true, false, tx, &err);
   if (!readReady(*proc, cached, &err)) cached.detail = err;
   proc->stop();
   return cached;
@@ -376,7 +502,7 @@ std::unique_ptr<NativeMod> NativeMod::load(const fs::path& lib, const Manifest& 
   if (!ec) dir = canon;
   fs::path libPath = fs::canonical(lib, ec);
   if (ec) libPath = lib;
-  sendInit(*I.proc, libPath.string(), dir.string(), m.id, false, I.tx, &herr);
+  sendInit(*I.proc, libPath.string(), dir.string(), m.id, false, m.cosmetic, I.tx, &herr);
   if (!herr.empty()) {
     setErr(herr);
     return nullptr;
@@ -410,7 +536,10 @@ std::unique_ptr<NativeMod> NativeMod::load(const fs::path& lib, const Manifest& 
   int32_t rc = r.i32();
   std::string perr = r.str(1200);
   uint32_t mask = r.u32();
-  if (!r.ok() || !applyEffects(I, r, mh::CtxNone)) {
+  PhysicsEdit phys;
+  std::vector<PegTypeReg> pegs;
+  std::vector<NativeMasterDef> masters;
+  if (!r.ok() || !readRegistrations(r, m.id, phys, pegs, masters) || !applyEffects(I, r, mh::CtxNone)) {
     setErr("the plugin helper sent a malformed reply");
     return nullptr;
   }
@@ -418,6 +547,9 @@ std::unique_ptr<NativeMod> NativeMod::load(const fs::path& lib, const Manifest& 
     setErr(perr.empty() ? "the plugin failed to load" : perr);
     return nullptr;
   }
+  I.loadPhysics = phys;
+  I.pegTypes = std::move(pegs);
+  I.masters = std::move(masters);
   I.mask = mask & ((1u << mh::HookCount) - 1);
   I.loaded = true;
   return nm;
@@ -445,20 +577,18 @@ bool NativeMod::dead() const { return im_->dead; }
 const std::string& NativeMod::deadReason() const { return im_->why; }
 uint32_t NativeMod::protections() const { return im_->prot; }
 
-const PhysicsEdit& NativeMod::loadPhysics() const {
-  static const PhysicsEdit none;
-  return none;
+const PhysicsEdit& NativeMod::loadPhysics() const { return im_->loadPhysics; }
+const std::vector<NativeMod::PegTypeReg>& NativeMod::pegTypes() const { return im_->pegTypes; }
+void NativeMod::pegHook(const PegTypeReg& r, bool clear, int peg, int ball) {
+  if (clear ? !r.def.onClear : !r.def.onHit) return;
+  callBack(*im_, clear ? mh::CPegClear : mh::CPegHit, r.handle, peg, ball);
 }
-const std::vector<NativeMod::PegTypeReg>& NativeMod::pegTypes() const {
-  static const std::vector<PegTypeReg> none;
-  return none;
+const std::vector<NativeMasterDef>& NativeMod::masters() const { return im_->masters; }
+void NativeMod::masterCall(const NativeMasterDef& m, int which, int player, int peg) {
+  if (which == 0 && m.hasActivate) callBack(*im_, mh::CMasterActivate, m.handle, player, peg);
+  else if (which == 1 && m.hasShot) callBack(*im_, mh::CMasterShot, m.handle, player, 0);
+  else if (which == 2 && m.hasEnd) callBack(*im_, mh::CMasterEnd, m.handle, player, 0);
 }
-void NativeMod::pegHook(const PegTypeReg&, bool, int, int) {}
-const std::vector<NativeMasterDef>& NativeMod::masters() const {
-  static const std::vector<NativeMasterDef> none;
-  return none;
-}
-void NativeMod::masterCall(const NativeMasterDef&, int, int, int) {}
 
 void NativeMod::levelStart() {
   if (im_->mask & mh::hookBit(mh::HLevelStart)) callHook(*im_, mh::HLevelStart, 0, 0, nullptr);
