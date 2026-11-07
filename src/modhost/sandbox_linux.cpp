@@ -80,7 +80,7 @@ bool addPathRule(int ruleset, const std::string& path) {
   LlPathBeneath pb;
   pb.allowed_access = dir ? (kLlReadFile | kLlReadDir | kLlExecute) : kLlReadFile;
   pb.parent_fd = fd;
-  long rc = syscall(kSysLandlockAdd, ruleset, kLlRulePathBeneath, &pb, 0u);
+  long rc = syscall(kSysLandlockAdd, (long)ruleset, (long)kLlRulePathBeneath, &pb, 0L);
   close(fd);
   return rc == 0;
 }
@@ -102,7 +102,7 @@ std::vector<std::string> mappedLibraryDirs() {
 }
 
 bool applyLandlock(const std::string& pluginDir, std::string* note) {
-  long abi = syscall(kSysLandlockCreate, nullptr, 0, kLlCreateVersion);
+  long abi = syscall(kSysLandlockCreate, (void*)nullptr, 0L, (long)kLlCreateVersion);
   if (abi < 1) {
     *note = "Landlock is not available";
     return false;
@@ -113,7 +113,7 @@ bool applyLandlock(const std::string& pluginDir, std::string* note) {
   if (abi >= 5) handled |= kLlIoctlDev;
   LlRulesetAttr attr;
   attr.handled_access_fs = handled;
-  int rs = (int)syscall(kSysLandlockCreate, &attr, sizeof attr, 0u);
+  int rs = (int)syscall(kSysLandlockCreate, &attr, (long)sizeof attr, 0L);
   if (rs < 0) {
     *note = "Landlock ruleset failed";
     return false;
@@ -123,7 +123,7 @@ bool applyLandlock(const std::string& pluginDir, std::string* note) {
   for (const char* p : {"/usr", "/lib", "/lib32", "/lib64", "/libx32", "/etc/ld.so.cache", "/dev/null", "/dev/urandom", "/dev/random", "/sys/devices/system/cpu"}) paths.push_back(p);
   for (auto& d : mappedLibraryDirs()) paths.push_back(d);
   for (auto& p : paths) addPathRule(rs, p);
-  long rc = syscall(kSysLandlockRestrict, rs, 0u);
+  long rc = syscall(kSysLandlockRestrict, (long)rs, 0L);
   close(rs);
   if (rc != 0) {
     *note = "Landlock could not be enforced";
@@ -498,7 +498,7 @@ bool applySeccomp(std::string* note) {
   sock_fprog prog;
   prog.len = (unsigned short)f.ins.size();
   prog.filter = f.ins.data();
-  long rc = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &prog);
+  long rc = syscall(SYS_seccomp, (long)SECCOMP_SET_MODE_FILTER, (long)SECCOMP_FILTER_FLAG_TSYNC, &prog);
   if (rc != 0) rc = prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog, 0, 0);
   if (rc != 0) {
     *note = "seccomp filter was refused";

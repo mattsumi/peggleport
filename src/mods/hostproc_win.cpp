@@ -334,9 +334,8 @@ IoResult HostProcess::receive(std::vector<uint8_t>& out, int timeoutMs) {
       }
     }
     if (I.eof) return IoResult::Closed;
-    if (I.cv.wait_until(lk, deadline) == std::cv_status::timeout) {
-      if (Clock::now() >= deadline) return IoResult::Timeout;
-    }
+    if (Clock::now() >= deadline) return IoResult::Timeout;
+    I.cv.wait_until(lk, deadline);
   }
 }
 
