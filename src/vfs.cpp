@@ -190,6 +190,73 @@ bool Vfs::mountMod(const fs::path& modDir, std::string* err) {
   return true;
 }
 
+bool Vfs::unmountMod(const fs::path& modDir) {
+  for (auto it = layers_.begin(); it != layers_.end(); ++it)
+    if (it->isMod && it->root == modDir) {
+      pp::log::info("game", "unmounted " + it->label);
+      layers_.erase(it);
+      return true;
+    }
+  return false;
+}
+
+size_t Vfs::unmountMods() {
+  size_t n = 0;
+  for (auto it = layers_.begin(); it != layers_.end();) {
+    if (it->isMod) {
+      pp::log::info("game", "unmounted " + it->label);
+      it = layers_.erase(it);
+      n++;
+    } else {
+      ++it;
+    }
+  }
+  return n;
+}
+
+std::string Vfs::modSignature() const {
+  std::string s;
+  for (auto& L : layers_)
+    if (L.isMod) s += L.root.generic_string() + "|" + std::to_string(L.priority) + "|" + std::to_string(L.imageScale) + "\n";
+  return s;
+}
+
+void Vfs::modKeys(std::set<std::string>& out) const {
+  for (auto& L : layers_)
+    if (L.isMod)
+      for (auto& [k, _] : L.files) out.insert(k);
+}
+
+bool VfsChange::touches(std::string_view path) const { return any && keys.count(normKey(path)) > 0; }
+
+bool VfsChange::touchesFolder(std::string_view folder) const {
+  if (!any) return false;
+  std::string f = normKey(folder);
+  if (!f.empty() && f.back() != '\\') f.push_back('\\');
+  auto it = keys.lower_bound(f);
+  return it != keys.end() && it->compare(0, f.size(), f) == 0;
+}
+
+bool VfsChange::touchesImage(std::string_view path) const {
+  if (!any) return false;
+  static const char* kExts[] = {".TGA", ".JPG", ".PNG", ".GIF", ".J2K", ".JP2"};
+  std::string k = normKey(path);
+  if (keys.count(k)) return true;
+  std::string stem = k;
+  size_t dot = stem.find_last_of('.'), sep = stem.find_last_of('\\');
+  if (dot != std::string::npos && (sep == std::string::npos || dot > sep)) {
+    std::string e = stem.substr(dot);
+    for (auto x : kExts)
+      if (e == x) { stem.erase(dot); break; }
+  }
+  sep = stem.find_last_of('\\');
+  std::string dir = sep == std::string::npos ? "" : stem.substr(0, sep + 1);
+  std::string file = sep == std::string::npos ? stem : stem.substr(sep + 1);
+  for (auto x : kExts)
+    if (keys.count(stem + x) || keys.count(dir + "_" + file + x) || keys.count(stem + "_" + x)) return true;
+  return false;
+}
+
 void vfsLogMiss(const char* kind, std::string_view path) {
   pp::log::writeOnce(pp::log::Level::Warn, "game", std::string("missing ") + kind + ": " + std::string(path));
 }
