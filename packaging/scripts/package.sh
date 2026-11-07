@@ -22,8 +22,9 @@ find_bin() {
 
 PP=$(find_bin peggleport)
 LOBBY=$(find_bin pp_lobbyd)
+MODHOST=$(find_bin pp_modhost)
 cp "$LOBBY" "$STAGE/"
-[ "$LABEL" = "macos" ] || cp "$PP" "$STAGE/"
+[ "$LABEL" = "macos" ] || cp "$PP" "$MODHOST" "$STAGE/"
 
 cp "$ROOT/README.md" "$ROOT/FAQ.md" "$ROOT/THIRD_PARTY.md" "$STAGE/"
 [ -f "$ROOT/LICENSE" ] && cp "$ROOT/LICENSE" "$STAGE/"
@@ -47,7 +48,7 @@ case "$LABEL" in
     cp "$ROOT/packaging/windows/README-WINDOWS.txt" "$STAGE/"
     ;;
   macos)
-    bash "$ROOT/packaging/scripts/macos_app.sh" "$PP" "$STAGE" "$VERSION"
+    bash "$ROOT/packaging/scripts/macos_app.sh" "$PP" "$STAGE" "$VERSION" "$MODHOST"
     ;;
 esac
 

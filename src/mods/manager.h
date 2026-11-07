@@ -25,6 +25,10 @@ struct ModInfo {
   bool fromCli = false, enabled = false, zip = false, discoveryFailed = false, failedOnLoad = false;
   ScanReport scan;
   bool consented = false;
+  bool unrestricted = false;
+  bool needsUnrestricted = false;
+  uint32_t protections = 0;
+  bool helperRuns = false;
   enum State { Off, NeedsConsent, Active, Failed } state = Off;
   std::string error;
   std::unique_ptr<LuaMod> lua;
@@ -32,6 +36,7 @@ struct ModInfo {
   bool hasCode() const { return !m.scripts.empty() || !m.native.empty(); }
   bool needsConsent() const { return scan.needsConsent() && !consented; }
   bool willLoad() const { return !discoveryFailed && enabled && !needsConsent(); }
+  std::string protectionLine() const;
   const char* stateName() const;
 };
 
@@ -58,6 +63,8 @@ class ModManager final : public SimHooks {
   ModInfo* find(const std::string& id);
   bool setEnabled(const std::string& id, bool on);
   bool setConsent(const std::string& id, bool grant);
+  bool setUnrestricted(const std::string& id, bool grant);
+  bool needsUnrestrictedStep(const ModInfo& m) const;
   void move(const std::string& id, int delta);
   bool save() const;
   uint64_t setHash() const { return setHash_; }
@@ -90,7 +97,7 @@ class ModManager final : public SimHooks {
   std::filesystem::path userDir_;
   std::vector<std::unique_ptr<ModInfo>> mods_;
   std::vector<std::string> order_, messages_;
-  std::map<std::string, std::string> consent_;
+  std::map<std::string, std::string> consent_, unrestricted_;
   std::vector<ModCmd> queue_;
   HostServices host_;
   std::vector<std::string> cli_;
@@ -118,6 +125,7 @@ class ModManager final : public SimHooks {
   };
   std::vector<MasterBind> binds_;
   void installMasters();
+  void checkNative(ModInfo& m);
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);
   void addMod(const std::filesystem::path& src, bool cli);

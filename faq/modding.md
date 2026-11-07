@@ -5,8 +5,8 @@ PegglePort has three kinds of mods. They all live in the same place and go throu
 | Kind | What it is | Where it runs | Asks for permission |
 |---|---|---|---|
 | Data | Replaces art, sounds and levels, tweaks a few rules with an ini file | it is not code | no |
-| Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers, new peg types | sandbox | only when the scan finds network use |
-| Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | not sandboxed | always |
+| Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers, new Masters, new peg types, physics | sandbox | only when the scan finds network use |
+| Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | separate restricted helper process | always |
 
 The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs`, `trace_hooks`, `moon_shots`, `ice_pegs`, `frost_queen`, and a prebuilt `hello_native` when your platform has one) and the source of the native example in `examples/plugin`.
 
@@ -59,7 +59,7 @@ priority = 0
 | `name`, `version`, `author`, `description` | shown in the Mods screen |
 | `id` | unique name, defaults to the folder name |
 | `api` | the mod API level you wrote against. This build is level 1, a higher number will not load |
-| `permissions` | `net` allows the `net` Lua library, `fs` allows the `fs` library (a private data folder). Unknown words give a warning |
+| `permissions` | `net` allows the `net` Lua library, `fs` allows the `fs` library (a private data folder). They apply to Lua only: a native plugin never gets the network or file access, whatever this line says. Unknown words give a warning |
 | `scripts` | Lua files, run in this order inside one sandbox. Defaults to `main.lua` when it exists |
 | `native` | the plugin, as a file name or a base name (`hello_native.dll`, `libhello_native.so`, `.dylib`) |
 | `determinism` | `sim` (default) means the mod takes part in the gameplay and every player in an online match needs it. `cosmetic` means it only draws and can never change a result |
@@ -386,7 +386,41 @@ When a plugin is turned off, the game calls your final cleanup hook and then unl
 
 A plugin can add Masters too. The header has a `PPMasterDef` structure (the same fields as the Lua table, plus plain C callbacks `on_activate(player, peg)`, `on_shot(player)` and `on_end(player)`) and `api->register_master(&def)`, which you call from `pp_mod_init` after `register_hooks`. It returns 0 when the Master was accepted. Set `struct_size` of the definition to `sizeof` it and use the `PP_MASTER_TRIGGER_*` values for `trigger`. The header grew by appending: `PP_MOD_ABI_VERSION` stays 1, `PP_MOD_ABI_MINOR` is 1 and the API structure ends with `abi_minor` and `register_master`. Plugins built against the older header keep loading. A plugin that wants to run on older games as well checks `api->struct_size` before it looks at `register_master`.
 
-The same sync rules as for Lua apply. There is no sandbox. The plugin runs with all the rights of the game and is loaded only after you allowed this exact version of it.
+The same sync rules as for Lua apply.
+
+### Where a native plugin runs
+
+A native plugin does not run inside the game. For every native plugin the game starts a small helper program, `pp_modhost`, which sits next to the game (inside `PegglePort.app/Contents/MacOS` on macOS). The helper loads your library and talks to the game over a private pipe on your own computer. The helper ends when the game ends, and it is only started when a native plugin is switched on.
+
+You write the same code as before. `PPModApi` and `PPModHooks` did not change, so a plugin built earlier still loads, and the game still gets the same results: a hook sees the board as it was when the hook started, queued changes are applied at the end of the tick, `on_activate_power` hands its return value back to the game, and everything is replayed the same way after a rollback in an online match. A hook call costs a few microseconds more than it would inside the game.
+
+Two things to keep in mind:
+
+* Call the API only from inside your hooks, on the thread the game called you on. Calls from other threads, or outside a hook, are ignored.
+* `rng_next()` inside a gameplay hook asks the game for each number, so draw only as many as you need.
+
+### What the helper is not allowed to do
+
+The operating system locks the helper down before your library is even loaded, so static constructors are locked down as well. Your plugin cannot:
+
+* use the network (no sockets, no name lookups),
+* create, change or delete any file, not even in its own folder,
+* start other programs or processes (threads are fine),
+* read files outside its own mod folder and the system libraries, which keeps your profile, your settings and the other mods out of reach.
+
+The `permissions` line of the manifest does not change any of this. A native plugin never gets the network or file access. If your plugin needs to remember something during a level, keep it with `state_set`, which is rolled back together with the board.
+
+The lock-down uses what each system offers: a sandbox profile on macOS, Landlock and a seccomp filter on Linux (Landlock needs kernel 5.13 or newer), a restricted token, low integrity level and a job object on Windows. When the helper starts it checks which limits are really in force and reports them to the game, and the game never shows more than that.
+
+### What the player sees
+
+The permission dialog for a native plugin says what the helper blocks, for example: "It runs in a restricted helper process: no network, cannot write files, cannot start programs, can only read its own folder." The Mods screen shows the same for every active plugin.
+
+If your system cannot enforce all four limits, the dialog says "This plugin could not be restricted on this system" and names what is missing. The plugin then stays off until the player also presses **Run anyway** in a second, separate question. That answer is stored in `mods.json` for the exact content hash of the plugin, so an update asks again. On Windows the helper limits file writes and new processes but cannot block the network, so Windows players are asked this second question.
+
+### When a plugin misbehaves
+
+If a gameplay hook takes longer than 1 second, or `on_frame` longer than 250 milliseconds, if the library crashes, or if the helper ends for any other reason, the game stops the helper, switches that plugin off and writes an error with the reason to the log (**F10**). The game keeps running. There is no second try.
 
 To build the example yourself: `cmake --build build --target hello_native` puts the library and its `mod.ini` in `build/examples/mods/hello_native/`. Copy that folder to your `mods` folder.
 
@@ -400,8 +434,4 @@ Before a mod loads, PegglePort reads its files:
 
 If it finds something, or the mod has native code, the game shows the findings and the mod does not load until you press **Allow...**. Until then even its data files stay unmounted.
 
-This is a best-effort check. A native plugin can hide what it does, and the dialog says so. For Lua the sandbox is what protects you: without `permissions = net` a Lua mod has no network at all.
-
-## Limits
-
-* Native plugins are scanned, never contained.
+This is a best-effort check. A native plugin can hide what it does from the scan, and the dialog says so. What protects you is the sandbox: without `permissions = net` a Lua mod has no network at all, and a native plugin runs in the restricted helper process that has no network whatever the scan found.

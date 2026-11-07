@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -20,9 +21,28 @@ struct NativeMasterDef {
   void (*onEnd)(int32_t) = nullptr;
 };
 
+struct NativeStatus {
+  uint32_t protections = 0;
+  bool probed = false;
+  bool helperMissing = false;
+  bool needsUnrestricted = false;
+  std::string detail;
+  bool full() const;
+};
+
+struct NativeOptions {
+  std::filesystem::path dir;
+  bool allowUnrestricted = false;
+  NativeStatus* status = nullptr;
+};
+
 class NativeMod {
  public:
-  static std::unique_ptr<NativeMod> load(const std::filesystem::path& lib, const Manifest& m, HostServices& host, std::string* err);
+  static std::unique_ptr<NativeMod> load(const std::filesystem::path& lib, const Manifest& m, HostServices& host, std::string* err,
+                                         const NativeOptions& opt = NativeOptions());
+  static NativeStatus probe();
+  static std::string protectionText(uint32_t protections);
+  static std::string missingText(uint32_t protections);
   ~NativeMod();
   void levelStart();
   void tick();
@@ -39,6 +59,9 @@ class NativeMod {
   void pegHook(const PegTypeReg& r, bool clear, int peg, int ball);
   const std::vector<NativeMasterDef>& masters() const;
   void masterCall(const NativeMasterDef& m, int which, int player, int peg);
+  bool dead() const;
+  const std::string& deadReason() const;
+  uint32_t protections() const;
   struct Impl;
 
  private:

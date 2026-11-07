@@ -15,6 +15,7 @@
 #include <filesystem>
 
 #include "masters.h"
+#include "mods/hostproto.h"
 #include "mods/json.h"
 #include "sim.h"
 #include "vfs.h"
@@ -89,21 +90,24 @@ void ModManager::loadConfig(std::vector<std::string>& enabled) {
   if (auto* e = j.get("enabled")) for (auto& x : e->a) enabled.push_back(x.asStr());
   if (auto* o = j.get("order")) for (auto& x : o->a) order_.push_back(x.asStr());
   if (auto* c = j.get("consent")) for (auto& [k, v] : c->o) consent_[k] = v.asStr();
+  if (auto* u = j.get("unrestricted")) for (auto& [k, v] : u->o) unrestricted_[k] = v.asStr();
 }
 
 bool ModManager::save() const {
   if (userDir_.empty()) return false;
   Json j = Json::object();
   j.set("version", Json::num(1));
-  Json en = Json::array(), ord = Json::array(), con = Json::object();
+  Json en = Json::array(), ord = Json::array(), con = Json::object(), unr = Json::object();
   for (auto& m : mods_) {
     ord.a.push_back(Json::str(m->m.id));
     if (m->enabled && !m->fromCli) en.a.push_back(Json::str(m->m.id));
   }
   for (auto& [h, id] : consent_) con.set(h, Json::str(id));
+  for (auto& [h, id] : unrestricted_) unr.set(h, Json::str(id));
   j.set("enabled", en);
   j.set("order", ord);
   j.set("consent", con);
+  if (!unrestricted_.empty()) j.set("unrestricted", unr);
   std::error_code ec;
   fs::create_directories(userDir_, ec);
   std::ofstream f(userDir_ / "mods.json", std::ios::binary);
@@ -203,6 +207,7 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
   mods_.clear();
   order_.clear();
   consent_.clear();
+  unrestricted_.clear();
   std::vector<std::string> enabled;
   loadConfig(enabled);
   std::error_code ec;
@@ -228,7 +233,10 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
       mi->enabled = mi->state != ModInfo::Failed;
     }
   }
-  for (auto& m : mods_) m->consented = consent_.count(m->hashHex) > 0;
+  for (auto& m : mods_) {
+    m->consented = consent_.count(m->hashHex) > 0;
+    m->unrestricted = unrestricted_.count(m->hashHex) > 0;
+  }
   std::vector<std::unique_ptr<ModInfo>> sorted;
   for (auto& id : order_)
     for (auto& m : mods_) if (m && m->m.id == id) { sorted.push_back(std::move(m)); break; }
@@ -321,10 +329,29 @@ bool ModManager::setConsent(const std::string& id, bool grant) {
   ModInfo* m = find(id);
   if (!m) return false;
   m->consented = grant;
-  if (grant) consent_[m->hashHex] = id;
-  else consent_.erase(m->hashHex);
+  if (grant) {
+    consent_[m->hashHex] = id;
+  } else {
+    consent_.erase(m->hashHex);
+    unrestricted_.erase(m->hashHex);
+    m->unrestricted = false;
+  }
   pp::log::info("mod:" + id, grant ? "consent given for this exact version (content hash " + m->hashHex + ")" : "consent withdrawn");
   return save();
+}
+bool ModManager::setUnrestricted(const std::string& id, bool grant) {
+  ModInfo* m = find(id);
+  if (!m) return false;
+  m->unrestricted = grant;
+  if (grant) unrestricted_[m->hashHex] = id;
+  else unrestricted_.erase(m->hashHex);
+  pp::log::info("mod:" + id, grant ? "allowed to run without restrictions for this exact version (content hash " + m->hashHex + ")" : "running without restrictions is no longer allowed");
+  return save();
+}
+bool ModManager::needsUnrestrictedStep(const ModInfo& m) const {
+  if (m.m.native.empty() || !m.consented || m.unrestricted) return false;
+  NativeStatus ps = NativeMod::probe();
+  return ps.probed && !ps.full();
 }
 void ModManager::move(const std::string& id, int delta) {
   for (size_t i = 0; i < mods_.size(); i++)
@@ -383,6 +410,17 @@ void ModManager::activate(Vfs* vfs) {
       pp::log::error(src, "not loaded: " + m.error);
       continue;
     }
+    m.needsUnrestricted = false;
+    if (!m.m.native.empty() && !m.unrestricted) {
+      NativeStatus ps = NativeMod::probe();
+      m.protections = ps.protections;
+      if (ps.probed && !ps.full()) {
+        m.state = ModInfo::NeedsConsent;
+        m.needsUnrestricted = true;
+        pp::log::warn(src, "not loaded: this plugin could not be restricted on this system (" + NativeMod::missingText(ps.protections) + "). It loads only if you allow it to run without restrictions");
+        continue;
+      }
+    }
     std::string err;
     if (vfs && !vfs->mountMod(m.dir, &err)) {
       failLoad(m, err);
@@ -409,7 +447,13 @@ void ModManager::activate(Vfs* vfs) {
         if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
-      m.native = NativeMod::load(lib, m.m, host_, &err);
+      NativeStatus ns;
+      NativeOptions no;
+      no.dir = m.dir;
+      no.allowUnrestricted = m.unrestricted;
+      no.status = &ns;
+      m.native = NativeMod::load(lib, m.m, host_, &err, no);
+      m.protections = ns.protections;
       if (!m.native) {
         failLoad(m, err);
         host_.log(m.m.id, pp::log::Level::Error, "native plugin failed: " + err);
@@ -417,6 +461,9 @@ void ModManager::activate(Vfs* vfs) {
         if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
+      m.helperRuns = true;
+      if (!ns.full()) host_.log(m.m.id, pp::log::Level::Warn, "the native plugin runs without full restrictions (" + NativeMod::missingText(ns.protections) + ") because you allowed it");
+      else host_.log(m.m.id, pp::log::Level::Info, "native plugin runs in a restricted helper process: " + NativeMod::protectionText(ns.protections) + " [" + ns.detail + "]");
     }
     m.state = ModInfo::Active;
     std::string what;
@@ -519,6 +566,7 @@ void ModManager::deactivate() {
   for (auto& m : mods_) {
     m->lua.reset();
     m->native.reset();
+    m->helperRuns = false;
     if (m->state == ModInfo::Active) {
       pp::log::info("mod:" + m->m.id, "unloaded");
       m->state = ModInfo::Off;
@@ -634,7 +682,7 @@ void ModManager::levelStart(Board& b) {
       for (auto& o : b.objs) if (o.pegType > 0) n++;
       lua_pushinteger(L, n); lua_setfield(L, -2, "pegs");
     });
-    if (m.native) m.native->levelStart();
+    if (m.native) { m.native->levelStart(); checkNative(m); }
   });
   flush(b);
 }
@@ -644,7 +692,7 @@ void ModManager::stepBegin(Board& b) {
   Scope sc(*this, &b, Ctx::Sim);
   eachSim([&](ModInfo& m) {
     if (m.lua) m.lua->callSim("on_tick", 1, [&](lua_State* L) { lua_pushinteger(L, b.tick); });
-    if (m.native) m.native->tick();
+    if (m.native) { m.native->tick(); checkNative(m); }
   });
   flush(b);
 }
@@ -687,7 +735,7 @@ void ModManager::event(Board& b, int type, int a, int bb, int c, int ball) {
       int n = type == Event::PegLit || type == Event::Power || type == Event::StyleShot || type == Event::ShotEnd ? 2 : (type == Event::Shot || type == Event::LevelDone ? 1 : 0);
       m.lua->callSim(hook, n, push);
     }
-    if (m.native) m.native->event(type, a, bb, c, ball);
+    if (m.native) { m.native->event(type, a, bb, c, ball); checkNative(m); }
   });
 }
 
@@ -701,7 +749,10 @@ bool ModManager::power(Board& b, int pegIdx, int pw, bool silent) {
           m.lua->activatePower(p, b.cur, pegIdx);
           if (p.replace) replaced = true;
         }
-    if (m.native && m.native->power(pegIdx, pw)) replaced = true;
+    if (m.native) {
+      if (m.native->power(pegIdx, pw)) replaced = true;
+      checkNative(m);
+    }
   });
   return replaced;
 }
@@ -776,6 +827,24 @@ void ModManager::masterCall(Board& b, int player, int power, int what, int pegId
   }
 }
 
+void ModManager::checkNative(ModInfo& m) {
+  if (!m.native || !m.native->dead()) return;
+  m.error = m.native->deadReason();
+  m.state = ModInfo::Failed;
+  m.native.reset();
+  m.helperRuns = false;
+}
+
+std::string ModInfo::protectionLine() const {
+  if (m.native.empty()) return "";
+  if (state == Active && helperRuns) {
+    if (protections == modhost::kAllProtections) return "restricted helper";
+    return "helper without full limits";
+  }
+  if (needsUnrestricted) return "cannot be restricted here";
+  return "";
+}
+
 void ModManager::apply(Board& b, const ModCmd& c) {
   const bool shotLive = b.phase == Phase::Shot || b.phase == Phase::Popping;
   const int cur = std::clamp(b.cur, 0, 3);
@@ -843,7 +912,7 @@ void ModManager::frame(DrawSink& sink, const Board& b) {
       lua_pushinteger(L, b.score[std::clamp(b.cur, 0, 3)]); lua_setfield(L, -2, "score");
       lua_pushinteger(L, b.frames); lua_setfield(L, -2, "frame");
     });
-    if (m->native) m->native->frame();
+    if (m->native) { m->native->frame(); checkNative(*m); }
   }
 }
 void ModManager::pump() {
