@@ -142,6 +142,17 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     if (ini.count("master")) m = Board::masterByName(ini["master"]);
     for (int i = 0; i < 4; i++) out.cfg.master[i] = m;
   }
+  for (const auto& [key, text] : ini) {
+    int pk = 0;
+    if (!physicsKeyByName(key, pk)) continue;
+    double d = 0;
+    if (!physicsParseNumber(text, d)) {
+      pp::log::warn("game", out.name + ": the level ini key " + key + " is not a number and is ignored");
+      continue;
+    }
+    if (physicsClamp(pk, d) != (float)d) pp::log::warn("game", out.name + ": " + key + " = " + text + " is outside " + std::to_string(physicsKey(pk).lo) + " to " + std::to_string(physicsKey(pk).hi) + " and is limited");
+    out.cfg.physics.set(pk, d);
+  }
   out.background = ini.count("background") ? ini["background"] : out.name;
   out.title = ini.count("title") ? ini["title"] : out.name;
   if (!ini.count("title"))
