@@ -13,6 +13,7 @@
 #include <string>
 #include <filesystem>
 
+#include "masters.h"
 #include "mods/json.h"
 #include "sim.h"
 #include "vfs.h"
@@ -349,6 +350,7 @@ void ModManager::activate(Vfs* vfs) {
     host_.log(m.m.id, pp::log::Level::Info, "loaded " + m.m.name + " " + m.m.version + " (" + what + (m.m.cosmetic ? ", cosmetic" : "") + ")");
   }
   setHash_ = computeSetHash();
+  installMasters();
   bool code = false;
   for (auto& m : mods_) if (m->state == ModInfo::Active && m->hasCode()) code = true;
   g_modSetHash = setHash_;
@@ -361,7 +363,11 @@ void ModManager::deactivate() {
   if (installed_ && g_simHooks == this) g_simHooks = nullptr;
   installed_ = false;
   if (g_modSetHash == setHash_) g_modSetHash = 0;
-  if (g_mods == this) g_mods = nullptr;
+  if (g_mods == this) {
+    g_mods = nullptr;
+    masters::clear();
+  }
+  binds_.clear();
   for (auto& m : mods_) {
     m->lua.reset();
     m->native.reset();
@@ -371,6 +377,70 @@ void ModManager::deactivate() {
     }
   }
   queue_.clear();
+}
+
+void ModManager::installMasters() {
+  struct Item {
+    ModMaster mm;
+    MasterBind bind;
+  };
+  std::vector<Item> items;
+  auto portraitFor = [&](ModInfo& m, const std::string& id, const std::string& rel) -> std::string {
+    if (rel.empty()) return "";
+    std::error_code ec;
+    if (!safeRelPath(rel) || !fs::is_regular_file(m.dir / rel, ec)) {
+      host_.log(m.m.id, pp::log::Level::Warn, "Master '" + id + "': the portrait file '" + rel + "' was not found in the mod folder, a placeholder is used");
+      return "";
+    }
+    return (m.dir / rel).string();
+  };
+  for (auto& mp : mods_) {
+    ModInfo& m = *mp;
+    if (m.state != ModInfo::Active || m.m.cosmetic) continue;
+    auto fill = [&](const auto& d, bool native, size_t idx) {
+      Item it;
+      it.mm.modId = m.m.id;
+      it.mm.id = d.id;
+      it.mm.name = d.name;
+      it.mm.description = d.description;
+      it.mm.powerName = d.powerName;
+      it.mm.powerDescription = d.powerDescription;
+      it.mm.banner = d.banner;
+      it.mm.portrait = d.portrait;
+      it.mm.portraitFile = portraitFor(m, d.id, d.portrait);
+      it.mm.turns = d.turns;
+      it.mm.trigger = d.trigger;
+      it.mm.color = d.color;
+      it.bind = {&m, native, idx};
+      items.push_back(std::move(it));
+    };
+    if (m.lua)
+      for (size_t i = 0; i < m.lua->masters.size(); i++) fill(m.lua->masters[i], false, i);
+    if (m.native)
+      for (size_t i = 0; i < m.native->masters().size(); i++) fill(m.native->masters()[i], true, i);
+  }
+  std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.mm.modId != b.mm.modId ? a.mm.modId < b.mm.modId : a.mm.id < b.mm.id; });
+  std::vector<Item> kept;
+  for (auto& it : items) {
+    if (!kept.empty() && kept.back().mm.key() == it.mm.key()) {
+      host_.log(it.mm.modId, pp::log::Level::Warn, "Master '" + it.mm.id + "' is registered twice, the second one is ignored");
+      continue;
+    }
+    if ((int)kept.size() >= masters::kMaxMods) {
+      host_.log(it.mm.modId, pp::log::Level::Warn, "Master '" + it.mm.id + "' is ignored: the game takes at most " + std::to_string(masters::kMaxMods) + " Masters from mods");
+      continue;
+    }
+    kept.push_back(std::move(it));
+  }
+  std::vector<ModMaster> list;
+  binds_.clear();
+  for (auto& it : kept) {
+    list.push_back(it.mm);
+    binds_.push_back(it.bind);
+  }
+  masters::install(std::move(list));
+  for (auto& m : masters::all())
+    host_.log(m.modId, pp::log::Level::Info, "Master '" + m.id + "' (" + m.name + ") is available as power " + std::to_string(m.power));
 }
 
 std::string ModManager::report() const {
@@ -486,6 +556,23 @@ bool ModManager::power(Board& b, int pegIdx, int pw, bool silent) {
     if (m.native && m.native->power(pegIdx, pw)) replaced = true;
   });
   return replaced;
+}
+
+void ModManager::masterCall(Board& b, int player, int power, int what, int pegIdx) {
+  const int i = power - masters::kFirstPower;
+  if (i < 0 || i >= (int)binds_.size()) return;
+  MasterBind& bd = binds_[(size_t)i];
+  if (!bd.mi || bd.mi->state != ModInfo::Active) return;
+  Scope sc(*this, &b, Ctx::Sim);
+  const int saved = b.cur;
+  const bool swap = player >= 0 && player < 4 && player != saved;
+  if (swap) b.cur = player;
+  if (bd.native && bd.mi->native) bd.mi->native->masterCall(bd.mi->native->masters()[bd.idx], what, player, pegIdx);
+  else if (!bd.native && bd.mi->lua) bd.mi->lua->callMaster(bd.mi->lua->masters[bd.idx], what, player, pegIdx);
+  if (swap) {
+    flush(b);
+    b.cur = saved;
+  }
 }
 
 void ModManager::apply(Board& b, const ModCmd& c) {

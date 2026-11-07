@@ -506,6 +506,94 @@ int l_register_power(lua_State* L) {
   return 0;
 }
 
+std::string clipText(const std::string& s, size_t n) {
+  if (s.size() <= n) return s;
+  size_t k = n;
+  while (k > 0 && ((unsigned char)s[k] & 0xc0) == 0x80) k--;
+  return s.substr(0, k);
+}
+bool optStringField(lua_State* L, const char* key, std::string& out, size_t maxLen) {
+  lua_getfield(L, 1, key);
+  bool had = false;
+  if (lua_type(L, -1) == LUA_TSTRING) {
+    out = clipText(lua_tostring(L, -1), maxLen);
+    had = true;
+  } else if (!lua_isnil(L, -1)) {
+    luaL_error(L, "register_master: '%s' must be a string", key);
+  }
+  lua_pop(L, 1);
+  return had;
+}
+int optFunctionField(lua_State* L, const char* key) {
+  lua_getfield(L, 1, key);
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return -1;
+  }
+  if (!lua_isfunction(L, -1)) luaL_error(L, "register_master: '%s' must be a function", key);
+  return luaL_ref(L, LUA_REGISTRYINDEX);
+}
+int l_register_master(lua_State* L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  Impl* I = IM(L);
+  if (I->ctx != Ctx::Load) luaL_error(L, "register_master can only be used while the mod loads (at the top of a script or in on_load)");
+  if (I->mod->manifest().cosmetic) luaL_error(L, "register_master needs a gameplay mod: a cosmetic mod cannot add Masters");
+  MasterDef d;
+  std::string id;
+  if (!optStringField(L, "id", id, 64) || id.empty()) luaL_error(L, "register_master: 'id' is required");
+  for (char& c : id) {
+    c = (char)std::tolower((unsigned char)c);
+    if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) luaL_error(L, "register_master: 'id' may only hold letters, digits, - and _");
+  }
+  if (id.size() > 32) luaL_error(L, "register_master: 'id' is longer than 32 characters");
+  if (pp::masters::reservedName(id)) luaL_error(L, "register_master: '%s' is the name of a built-in Master, pick another id", id.c_str());
+  for (auto& m : I->mod->masters)
+    if (m.id == id) luaL_error(L, "register_master: this mod already has a Master with the id '%s'", id.c_str());
+  if (I->mod->masters.size() >= 16) luaL_error(L, "register_master: one mod can add at most 16 Masters");
+  d.id = id;
+  d.name = id;
+  optStringField(L, "name", d.name, 40);
+  if (d.name.empty()) d.name = id;
+  optStringField(L, "description", d.description, 240);
+  d.powerName = "Master Power";
+  optStringField(L, "power_name", d.powerName, 40);
+  optStringField(L, "power_description", d.powerDescription, 240);
+  optStringField(L, "portrait", d.portrait, 200);
+  d.banner = d.powerName + "!";
+  optStringField(L, "banner", d.banner, 40);
+  lua_getfield(L, 1, "turns");
+  if (!lua_isnil(L, -1)) {
+    if (!lua_isinteger(L, -1)) luaL_error(L, "register_master: 'turns' must be a whole number from 1 to 99");
+    lua_Integer t = lua_tointeger(L, -1);
+    if (t < 1 || t > 99) luaL_error(L, "register_master: 'turns' must be a whole number from 1 to 99");
+    d.turns = (int)t;
+  }
+  lua_pop(L, 1);
+  std::string trig = "green_peg";
+  optStringField(L, "trigger", trig, 16);
+  if (trig == "green_peg") d.trigger = 0;
+  else if (trig == "every_shot") d.trigger = 1;
+  else if (trig == "level_start") d.trigger = 2;
+  else luaL_error(L, "register_master: 'trigger' must be \"green_peg\", \"every_shot\" or \"level_start\"");
+  lua_getfield(L, 1, "color");
+  if (!lua_isnil(L, -1)) {
+    if (!lua_isinteger(L, -1)) luaL_error(L, "register_master: 'color' must be a number like 0xRRGGBB");
+    d.color = (uint32_t)((lua_Unsigned)lua_tointeger(L, -1) & 0xffffffu);
+  }
+  lua_pop(L, 1);
+  d.onActivate = optFunctionField(L, "on_activate");
+  d.onShot = optFunctionField(L, "on_shot");
+  d.onEnd = optFunctionField(L, "on_end");
+  I->mod->masters.push_back(d);
+  return 0;
+}
+int b_master_key(lua_State* L) {
+  Board& b = needBoard(L);
+  if (const ModMaster* m = pp::masters::byPower(b.master[playerArg(L, 1, b)])) lua_pushstring(L, m->key().c_str());
+  else lua_pushnil(L);
+  return 1;
+}
+
 void setFuncs(lua_State* L, const char* table, const luaL_Reg* fns) {
   lua_newtable(L);
   luaL_setfuncs(L, fns, 0);
@@ -554,7 +642,7 @@ bool LuaMod::open(std::string* err) {
   for (const char* n : {"tan", "asin", "acos", "exp", "log", "random", "randomseed", "pow", "sinh", "cosh", "tanh", "log10", "ldexp", "frexp"}) nilField("math", n);
   auto setG = [&](const char* n, lua_CFunction f) { lua_pushcfunction(L, f); lua_setglobal(L, n); };
   setG("print", l_log); setG("log", l_log); setG("tostring", l_tostring); setG("load", l_load); setG("require", l_require); setG("__aborted", l_aborted);
-  setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power);
+  setG("rng_next", l_rng_next); setG("rng_range", l_rng_range); setG("register_power", l_register_power); setG("register_master", l_register_master);
   lua_getglobal(L, "math");
   lua_pushcfunction(L, l_math_random); lua_setfield(L, -2, "random");
   lua_pushcfunction(L, l_math_sin); lua_setfield(L, -2, "sin");
@@ -578,7 +666,7 @@ bool LuaMod::open(std::string* err) {
     lua_setglobal(L, "mod");
   }
   static const luaL_Reg board[] = {{"tick", b_tick}, {"score", b_score}, {"orange_left", b_orange_left}, {"orange_total", b_orange_total}, {"balls_left", b_balls_left},
-                                   {"shot_score", b_shot_score}, {"player", b_player}, {"fever", b_fever}, {"width", b_width}, {"master", b_master}, {"phase", b_phase},
+                                   {"shot_score", b_shot_score}, {"player", b_player}, {"fever", b_fever}, {"width", b_width}, {"master", b_master}, {"master_key", b_master_key}, {"phase", b_phase},
                                    {"peg", b_peg}, {"pegs", b_pegs}, {"peg_count", b_peg_count}, {"bricks", b_bricks}, {"balls", b_balls}, {"ball_count", b_ball_count},
                                    {"add_score", m_add_score}, {"hit_peg", m_hit_peg}, {"add_balls", m_add_balls}, {"set_ball_velocity", m_set_ball_velocity},
                                    {"say", m_say}, {"style_shot", m_style_shot}, {nullptr, nullptr}};
@@ -737,6 +825,23 @@ bool LuaMod::activatePower(const PowerDef& p, int player, int peg) {
   std::string e;
   if (pcallBudgeted(2, 0, false, Ctx::Sim, &e)) return true;
   reportError(im_.get(), host_, man_.id, "error in power '" + p.name + "': " + e);
+  return false;
+}
+
+bool LuaMod::callMaster(const MasterDef& m, int which, int player, int peg) {
+  const int ref = which == 0 ? m.onActivate : which == 1 ? m.onShot : m.onEnd;
+  if (ref < 0 || !L_) return true;
+  lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);
+  lua_pushinteger(L_, player);
+  int n = 1;
+  if (which == 0) {
+    lua_pushinteger(L_, peg);
+    n = 2;
+  }
+  std::string e;
+  if (pcallBudgeted(n, 0, false, Ctx::Sim, &e)) return true;
+  static const char* names[] = {"on_activate", "on_shot", "on_end"};
+  reportError(im_.get(), host_, man_.id, "error in " + std::string(names[which]) + " of Master '" + m.id + "': " + e);
   return false;
 }
 

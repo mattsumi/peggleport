@@ -71,6 +71,7 @@ class ModManager final : public SimHooks {
   void stepEnd(Board& b) override;
   void event(Board& b, int type, int a, int bb, int c, int ball) override;
   bool power(Board& b, int pegIdx, int power, bool silent) override;
+  void masterCall(Board& b, int player, int power, int what, int pegIdx) override;
 
   void flush(Board& b);
 
@@ -85,6 +86,13 @@ class ModManager final : public SimHooks {
   uint64_t setHash_ = 0;
   bool installed_ = false;
   bool queueFull_ = false;
+  struct MasterBind {
+    ModInfo* mi = nullptr;
+    bool native = false;
+    size_t idx = 0;
+  };
+  std::vector<MasterBind> binds_;
+  void installMasters();
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);
   void addMod(const std::filesystem::path& src, bool cli);

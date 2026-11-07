@@ -8,6 +8,11 @@ extern "C" {
 #endif
 
 #define PP_MOD_ABI_VERSION 1
+#define PP_MOD_ABI_MINOR 1
+
+#define PP_MASTER_TRIGGER_GREEN_PEG 0
+#define PP_MASTER_TRIGGER_EVERY_SHOT 1
+#define PP_MASTER_TRIGGER_LEVEL_START 2
 
 #if defined(_WIN32)
 #define PP_MOD_EXPORT __declspec(dllexport)
@@ -42,6 +47,23 @@ typedef struct PPModHooks {
   void (*shutdown)(void);
 } PPModHooks;
 
+typedef struct PPMasterDef {
+  uint32_t struct_size;
+  const char* id;
+  const char* name;
+  const char* description;
+  const char* power_name;
+  const char* power_description;
+  const char* portrait;
+  const char* banner;
+  int32_t turns;
+  int32_t trigger;
+  uint32_t color;
+  void (*on_activate)(int32_t player, int32_t peg);
+  void (*on_shot)(int32_t player);
+  void (*on_end)(int32_t player);
+} PPMasterDef;
+
 typedef struct PPModApi {
   uint32_t abi_version;
   uint32_t struct_size;
@@ -65,6 +87,8 @@ typedef struct PPModApi {
   void (*draw_rect)(float x, float y, float w, float h, uint32_t rgba, int32_t fill);
   void (*draw_circle)(float x, float y, float r, uint32_t rgba, int32_t fill);
   void (*draw_text)(float x, float y, const char* text, uint32_t rgba);
+  uint32_t abi_minor;
+  int32_t (*register_master)(const PPMasterDef* def);
 } PPModApi;
 
 #ifdef __cplusplus
