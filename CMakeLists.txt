@@ -57,6 +57,7 @@ add_library(pp_core STATIC
   src/vfs.cpp
   src/level.cpp
   src/sim.cpp
+  src/masters.cpp
   src/rules.cpp
   src/rules_powers.cpp
   src/zen.cpp

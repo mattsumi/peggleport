@@ -321,6 +321,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   if (cfg.ch.active) applyChallenge();
   phase = Phase::Aim;
   if (g_simHooks) g_simHooks->levelStart(*this);
+  if (modMasterInUse()) modMasterStart();
   return true;
 }
 
@@ -617,6 +618,7 @@ bool Board::fire(float angle) {
   { int bits; static_assert(sizeof(bits) == sizeof(angle)); std::memcpy(&bits, &angle, sizeof bits); ev(Event::Shot, bits); }
   beginShotRules();
   shotSteps = 0;
+  if (master[cur] >= masters::kFirstPower) modMasterShot();
   return true;
 }
 
@@ -668,6 +670,8 @@ uint64_t Board::hash() const {
     h = mix(h, b.fire); h = mix(h, b.spooky);
   }
   for (auto& kv : modState) { h = fnvMix(h, kv.first.data(), kv.first.size()); h = mix(h, kv.second); }
+  if (modMasterInUse())
+    for (int p = 0; p < 4; p++) h = fnvMix(h, &pturn[p][masters::kFirstPower], (size_t)(masters::kPowerSlots - masters::kFirstPower) * sizeof(int));
   return h;
 }
 
