@@ -330,6 +330,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   phase = Phase::Aim;
   if (g_simHooks) g_simHooks->levelStart(*this);
   if (modMasterInUse()) modMasterStart();
+  if (g_simHooks) g_simHooks->stepEnd(*this);
   return true;
 }
 
@@ -640,6 +641,7 @@ bool Board::fire(float angle) {
   beginShotRules();
   shotSteps = 0;
   if (master[cur] >= masters::kFirstPower) modMasterShot();
+  if (g_simHooks && !noModHooks) g_simHooks->stepEnd(*this);
   return true;
 }
 
