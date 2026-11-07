@@ -491,7 +491,7 @@ void ballSweptBounds(Ball& b) {
   b.by1 = (b.r + b.pos.y) + maxy;
 }
 
-bool ballUpdate(Ball& b, float gravity, float maxSpeed) {
+bool ballUpdate(Ball& b, float gravity, float maxSpeed, const PhysicsParams* extra) {
   b.since++;
   b.sinceHit++;
   if (b.slideA != 0 && --b.slideA == 0) b.slideB = 0;
@@ -525,6 +525,14 @@ bool ballUpdate(Ball& b, float gravity, float maxSpeed) {
     b.pos = b.holeTarget;
   }
   b.vel.y = b.vel.y + gravity;
+  if (extra) {
+    if (extra->gravityX != 0.0f) b.vel.x = b.vel.x + extra->gravityX;
+    if (extra->drag != 0.0f) {
+      const float keep = 1.0f - extra->drag;
+      b.vel.x = b.vel.x * keep;
+      b.vel.y = b.vel.y * keep;
+    }
+  }
   float vsq = b.vel.y * b.vel.y + b.vel.x * b.vel.x;
   if (vsq > maxSpeed * maxSpeed) {
     V2 n = sexyNormalize({b.vel.x, b.vel.y});
@@ -553,6 +561,10 @@ constexpr float LINE_SLIDE = 1.4f;
 constexpr float WALL_X = 0.99f;
 constexpr float WALL_BOOST = 5.0f;
 constexpr float TWO = 2.0f;
+inline float scalePegBounce(float bounce, float scale) {
+  const float e = (bounce + bounce) - 1.0f;
+  return (e * scale + 1.0f) * 0.5f;
+}
 inline float modeBounce(const Ball& b, float bounce) {
   if (b.mode == 1) return (bounce + 1.0f) * 0.5f;
   if (b.mode == 2) return (bounce + 3.0f) * 0.25f;
@@ -574,6 +586,7 @@ void doBallPegCollision(Ball& b, const Target& peg, std::vector<const Target*>* 
   float slide = peg.slide;
   if (bounce == 0.0f) bounce = DEFAULT_PEG_BOUNCE;
   if (slide == 0.0f) slide = DEFAULT_PEG_SLIDE;
+  if (peg.scaled) bounce = scalePegBounce(bounce, peg.bounceScale);
   bounce = modeBounce(b, bounce);
   b.sinceHit = 0;
   float imp = ((vx - ovx) * n.x + (vy - ovy) * n.y) * bounce;
@@ -610,6 +623,7 @@ void doLineCollision(Ball& b, V2& vel, const Target& obj, V2 n, V2 hitPt, V2 hit
   float slide = obj.slide;
   if (bounce == 0.0f) bounce = LINE_BOUNCE;
   if (slide == 0.0f) slide = LINE_SLIDE;
+  if (obj.scaled) bounce = bounce * obj.bounceScale;
   bounce = modeBounce(b, bounce);
   if (WALL_X < std::fabs(n.x)) impact = impact * WALL_BOOST;
   b.sinceHit = 0;

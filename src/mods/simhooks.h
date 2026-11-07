@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+#include "physics.h"
+
 namespace pp {
 
 class Board;
@@ -12,6 +14,7 @@ struct SimHooks {
   virtual void stepEnd(Board& b) = 0;
   virtual void event(Board& b, int type, int a, int bb, int c, int ball) = 0;
   virtual bool power(Board& b, int pegIdx, int power, bool silent) = 0;
+  virtual void basePhysics(PhysicsParams&) {}
 };
 
 inline SimHooks* g_simHooks = nullptr;

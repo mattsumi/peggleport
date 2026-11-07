@@ -217,8 +217,7 @@ void Board::applyChallenge() {
   hatCount[cur] += c.magicHat;
   triplerCount[cur] += c.tripleScore;
   for (int i = 0; i < 24; i++) styleReq[i] = c.styleShots[i];
-  if (c.gravityMod != 1.0f) grav_ = c.gravityMod * grav_;
-  if (c.projSpeedMod != 1.0f) gunSpeed_ = c.projSpeedMod * gunSpeed_;
+  derivePhysics();
   if (c.freeballCovered)
     for (auto& o : objs)
       if (o.id == "freeballcover") o.collidable = o.visible = true;
@@ -1106,7 +1105,7 @@ void Board::doMultiball(Ball* ball, int pegIdx) {
   float vx = spd;
   if (dx < 0.0f || (dx == 0.0f && (shotRand[0] & 1u) == 0u)) vx = -spd;
   Ball nb;
-  nb.r = BALL_R;
+  nb.r = ballRadiusFor(false);
   nb.slot = 100 + multiSerial++;
   phys::ballSetPos(nb, peg.pos.x, peg.pos.y);
   nb.pos = nb.prev = peg.pos;

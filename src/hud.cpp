@@ -99,6 +99,7 @@ void Renderer::drawOrbBack(const Board& b, const Hud& hud, int dw) {
   }
   if (b.phase == Phase::Aim) {
     Ball g;
+    g.r = b.physics.ballRadius;
     g.pos = b.muzzleArmed(b.gunAngle);
     drawBall(b, g, true);
   }

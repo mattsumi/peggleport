@@ -33,7 +33,7 @@ void Board::gunLogic() {
   if (lstate == 10) return;
   if (mouseMoved) {
     mouseMoved = false;
-    lmAim = gun::aimAngle(pivot(), mouseX, mouseY);
+    lmAim = gun::aimAngle(pivot(), mouseX, mouseY, gun::MAX_GUN_ANGLE, physics.launchSpeed, physics.gravityY, physics.gravityX, physics.ballRadius);
   }
   gun::setAngle(gunState, gunAngle, gunTarget, lmAim, false);
 

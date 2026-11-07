@@ -27,7 +27,7 @@ struct State {
 float normalizeAngle(float a);
 V2 rotateXY(V2 p, V2 c, float angle);
 float clampAim(float a, float maxGunAngle = MAX_GUN_ANGLE);
-float aimAngle(V2 gunPos, int mx, int my, float maxGunAngle = MAX_GUN_ANGLE);
+float aimAngle(V2 gunPos, int mx, int my, float maxGunAngle = MAX_GUN_ANGLE, float speed = SPEED, float gravity = 0.05f, float wind = 0.0f, float ballRadius = DEF_RADIUS);
 V2 launchPoint(V2 gunPos, float angle, float ballRadius = DEF_RADIUS);
 V2 launchVelocity(float angle, float speed = SPEED);
 

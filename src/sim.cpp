@@ -286,6 +286,10 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   cfg = c;
   base_ = base;
   level_ = lv;
+  if (g_simHooks) g_simHooks->basePhysics(physics);
+  cfg.physics.applyTo(physics);
+  physics.sanitize();
+  derivePhysics();
   W = std::max(650, cfg.boardWidth);
   players = std::clamp(cfg.players, 1, 4);
   if (base) addLevel(*base, true);
@@ -387,7 +391,7 @@ bool Board::updateBall(Ball& b) {
   b.age++;
   if (b.holeCooldown > 0) b.holeCooldown--;
   if (b.hat) hatUpdate(b);
-  return phys::ballUpdate(b, grav_, MAXV);
+  return phys::ballUpdate(b, grav_, physics.maxSpeed, physics.windOrDrag() ? &physics : nullptr);
 }
 
 std::vector<int> Board::gather(const Ball& b) const {
@@ -412,6 +416,7 @@ bool Board::collide(Ball& b, int bi, const std::vector<int>* pre, V2* firstHit) 
   }
   std::vector<phys::Target> tg;
   tg.reserve(pre->size());
+  const bool scaledBounce = physics.bounceChanged();
   std::vector<phys::Target*> cands;
   for (int i : *pre) {
     const Obj& o = objs[(size_t)i];
@@ -423,6 +428,13 @@ bool Board::collide(Ball& b, int bi, const std::vector<int>* pre, V2* firstHit) 
     t.maxVel = o.maxBounceVel;
     t.stopReset = o.stopReset;
     t.hasPegInfo = o.pegType != 0;
+    if (scaledBounce) {
+      const float scale = t.hasPegInfo ? physics.ballBounce * physics.pegBounce : physics.ballBounce;
+      if (scale != 1.0f) {
+        t.scaled = true;
+        t.bounceScale = scale;
+      }
+    }
     if (cls == 0) {
       t.kind = 3;
       t.center = o.pos;
@@ -606,7 +618,7 @@ bool Board::fire(float angle) {
   b.hat = hatOn;
   if (cfg.nights && superOn) b.mode = ultraOn ? 2 : 1;
   b.slot = 0;
-  b.r = b.fire ? (cfg.nights ? 11.0f : 10.0f) : BALL_R;
+  b.r = ballRadiusFor(b.fire);
   V2 p = muzzle(angle, b.r);
   phys::ballSetPos(b, p.x, p.y);
   b.pos = b.prev = p;
@@ -620,25 +632,50 @@ bool Board::fire(float angle) {
   return true;
 }
 
-float Board::armedBallRadius() const { return pturn[cur][P_FIREBALL] > 0 ? (cfg.nights ? 11.0f : 10.0f) : BALL_R; }
+float Board::armedBallRadius() const { return ballRadiusFor(pturn[cur][P_FIREBALL] > 0); }
+
+float Board::ballRadiusFor(bool fire) const {
+  const float r = fire ? (cfg.nights ? 11.0f : 10.0f) : BALL_R;
+  if (physics.ballRadius == BALL_R) return r;
+  return fire ? r * (physics.ballRadius / BALL_R) : physics.ballRadius;
+}
+
+void Board::derivePhysics() {
+  grav_ = physics.gravityY;
+  gunSpeed_ = physics.launchSpeed;
+  if (!cfg.ch.active) return;
+  if (cfg.ch.gravityMod != 1.0f) grav_ = cfg.ch.gravityMod * grav_;
+  if (cfg.ch.projSpeedMod != 1.0f) gunSpeed_ = cfg.ch.projSpeedMod * gunSpeed_;
+}
+
+void Board::setPhysics(const PhysicsEdit& e) {
+  e.applyTo(physics);
+  physics.sanitize();
+  derivePhysics();
+}
 
 V2 Board::muzzle(float a, float r) const { return gun::launchPoint(pivot(), a, r); }
 
 float Board::clampAngle(float a) { return gun::clampAim(a); }
 
-float Board::aimAt(V2 t) const { return gun::aimAngle(pivot(), (int)std::floor(t.x), (int)std::floor(t.y)); }
+float Board::aimAt(V2 t) const { return gun::aimAngle(pivot(), (int)std::floor(t.x), (int)std::floor(t.y), gun::MAX_GUN_ANGLE, physics.launchSpeed, physics.gravityY, physics.gravityX, physics.ballRadius); }
 
 std::vector<V2> Board::guide(float a, int steps) const {
   std::vector<V2> out;
-  V2 p = muzzle(a), v = gun::launchVelocity(a, gunSpeed_);
+  V2 p = muzzle(a, physics.ballRadius), v = gun::launchVelocity(a, gunSpeed_);
+  const float rr = physics.ballRadius;
   for (int i = 0; i < steps; i++) {
     v.y += grav_;
+    if (physics.windOrDrag()) {
+      v.x += physics.gravityX;
+      if (physics.drag != 0.0f) { v.x *= 1.0f - physics.drag; v.y *= 1.0f - physics.drag; }
+    }
     p = p + v;
     out.push_back(p);
     if (p.y > H || p.x < 0 || p.x > W) break;
     bool hit = false;
     for (auto& o : objs)
-      if (o.shape == Shape::Circle && o.collidable && !o.gone && (o.pos - p).len2() < (o.radius + BALL_R) * (o.radius + BALL_R)) {
+      if (o.shape == Shape::Circle && o.collidable && !o.gone && (o.pos - p).len2() < (o.radius + rr) * (o.radius + rr)) {
         hit = true;
         break;
       }
@@ -668,6 +705,8 @@ uint64_t Board::hash() const {
     h = mix(h, b.fire); h = mix(h, b.spooky);
   }
   for (auto& kv : modState) { h = fnvMix(h, kv.first.data(), kv.first.size()); h = mix(h, kv.second); }
+  if (!physics.isDefault())
+    for (int k = 0; k < PhysicsParams::KeyCount; k++) h = mix(h, physics.at(k));
   return h;
 }
 
@@ -676,8 +715,8 @@ std::vector<V2> Board::superGuide(float a, int maxSteps) const {
   Board c = *this;
   c.balls.clear();
   Ball b;
-  b.r = BALL_R;
-  b.pos = b.prev = c.muzzle(a);
+  b.r = physics.ballRadius;
+  b.pos = b.prev = c.muzzle(a, b.r);
   b.vel = gun::launchVelocity(a, gunSpeed_);
   c.balls.push_back(b);
   std::vector<V2> out;
@@ -699,8 +738,8 @@ Board::GuideTrace Board::guideTrace(float a, bool superG) const {
   c.fxlog.clear();
   c.balls.clear();
   Ball b;
-  b.r = BALL_R;
-  b.pos = b.prev = c.muzzle(a);
+  b.r = physics.ballRadius;
+  b.pos = b.prev = c.muzzle(a, b.r);
   b.vel = gun::launchVelocity(a, gunSpeed_);
   c.balls.push_back(b);
   int contacts = 0, tail = 0;
