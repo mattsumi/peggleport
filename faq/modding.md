@@ -15,9 +15,20 @@ The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs
 1. Put the mod folder, or the `.zip`, into the `mods` folder of the game. The **Mods** screen has an **Open Folder** button that opens it. The folder sits next to your profiles: `<save folder>/userdata/mods` (see the FAQ for the save folders).
    A zip may hold the mod at its top level or inside one folder. It is unpacked into `mods/.cache` the first time.
 2. Open **Options, then Mods**. Every mod is listed with a tick box, its state, the result of the scan and a **Scan report** or **Allow...** button. Tick the mods you want. Up and Down change the load order.
-3. Restart the game. Changes to the list, the order and the permissions apply on the next start, because the files are mounted once at start-up.
+3. That is all. Ticking a mod, Up and Down, and **Allow...** take effect the moment you press them. You do not leave the game or restart it. The line at the bottom of the Mods screen says what happened, for example `Applied: 3 of 4 mods active`.
 
 The choices are saved in `userdata/mods.json`.
+
+### What happens when you change something
+
+I switch every mod off, take its files out of the game, and load the ticked ones again in the new order. A Lua mod starts from a fresh script each time, so anything it kept in globals or local variables is gone; what belongs to a match lives in `state.*` on the board. A native plugin gets its cleanup hook and is then unloaded from the game, and the next time it is ticked the library is loaded again from disk.
+
+Art, sounds and level lists are read again too. Levels that a mod adds show up in Quick Play as soon as the tick is set, and they disappear again when you untick it. Your profiles, scores and trophies are never touched by this.
+
+* A mod that cannot load shows its error in its row and in the log. It is tried again when you untick and tick it, or when its files change.
+* A mod that needs your OK stays off until you press **Allow...** and allow it. It loads right then.
+* A change is only made while no level, online lobby or online match is on screen. If one is, the change waits and is made once you are back at the main menu.
+* If you put a mod into the `mods` folder, or edit one, while the game is running, switch back to the game window while the Mods screen is open and it picks up the change. A mod with new code asks for your OK again, because it is a new version.
 
 ### Watching the log
 
@@ -159,6 +170,8 @@ Gameplay hooks run on every player's computer and must give identical results.
 
 The header `include/peggleport_mod.h` is plain C and versioned (`PP_MOD_ABI_VERSION`). Your library exports `int32_t pp_mod_init(const PPModApi*)`, fills a `PPModHooks` structure and calls `api->register_hooks`. The hooks are `on_level_start`, `on_tick`, `on_shot`, `on_peg_hit`, `on_ball_lost`, `on_level_end`, `on_power`, `on_activate_power` (return 1 to replace the built-in power), `on_frame` and a final cleanup hook. The API offers `log`, board queries, the same queued changes as Lua, `state_set` and `state_get`, `rng_next` and `draw_*` calls (inside `on_frame` only).
 
+When a plugin is turned off, the game calls your final cleanup hook and then unloads the library, so stop any thread you started and release what you own in that hook. The same library is loaded again from disk, and `pp_mod_init` runs again, the next time it is ticked.
+
 The same sync rules as for Lua apply. There is no sandbox. The plugin runs with all the rights of the game and is loaded only after you allowed this exact version of it.
 
 To build the example yourself: `cmake --build build --target hello_native` puts the library and its `mod.ini` in `build/examples/mods/hello_native/`. Copy that folder to your `mods` folder.
@@ -179,6 +192,5 @@ This is a best-effort check. A native plugin can hide what it does, and the dial
 
 * No new Master characters, peg types or physics.
 * `https://` does not work.
-* Changing the mod list or permissions needs a restart.
 * The time limits do not interrupt one very long library call.
 * Native plugins are scanned, never contained.

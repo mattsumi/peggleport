@@ -88,7 +88,7 @@ Press **F10** on any screen, also while you play. A panel opens at the bottom wi
 ## Mods
 
 **How do I install a mod?**
-Put the mod folder or `.zip` into the `mods` folder (the Mods screen has an **Open Folder** button for it), open **Options, then Mods**, tick the mod and restart the game. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
+Put the mod folder or `.zip` into the `mods` folder (the Mods screen has an **Open Folder** button for it), open **Options, then Mods** and tick the mod. It loads right away, the game does not need a restart. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
 
 **Can a mod do something nasty?**
 A mod can only touch the network if it says so in its manifest, and PegglePort scans every mod before it loads. If the scan finds network use, or the mod contains native code, the game shows you what it found and waits for your OK. This is a best effort check, not a guarantee, so only install mods from people you trust. Lua mods run in a sandbox without file or network access. Native plugins are not sandboxed and can do anything a program can do.

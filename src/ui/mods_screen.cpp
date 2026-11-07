@@ -49,16 +49,48 @@ void App::showModsScreen() {
   scrollOn(overlay_.get());
 }
 
-ModsScreen::ModsScreen(App& a) : Screen(a) {
-  if (mods::g_mods) status_ = "Changes to the mod list apply the next time the game starts.";
-  else status_ = "No mod manager is running.";
+ModsScreen::ModsScreen(App& a) : Screen(a), seen_(a.modApplyCount()), wasFocused_(a.windowFocused) {
+  if (mods::g_mods) {
+    status_ = mods::g_mods->statusText();
+    if (mods::g_mods->folderChanged()) a.requestModApply();
+  } else {
+    status_ = "No mod manager is running.";
+  }
+}
+
+void ModsScreen::changed(const std::string& id) {
+  touched_ = id;
+  app.requestModApply();
+  dirty_ = true;
+}
+
+void ModsScreen::followApply() {
+  auto* mm = mods::g_mods;
+  const bool focused = app.windowFocused;
+  if (focused && !wasFocused_ && mm && mm->folderChanged()) app.requestModApply();
+  wasFocused_ = focused;
+  std::string why;
+  if (app.modApplyPending() && app.modApplyBlocked(&why)) {
+    status_ = why;
+    return;
+  }
+  if (seen_ == app.modApplyCount()) return;
+  seen_ = app.modApplyCount();
+  dirty_ = true;
+  status_ = app.modApplyStatus();
+  if (!mm || touched_.empty()) return;
+  ModInfo* mi = mm->find(touched_);
+  touched_.clear();
+  if (!mi || !mi->enabled) return;
+  if (mi->state == ModInfo::NeedsConsent) status_ = mi->m.name + " needs your OK before it loads. Press Allow...";
+  else if (mi->state == ModInfo::Failed) status_ = mi->m.name + " could not load: " + mi->error;
 }
 
 int ModsScreen::signature() const {
-  int s = page_ * 7;
+  uint32_t s = (uint32_t)page_ * 7u;
   if (mods::g_mods)
-    for (auto& m : mods::g_mods->mods()) s = s * 31 + (int)m->state * 3 + (m->enabled ? 1 : 0) + (m->consented ? 5 : 0) + (int)m->m.id.size();
-  return s;
+    for (auto& m : mods::g_mods->mods()) s = s * 31u + (uint32_t)m->state * 3u + (m->enabled ? 1u : 0u) + (m->consented ? 5u : 0u) + (uint32_t)m->m.id.size();
+  return (int)(s & 0x7fffffffu);
 }
 
 static std::string fit(Gfx& g, const std::string& font, std::string s, float w) {
@@ -95,7 +127,7 @@ void ModsScreen::rebuild() {
     c->style = 1;
     c->label = fit(g, "BUTTON", mi.m.name + "  " + mi.m.version, 380);
     c->checked = mi.enabled;
-    c->enabled = mi.state != ModInfo::Failed;
+    c->enabled = !mi.discoveryFailed;
     c->labelX = 30;
     c->w = g.textWidth("BUTTON", c->label) + 30;
     c->h = c->image ? c->image->lh() / 3 : 24;
@@ -149,9 +181,14 @@ void ModsScreen::drawOverlay(Gfx& g) {
 }
 
 void ModsScreen::update() {
+  followApply();
   if (dlg_) {
     dlg_->update();
-    if (dlg_->closed) { dlg_.reset(); dirty_ = true; status_ = "Restart the game to apply the consent decision."; }
+    if (dlg_->closed) {
+      touched_ = dlg_->modId;
+      dlg_.reset();
+      dirty_ = true;
+    }
     return;
   }
   Panel::update();
@@ -171,8 +208,9 @@ void ModsScreen::checkboxChanged(int id, bool on) {
   if (id < 1000 || !mods::g_mods) return;
   size_t i = (size_t)(id - 1000);
   if (i < mods::g_mods->mods().size()) {
-    mods::g_mods->setEnabled(mods::g_mods->mods()[i]->m.id, on);
-    status_ = "Restart the game to " + std::string(on ? "load" : "unload") + " " + mods::g_mods->mods()[i]->m.name + ".";
+    const std::string mid = mods::g_mods->mods()[i]->m.id;
+    mods::g_mods->setEnabled(mid, on);
+    changed(mid);
   }
   dirty_ = true;
 }
@@ -193,8 +231,8 @@ void ModsScreen::onButton(int id) {
   size_t i = (size_t)(id % 1000);
   if (i >= mm->mods().size()) return;
   ModInfo& mi = *mm->mods()[i];
-  if (id >= 4000) { mm->move(mi.m.id, +1); dirty_ = true; status_ = "Load order changed (applies after a restart)."; }
-  else if (id >= 3000) { mm->move(mi.m.id, -1); dirty_ = true; status_ = "Load order changed (applies after a restart)."; }
+  if (id >= 4000) { const std::string mid = mi.m.id; mm->move(mid, +1); changed(mid); }
+  else if (id >= 3000) { const std::string mid = mi.m.id; mm->move(mid, -1); changed(mid); }
   else if (id >= 2000) app.showModConsent(mi.m.id, mi.needsConsent());
 }
 
@@ -211,7 +249,7 @@ void ModsScreen::drawLayer(Gfx& g) {
   g.drawString("PLAIN2", 400, 76, "F10 shows the log anywhere", 0xa0b8d8, 1, Align::Center);
   auto* mm = mods::g_mods;
   if (!mm || mm->mods().empty()) {
-    g.drawWrapped("PLAIN2", {60, 160, 680, 200}, mm ? "No mods found. Put a mod folder or .zip into:\n" + mm->modsDir().string() + "\n\nthen restart the game." : "No mod manager.", 0xffffff, 1, Align::Center);
+    g.drawWrapped("PLAIN2", {60, 160, 680, 200}, mm ? "No mods found. Put a mod folder or .zip into:\n" + mm->modsDir().string() + "\n\nIt shows up here when you come back to the game." : "No mod manager.", 0xffffff, 1, Align::Center);
   } else {
     for (int r = 0; r < kPage; r++) {
       size_t i = (size_t)(page_ * kPage + r);
@@ -222,7 +260,7 @@ void ModsScreen::drawLayer(Gfx& g) {
       std::string who = (mi.m.author.empty() ? "" : "by " + mi.m.author + "   ") + mi.m.description;
       g.drawString("PLAIN2", 40, y + 38, fit(g, "PLAIN2", who, 480), 0xdddddd);
       uint32_t col = mi.state == ModInfo::Active ? 0x80ff80 : mi.state == ModInfo::NeedsConsent ? 0xffe060 : mi.state == ModInfo::Failed ? 0xff7070 : 0xa0a0a0;
-      std::string st = std::string(mi.stateName()) + (mi.enabled && mi.state == ModInfo::Off ? " (loads on restart)" : "") + (mi.error.empty() ? "" : ": " + mi.error);
+      std::string st = std::string(mi.stateName()) + (mi.enabled && mi.state == ModInfo::Off && app.modApplyPending() ? " (applying)" : "") + (mi.error.empty() ? "" : ": " + mi.error);
       g.drawString("PLAIN2", 40, y + 56, fit(g, "PLAIN2", st + "   |   " + mi.scan.summary(), 700), col);
     }
   }

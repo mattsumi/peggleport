@@ -64,7 +64,7 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 * New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.
 * Level names may use letters, digits, `_` and `-`. A name that starts with `_` is treated as a base layout without walls and a bucket, and the checker tells you about it.
 * A new level uses the background art of an existing one (the editor does not draw art). Choose it in the Level tab.
-* To play it: tick the mod in **Options, then Mods** and restart. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
+* To play it: tick the mod in **Options, then Mods**. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
 
 **Export and Import** write and read `exports/<Level>.json` in your save folder: a readable file of the whole level. Numbers keep their exact value, so exporting and importing changes nothing.
 
