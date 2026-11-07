@@ -20,6 +20,7 @@
 #include "log.h"
 #include "lua.h"
 #include "mods/luamod.h"
+#include "mods/luawork.h"
 #include "sockcompat.h"
 
 namespace fs = std::filesystem;
@@ -380,6 +381,7 @@ fs::path fsPath(lua_State* L, int i) {
 int f_read(lua_State* L) {
   std::string t;
   if (!readFile(fsPath(L, 1), t, 1u << 20)) { lua_pushnil(L); return 1; }
+  workSpend(L, (long long)(t.size() >> 5));
   lua_pushlstring(L, t.data(), t.size());
   return 1;
 }
@@ -388,6 +390,7 @@ int f_write(lua_State* L) {
   size_t n;
   const char* d = luaL_checklstring(L, 2, &n);
   if (n > (1u << 20)) luaL_error(L, "file too large (1 MB)");
+  workSpend(L, (long long)(n >> 5));
   std::error_code ec;
   int count = 0;
   for (auto& e : fs::directory_iterator(p.parent_path(), ec)) { (void)e; count++; }
