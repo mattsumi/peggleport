@@ -313,7 +313,7 @@ The number is the position of the object in the level file, counting from 0, not
 
 The level editor keeps these lines when you open and save a level, and the **Custom type** field of the Object tab sets them on the selected pegs. The editor itself shows such pegs as normal ones.
 
-**From a native plugin**: `register_peg_type` takes a `PPPegTypeDef` (the same fields, plain numbers and strings, `indestructible` instead of `clears_on_hit`, and 0 meaning the default for `counts_as_orange`, `hits_to_clear`, `bounce` and `radius_scale`), `set_peg_type(peg, "ice")` gives a peg a type and `peg_custom(peg, buffer, size, &hits)` reads it back. Register in `pp_mod_init`. Plugins built against the older header still load, the new calls are at the end of `PPModApi`: check `PP_MOD_API_HAS(api, set_peg_type)` first when you want to run on older versions of the game.
+**From a native plugin**: `register_peg_type` takes a `PPPegTypeDef` (the same fields, plain numbers and strings, `indestructible` instead of `clears_on_hit`, `base` as a number from 1 to 4 for blue, orange, purple and green, 0 meaning the default for `base`, `hits_to_clear`, `bounce` and `radius_scale`, and for `counts_as_orange` 1 for yes, -1 for no and 0 for left out), `set_peg_type(peg, "ice")` gives a peg a type (queued, and a name without `:` is looked up in your own plugin first) and `peg_custom(peg, buffer, size, &hits)` reads it back: it writes the type name the way `board.peg(id).custom` shows it, returns the length of the name (0 for a peg without a mod type) and sets `hits` to the hits the peg has taken. `on_hit(peg, ball)` and `on_clear(peg)` of the definition are called like the Lua callbacks. Set `struct_size` of the definition to `sizeof` it. `register_peg_type` returns 1 when the type was accepted and 0 when not: a wrong id, a path that leaves the mod folder, a repeated id, more than 64 types, or a call outside `pp_mod_init`. Check `PP_MOD_API_HAS(api, set_peg_type)` first when you want to run on older versions of the game.
 
 ### Online matches and replays
 
@@ -380,11 +380,24 @@ Mod Masters are in the **Master** choice when you create a room, after the origi
 
 ## Native plugins
 
-The header `include/peggleport_mod.h` is plain C and versioned (`PP_MOD_ABI_VERSION`). Your library exports `int32_t pp_mod_init(const PPModApi*)`, fills a `PPModHooks` structure and calls `api->register_hooks`. The hooks are `on_level_start`, `on_tick`, `on_shot`, `on_peg_hit`, `on_ball_lost`, `on_level_end`, `on_power`, `on_activate_power` (return 1 to replace the built-in power), `on_frame` and a final cleanup hook. The API offers `log`, board queries, the same queued changes as Lua, `physics_set` and `physics_get`, `state_set` and `state_get`, `rng_next` and `draw_*` calls (inside `on_frame` only).
+The header `include/peggleport_mod.h` is plain C and versioned (`PP_MOD_ABI_VERSION`). Your library exports `int32_t pp_mod_init(const PPModApi*)`, fills a `PPModHooks` structure and calls `api->register_hooks`. The hooks are `on_level_start`, `on_tick`, `on_shot`, `on_peg_hit`, `on_ball_lost`, `on_level_end`, `on_power`, `on_activate_power` (return 1 to replace the built-in power), `on_frame` and a final cleanup hook (`shutdown`).
 
-When a plugin is turned off, the game calls your final cleanup hook and then unloads the library, so stop any thread you started and release what you own in that hook. The same library is loaded again from disk, and `pp_mod_init` runs again, the next time it is ticked.
+What the `PPModApi` table gives you:
 
-A plugin can add Masters too. The header has a `PPMasterDef` structure (the same fields as the Lua table, plus plain C callbacks `on_activate(player, peg)`, `on_shot(player)` and `on_end(player)`) and `api->register_master(&def)`, which you call from `pp_mod_init` after `register_hooks`. It returns 0 when the Master was accepted. Set `struct_size` of the definition to `sizeof` it and use the `PP_MASTER_TRIGGER_*` values for `trigger`. The header grew by appending: `PP_MOD_ABI_VERSION` stays 1, `PP_MOD_ABI_MINOR` is 1 and the API structure ends with `abi_minor` and `register_master`. Plugins built against the older header keep loading. A plugin that wants to run on older games as well checks `api->struct_size` before it looks at `register_master`.
+* `log`
+* board queries: `tick`, `score`, `orange_left`, `balls_left`, `object_count`, `peg_info`, `ball_count`, `ball_info`
+* the queued changes `add_score`, `hit_peg`, `add_balls` and `say`
+* `state_set` and `state_get`, `rng_next`
+* `draw_rect`, `draw_circle` and `draw_text` (inside `on_frame` only)
+* `physics_set` and `physics_get` (see [Physics](#from-a-native-plugin))
+* `register_peg_type`, `set_peg_type` and `peg_custom` (see [Peg types](#giving-types-to-pegs))
+* `register_master` (see below)
+
+`PP_MOD_ABI_VERSION` is 1 and stays 1. The table only grows at the end, and `PP_MOD_ABI_MINOR` (1 today, also stored in the table as `abi_minor`) counts the additions: the physics calls, `abi_minor` itself, the three peg type calls and `register_master`. A plugin built against an older header keeps loading and only looks at the part of the table it knows. A plugin that wants to run on older versions of the game as well checks `PP_MOD_API_HAS(api, member)` before it calls something newer.
+
+When a plugin is turned off, the game asks the helper (see below) to call your final cleanup hook, which gets about 300 milliseconds, and then ends the helper. Turning the plugin on again starts a new helper that loads the library from disk and runs `pp_mod_init` again, so your static variables start fresh.
+
+A plugin can add Masters too. The header has a `PPMasterDef` structure (the same fields as the Lua table, plus plain C callbacks `on_activate(player, peg)`, `on_shot(player)` and `on_end(player)`) and `api->register_master(&def)`, which you call from `pp_mod_init`. Set `struct_size` of the definition to `sizeof` it and use the `PP_MASTER_TRIGGER_*` values for `trigger`. It returns 0 when the Master was accepted and a number when not: 1 outside `pp_mod_init` or from a cosmetic plugin, 2 for a `struct_size` that is too small, 3 for an id that is empty, has other characters than letters, digits, `-` and `_`, is longer than 32 characters or is the name of an original Master, 4 for an id your plugin used already, 5 when you already registered 16 Masters and 6 for a `trigger` that does not exist. The id is kept in lower case, and longer texts are cut: names and banners to 40 characters, descriptions to 240.
 
 The same sync rules as for Lua apply.
 
@@ -392,12 +405,12 @@ The same sync rules as for Lua apply.
 
 A native plugin does not run inside the game. For every native plugin the game starts a small helper program, `pp_modhost`, which sits next to the game (inside `PegglePort.app/Contents/MacOS` on macOS). The helper loads your library and talks to the game over a private pipe on your own computer. The helper ends when the game ends, and it is only started when a native plugin is switched on.
 
-You write the same code as before. `PPModApi` and `PPModHooks` did not change, so a plugin built earlier still loads, and the game still gets the same results: a hook sees the board as it was when the hook started, queued changes are applied at the end of the tick, `on_activate_power` hands its return value back to the game, and everything is replayed the same way after a rollback in an online match. A hook call costs a few microseconds more than it would inside the game.
+Everything in the API works from the helper, and the game gets the same results as for a Lua mod: a hook sees the board as it was when the hook started, queued changes are applied at the end of the tick, `on_activate_power` hands its return value back to the game, and everything is replayed the same way after a rollback in an online match. The callbacks of your peg types (`on_hit`, `on_clear`) and of your Masters (`on_activate`, `on_shot`, `on_end`) are C functions in your library, so they run in the helper as well, at the point where a Lua callback would run, with the same board view and the same queued changes. Every call into your library costs a few microseconds.
 
 Two things to keep in mind:
 
-* Call the API only from inside your hooks, on the thread the game called you on. Calls from other threads, or outside a hook, are ignored.
-* `rng_next()` inside a gameplay hook asks the game for each number, so draw only as many as you need.
+* Call the API only from inside `pp_mod_init`, your hooks and your callbacks, on the thread the game called you on. Calls from other threads, or outside those, are ignored. `register_peg_type` and `register_master` work in `pp_mod_init` only, and `physics_set` works there and in the gameplay hooks and callbacks.
+* `rng_next()` inside a gameplay hook or callback asks the game for each number, so draw only as many as you need.
 
 ### What the helper is not allowed to do
 
@@ -420,7 +433,7 @@ If your system cannot enforce all four limits, the dialog says "This plugin coul
 
 ### When a plugin misbehaves
 
-If a gameplay hook takes longer than 1 second, or `on_frame` longer than 250 milliseconds, if the library crashes, or if the helper ends for any other reason, the game stops the helper, switches that plugin off and writes an error with the reason to the log (**F10**). The game keeps running. There is no second try.
+If a gameplay hook or a peg type or Master callback takes longer than 1 second, or `on_frame` longer than 250 milliseconds, if the library crashes, or if the helper ends for any other reason, the game stops the helper, switches that plugin off and writes an error with the reason to the log (**F10**). The game keeps running. There is no second try.
 
 To build the example yourself: `cmake --build build --target hello_native` puts the library and its `mod.ini` in `build/examples/mods/hello_native/`. Copy that folder to your `mods` folder.
 
