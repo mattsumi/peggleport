@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "log.h"
+#include "physics.h"
 
 namespace pp {
 class Board;
@@ -15,10 +16,11 @@ namespace pp::mods {
 enum class Ctx { None, Load, Sim, Draw, Ui };
 
 struct ModCmd {
-  enum K { AddScore, HitPeg, AddBalls, SetBallVel, Say, StylePoints } k = Say;
+  enum K { AddScore, HitPeg, AddBalls, SetBallVel, Say, StylePoints, SetPhysics } k = Say;
   int i = 0;
   double a = 0, b = 0;
   std::string s;
+  PhysicsEdit pe{};
 };
 
 struct DrawSink {

@@ -841,6 +841,15 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   num("Balls (0=10)", ed.meta.balls, "balls", 1);
   num("Orange target", ed.meta.orange, "orange", 1);
   y += 4;
+  T(x, y, "Physics (- = original)", kGold);
+  y += fh_ + 2;
+  for (int k = 0; k < PhysicsParams::KeyCount; k++) {
+    const char* label = physicsKey(k).name;
+    const std::string key = physicsKey(k).alias;
+    const std::string value = ed.meta.physics.has(k) ? physicsFormat(ed.meta.physics.v.at(k)) : std::string();
+    text(label, value, key.c_str());
+  }
+  y += 4;
   T(x, y, "Mod folder", kGold);
   y += fh_ + 2;
   propRow(x, y, w, "Mod name", modName_, [this](int b) { if (b == 1) startPrompt("Mod name", modName_, [this](const std::string& t) { if (!t.empty()) modName_ = t; dirtyLayout(); }); }, nullptr, false);

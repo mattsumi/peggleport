@@ -156,6 +156,7 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   meta.boardWidth = lb.cfg.boardWidth;
   meta.balls = lb.cfg.balls;
   meta.orange = lb.cfg.orange;
+  meta.physics = lb.cfg.physics;
   savedPath.clear();
   finishLoad();
   status = "opened " + lb.name + " (" + std::to_string(objects().size()) + " objects)";
@@ -233,6 +234,8 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   if (meta.orange != 25) ini << "orange = " << meta.orange << "\n";
   if (!meta.background.empty() && meta.background != meta.name) ini << "background = " << meta.background << "\n";
   if (!meta.master.empty()) ini << "master = " << meta.master << "\n";
+  for (int k = 0; k < PhysicsParams::KeyCount; k++)
+    if (meta.physics.has(k)) ini << physicsKey(k).alias << " = " << physicsFormat(meta.physics.v.at(k)) << "\n";
   spit(lv / (meta.name + ".ini"), ini.str());
   std::vector<std::pair<std::string, std::string>> levels;
   {
@@ -622,7 +625,12 @@ void Editor::setMeta(const std::string& k, const std::string& v) {
   else if (k == "board_width") meta.boardWidth = std::clamp(std::atoi(v.c_str()), 650, 1400);
   else if (k == "balls") meta.balls = std::clamp(std::atoi(v.c_str()), 0, 99);
   else if (k == "orange") meta.orange = std::clamp(std::atoi(v.c_str()), 0, 500);
-  else return;
+  else if (int pk = 0; physicsKeyByName(k, pk)) {
+    double d = 0;
+    if (v.empty() || v == "-") meta.physics.clear(pk);
+    else if (physicsParseNumber(v, d)) meta.physics.set(pk, d);
+    else return;
+  } else return;
   metaDirty = true;
   changed();
 }
@@ -800,6 +808,7 @@ BoardConfig Editor::boardConfig(uint32_t seed) const {
   c.boardWidth = std::max(650, meta.boardWidth);
   c.balls = meta.balls;
   c.orange = meta.orange;
+  c.physics = meta.physics;
   c.seed = seed;
   int m = meta.master.empty() ? 0 : Board::masterByName(meta.master);
   for (int i = 0; i < 4; i++) c.master[i] = m;

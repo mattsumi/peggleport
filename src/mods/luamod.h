@@ -47,6 +47,7 @@ class LuaMod {
   HostServices& host() { return host_; }
   std::vector<MenuEntry> menus;
   std::vector<PowerDef> powers;
+  PhysicsEdit loadPhysics;
   size_t memoryUsed() const;
   size_t memoryPeak() const;
   bool memoryDenied() const;

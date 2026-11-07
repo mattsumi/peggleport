@@ -17,6 +17,7 @@ class NativeMod {
   void event(int type, int a, int b, int c, int ball);
   bool power(int pegIdx, int power);
   void frame();
+  const PhysicsEdit& loadPhysics() const;
   struct Impl;
 
  private:

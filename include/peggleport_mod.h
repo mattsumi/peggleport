@@ -1,6 +1,7 @@
 #ifndef PEGGLEPORT_MOD_H
 #define PEGGLEPORT_MOD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -8,6 +9,7 @@ extern "C" {
 #endif
 
 #define PP_MOD_ABI_VERSION 1
+#define PP_MOD_ABI_MINOR 1
 
 #if defined(_WIN32)
 #define PP_MOD_EXPORT __declspec(dllexport)
@@ -27,6 +29,22 @@ typedef struct PPBallInfo {
   int32_t id, alive;
   float x, y, vx, vy, r;
 } PPBallInfo;
+
+#define PP_PHYS_GRAVITY_Y (1u << 0)
+#define PP_PHYS_GRAVITY_X (1u << 1)
+#define PP_PHYS_LAUNCH_SPEED (1u << 2)
+#define PP_PHYS_BALL_BOUNCE (1u << 3)
+#define PP_PHYS_PEG_BOUNCE (1u << 4)
+#define PP_PHYS_DRAG (1u << 5)
+#define PP_PHYS_MAX_SPEED (1u << 6)
+#define PP_PHYS_BALL_RADIUS (1u << 7)
+#define PP_PHYS_ALL 0xffu
+
+typedef struct PPPhysics {
+  uint32_t struct_size;
+  uint32_t mask;
+  float gravity_y, gravity_x, launch_speed, ball_bounce, peg_bounce, drag, max_speed, ball_radius;
+} PPPhysics;
 
 typedef struct PPModHooks {
   uint32_t struct_size;
@@ -65,7 +83,11 @@ typedef struct PPModApi {
   void (*draw_rect)(float x, float y, float w, float h, uint32_t rgba, int32_t fill);
   void (*draw_circle)(float x, float y, float r, uint32_t rgba, int32_t fill);
   void (*draw_text)(float x, float y, const char* text, uint32_t rgba);
+  int32_t (*physics_set)(const PPPhysics* p);
+  int32_t (*physics_get)(PPPhysics* out);
 } PPModApi;
+
+#define PP_MOD_API_HAS(api, member) ((api)->struct_size >= offsetof(PPModApi, member) + sizeof((api)->member))
 
 #ifdef __cplusplus
 }

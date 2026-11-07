@@ -11,6 +11,7 @@
 #include "gun.h"
 #include "level.h"
 #include "mods/simhooks.h"
+#include "physics.h"
 #include "physobj.h"
 #include "vec2.h"
 
@@ -160,6 +161,7 @@ struct BoardConfig {
   ChallengeRules ch;
   bool liveSpin = false;
   int tryNumber = 1;
+  PhysicsEdit physics;
 };
 
 struct LevelResult {
@@ -187,6 +189,9 @@ class Board {
   static int tryBonus(int tryNumber);
   V2 pivot() const { return {W * 0.5f, 30.0f}; }
   float armedBallRadius() const;
+  float ballRadiusFor(bool fire) const;
+  void setPhysics(const PhysicsEdit& e);
+  void derivePhysics();
   V2 muzzleArmed(float a) const { return muzzle(a, armedBallRadius()); }
   V2 muzzle(float a, float ballRadius = gun::DEF_RADIUS) const;
   std::vector<V2> guide(float a, int steps = 110) const;
@@ -329,6 +334,7 @@ class Board {
   int superCount[4]{};
   int styleReq[24]{};
   float grav_ = 0.05f, gunSpeed_ = 4.0f;
+  PhysicsParams physics;
   bool superOn = false, ultraOn = false;
   int triplerCount[4]{}, hatCount[4]{};
   bool shotBanked = false;

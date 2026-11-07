@@ -11,7 +11,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | Top bar | New, Open (a level browser with a filter), Save, To mod, Export and Import (JSON), Undo, Redo, Grid, Snap, Fit, Animate, Oranges, Check, Test play, Exit |
 | Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
 | Canvas | The board, zoomed and panned. The playfield outline is white. On a wide board the original 650 pixel region is marked with a dashed gold guide |
-| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art, board width, balls, orange target, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
+| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art, board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
 | Bottom bar | Cursor position, zoom, grid, selection, saved or modified, and the last message |
 
 ## Keys and mouse
@@ -58,7 +58,7 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 * **Save** writes the level to where it came from, or into your mod folder when it is new.
 * **To mod** (Ctrl/Cmd+Shift+S) writes
   * `mods/<modname>/levels/<Level>.dat`,
-  * `<Level>.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`,
+  * `<Level>.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`, and the physics keys you set in the Level tab (`gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed`, `ball_radius`, see the Physics part of the modding guide),
   * `levels/mod_levels.cfg`, which makes a Quick Play stage for every five levels,
   * a `mod.ini` when the folder has none, and a 200 by 177 thumbnail in `levels/cached_thumbnails/` for the Quick Play tile.
 * New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.

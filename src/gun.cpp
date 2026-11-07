@@ -55,7 +55,7 @@ float clampAim(float a, float maxGunAngle) {
   return a;
 }
 
-float aimAngle(V2 gunPos, int mx, int my, float maxGunAngle) {
+float aimAngle(V2 gunPos, int mx, int my, float maxGunAngle, float speed, float gravity, float wind, float ballRadius) {
   const float gx = gunPos.x, gy = gunPos.y;
   const float fmx = (float)mx, fmy = (float)my;
   float ddx = fmx - gx;
@@ -73,13 +73,13 @@ float aimAngle(V2 gunPos, int mx, int my, float maxGunAngle) {
   const float A = base + corr;
   float best = A, bestErr = 1000000.0f;
 
-  const float p3x = ((TIP_OFFSET + gx) + PRE_OFFSET) + DEF_RADIUS;
+  const float p3x = ((TIP_OFFSET + gx) + PRE_OFFSET) + ballRadius;
   const float p3y = gy + 1.0f;
   float dxm = fmx - p3x;
   float dym = fmy - p3y;
   float dist = std::sqrt(dxm * dxm + dym * dym);
-  if (((TIP_OFFSET + PRE_OFFSET) + DEF_RADIUS) + 10.0f < dist) {
-    const float g = 0.05f;
+  if (((TIP_OFFSET + PRE_OFFSET) + ballRadius) + 10.0f < dist) {
+    const float g = gravity;
     for (int i = -10; i < 10; i++) {
       float ang = (float)i * 0.01f + A;
       V2 r = rotateXY({p3x, p3y}, gunPos, ang);
@@ -90,14 +90,26 @@ float aimAngle(V2 gunPos, int mx, int my, float maxGunAngle) {
       if (std::fabs(c) < 0.001f) {
         err = (ex == 0.0f) ? 0.0f : 1000000.0f;
       } else {
-        float t = ex / (c * SPEED);
+        float t;
+        if (wind == 0.0f) {
+          t = ex / (c * speed);
+        } else {
+          const float vb = c * speed;
+          const float aw = wind * 0.5f;
+          const float disc = vb * vb + 4.0f * aw * ex;
+          if (disc < 0.0f) t = -1.0f;
+          else {
+            const float den = vb + (vb < 0.0f ? -std::sqrt(disc) : std::sqrt(disc));
+            t = den == 0.0f ? -1.0f : (ex + ex) / den;
+          }
+        }
         if (t < 0.0f) {
           err = 1000000.0f;
         } else {
           float t2 = t * t;
           float h = t2 * (g * 0.5f);
           float s = sinf_(ang);
-          float y = h - s * (t * SPEED);
+          float y = h - s * (t * speed);
           err = std::fabs(y - ey);
         }
       }

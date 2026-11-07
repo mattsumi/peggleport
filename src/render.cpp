@@ -683,7 +683,8 @@ void Renderer::drawBall(const Board& b, const Ball& bl, bool inGun) {
     }
   } hatDraw{this, cx + (bl.hat && bl.hatAge > 0 ? bl.hatPos.x - bl.pos.x : 0.0f), cy + (bl.hat && bl.hatAge > 0 ? bl.hatPos.y - (bl.pos.y - 21.0f) : 0.0f), bl.vel.x, bl.hat};
   if (bl.fire) {
-    if (Tex* t = img("IMAGE_FIREBALL")) putCentered(t, cx, cy, {}, 1.0f, 0.05f * (float)b.tick);
+    const float fs = b.physics.ballRadius == 6.0f ? 1.0f : r / (b.cfg.nights ? 11.0f : 10.0f);
+    if (Tex* t = img("IMAGE_FIREBALL")) putCentered(t, cx, cy, {}, fs, 0.05f * (float)b.tick);
     return;
   }
   if (r == 6.0f) {
@@ -701,17 +702,19 @@ void Renderer::doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0
   Tex* rect = img("IMAGE_GUIDERECT");
   Tex* arrow = img("IMAGE_GUIDEARROW");
   Tex* hitImg = img("IMAGE_GUIDEHIT");
-  const float vx = std::cos(ang) * speed, vy = -speed * std::sin(ang), ay = 0.05f * 0.5f;
+  const float vx = std::cos(ang) * speed, vy = -speed * std::sin(ang), ay = b.physics.gravityY * 0.5f, ax = b.physics.gravityX * 0.5f;
   uint32_t col = fireball ? 0x903010u : superCol ? 0xaaaa60u : 0x109090u;
   Paint add{(col << 8) | 0xffu, Blend::Add};
   bool atHit = hitStep == -1, reached = false;
   int n = 2;
   V2 prev{x0 + vx * 2, y0 + vy * 2 + ay * 4};
+  if (ax != 0.0f) prev.x += ax * 4;
   (void)b;
   if (!(2 < len)) return;
   do {
     n += 4;
     V2 cur{x0 + vx * (float)n, y0 + vy * (float)n + ay * (float)n * (float)n};
+    if (ax != 0.0f) cur.x += ax * (float)n * (float)n;
     V2 at = cur;
     if (n >= 3 && n - 3 < (int)tr.pts.size()) at = tr.pts[(size_t)(n - 3)];
     bool farSeg = n >= len && far;
@@ -756,9 +759,9 @@ void Renderer::drawGuide(const Board& b) {
     len = std::min(l2, len);
   }
   Board::GuideTrace tr = b.guideTrace(b.gunAngle, b.guideOn());
-  V2 m = b.muzzle(b.gunAngle);
+  V2 m = b.muzzle(b.gunAngle, b.physics.ballRadius);
   bool fire = b.master[b.cur] == Board::P_FIREBALL && b.turns[b.cur] > 0;
-  doDrawGuide(b, tr, m.x, m.y, b.gunAngle, 4.0f, tr.hitStep, len, 2, far, fire, b.guideOn());
+  doDrawGuide(b, tr, m.x, m.y, b.gunAngle, b.physics.launchSpeed, tr.hitStep, len, 2, far, fire, b.guideOn());
 }
 
 void Renderer::drawBoardShadow() {
@@ -1024,6 +1027,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   for (auto& bl : b.balls) drawBall(b, bl, false);
   if (b.phase == Phase::Aim) {
     Ball g;
+    g.r = b.physics.ballRadius;
     g.pos = b.muzzleArmed(b.gunAngle);
     drawBall(b, g, true);
     if (hud.showGuide) drawGuide(b);

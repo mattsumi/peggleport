@@ -8,7 +8,7 @@ PegglePort has three kinds of mods. They all live in the same place and go throu
 | Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers | sandbox | only when the scan finds network use |
 | Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | not sandboxed | always |
 
-The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs`, `trace_hooks`, and a prebuilt `hello_native` when your platform has one) and the source of the native example in `examples/plugin`.
+The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs`, `trace_hooks`, `moon_shots`, and a prebuilt `hello_native` when your platform has one) and the source of the native example in `examples/plugin`.
 
 ## Installing and turning mods on
 
@@ -77,7 +77,7 @@ Files in a mod folder are looked up before the game's own files, using the same 
 
 * `image_scale = 2` in `mod.ini` tells the game that your art is twice the size of the original and should be drawn at the original size.
 * Levels go in `levels/` as `.dat` files. Add a `mod_levels.cfg` there to list them as extra Quick Play stages, or let the level editor write all of this for you.
-* A level can have an `.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`.
+* A level can have an `.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`. The same file can also change how the ball moves with `gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed` and `ball_radius`, see [Physics](#physics).
 
 ## The Lua API
 
@@ -95,7 +95,7 @@ When a hook runs out it is stopped with an error: `instruction budget exceeded` 
 
 | Context | Where | You may |
 |---|---|---|
-| Load | the top of your script and `on_load` | define globals and hooks, `register_power`, `ui.menu` |
+| Load | the top of your script and `on_load` | define globals and hooks, `register_power`, `ui.menu`, `physics.set` |
 | Sim | the `on_*` gameplay hooks and power callbacks | read the board, use `state.*` and `rng_*`, queue changes. No global writes, no `net` |
 | Draw | `on_frame` | read the board, use `draw.*` and globals |
 | Ui | `ui.menu` callbacks and `net` callbacks | globals, `ui.message`, `net` and `fs` |
@@ -137,6 +137,7 @@ These calls are queued and applied at the end of the tick, in the order you made
 * `board.set_ball_velocity(index, vx, vy)` sets a ball's speed (clamped to plus or minus 40).
 * `board.say(text)` shows a banner.
 * `board.style_shot(name, points)` adds style points and shows the name.
+* `physics.set{...}` changes gravity, bounce and so on, see [Physics](#physics).
 
 The events these cause call your hooks again, up to 8 rounds per tick.
 
@@ -172,9 +173,70 @@ Gameplay hooks run on every player's computer and must give identical results.
 * `pairs()` order is stable for string keys, but not for tables or functions used as keys.
 * A mod with `determinism = cosmetic` gets no gameplay hooks and cannot change state. It only has `on_load`, `on_frame`, menu and network callbacks, and it does not count in the match comparison.
 
+## Physics
+
+A mod or a level can change how the ball moves. Distances are in board pixels and time is in the game's fixed 10 ms steps, the same units the original game uses.
+
+| Setting | Level ini key | Original | Range | What it does |
+|---|---|---|---|---|
+| `gravity_y` | `gravity` | 0.05 | -0.5 to 0.5 | Speed added downwards on every step. A negative number lifts the ball |
+| `gravity_x` | `wind` | 0 | -0.2 to 0.2 | Speed added sideways on every step. Positive blows to the right |
+| `launch_speed` | `launch_speed` | 4 | 0.5 to 40 | Speed of the ball when it leaves the cannon |
+| `ball_bounce` | `bounce` | 1 | 0 to 2 | Multiplies how much speed the ball keeps when it bounces off pegs, bricks, walls, lines and polygons. 1 is the original, 0 kills the bounce |
+| `peg_bounce` | `peg_bounce` | 1 | 0 to 2 | The same, for pegs only, on top of `ball_bounce` |
+| `drag` | `drag` | 0 | 0 to 0.5 | Share of its speed the ball loses on every step |
+| `max_speed` | `max_speed` | 15 | 1 to 40 | The speed the ball can never exceed |
+| `ball_radius` | `ball_radius` | 6 | 2 to 20 | Size of the ball. It is used for hitting pegs, for the other balls of a multiball, for the cannon and for drawing. The fireball grows or shrinks by the same factor |
+
+A value outside its range is moved to the nearest end of the range and the log says so. Gravity, wind, bounce, drag and the speed limit change the balls that are already in the air. The launch speed and the ball size are read when a ball is launched, so they apply from the next ball on. The speed limit works from the first step, so a launch speed above `max_speed` is cut back to it. The guide line and the aiming help use the same gravity, wind, launch speed and ball size, so they still show where the ball goes.
+
+### From Lua
+
+`physics.set{gravity_y = 0.03, wind = 0.01}` changes only the settings you name. The short names of the ini keys (`gravity`, `wind`, `bounce`) work too. `physics.get()` returns a table with all eight settings.
+
+* While the mod loads (the top of a script or `on_load`) the call sets the physics of every level. If several mods do this, the one that is later in the load order wins for each setting.
+* In a gameplay hook the call is queued like `board.add_score`. A change made in `on_level_start` is in effect before the first step, one made in `on_tick` before the balls move in that step and one made in any other hook from the next step on. Hooks run again when a late shot rolls an online match back, so they put the same values in place again.
+* It raises an error, and changes nothing, for a field it does not know, a value that is not a number or not finite, or the same setting twice (`gravity` and `gravity_y`). A mod with `determinism = cosmetic` cannot use it. From menu and drawing callbacks it is not available.
+
+```lua
+physics.set{gravity_y = 0.02, ball_bounce = 1.1}
+
+function on_level_start(level)
+  if level.pegs > 100 then physics.set{drag = 0.004} end
+end
+
+function on_tick(tick)
+  if tick == 3000 then physics.set{wind = 0.01} end
+end
+```
+
+### In a level ini
+
+Put the keys in the level's `.ini` next to its `.dat`, for example `levels/MyLevel.ini` in your mod:
+
+```ini
+title = Moon Shot
+gravity = 0.02
+wind = 0.004
+bounce = 1.1
+ball_radius = 8
+```
+
+A number that cannot be read is ignored and the log says so. For one setting the order is: the original value, then what mods set while loading, then the level's ini, then what a mod sets in a hook. The level editor shows these keys in the Level tab, keeps them when it opens and saves a level, and uses them when you play the level from the editor.
+
+### From a native plugin
+
+The plugin header has `physics_set(const PPPhysics*)` and `physics_get(PPPhysics*)` at the end of the API table. Fill `struct_size`, set a bit of `mask` (`PP_PHYS_GRAVITY_Y`, `PP_PHYS_GRAVITY_X`, `PP_PHYS_LAUNCH_SPEED`, `PP_PHYS_BALL_BOUNCE`, `PP_PHYS_PEG_BOUNCE`, `PP_PHYS_DRAG`, `PP_PHYS_MAX_SPEED`, `PP_PHYS_BALL_RADIUS`) for every field you want to change and fill those fields. `physics_set` returns 1 when it took the change and 0 when it did not, for a value that is not finite, an unknown bit, or a call outside `pp_mod_init` and the gameplay hooks. Called from `pp_mod_init` it sets the physics of every level, from a hook it is queued like the other changes. `physics_get` fills all fields.
+
+These two functions came with minor version 1 (`PP_MOD_ABI_MINOR`). `PP_MOD_ABI_VERSION` stays 1, so plugins built earlier keep loading. A plugin that wants to run on older builds as well checks `PP_MOD_API_HAS(api, physics_set)` before it calls the function.
+
+### Keeping it in sync online
+
+The physics values are part of the board, they are copied when the game keeps a snapshot for a rollback, and they go into the state hash that players compare after every shot as soon as they differ from the original values. A game that does not use any of this hashes and plays exactly as before. The level ini is part of the level's fingerprint and the scripts of a mod are part of the mod's fingerprint, so everyone in a match gets the same values. The same rules as for any gameplay hook apply: use `state.*` and the game's random numbers, nothing that differs from one computer to the next.
+
 ## Native plugins
 
-The header `include/peggleport_mod.h` is plain C and versioned (`PP_MOD_ABI_VERSION`). Your library exports `int32_t pp_mod_init(const PPModApi*)`, fills a `PPModHooks` structure and calls `api->register_hooks`. The hooks are `on_level_start`, `on_tick`, `on_shot`, `on_peg_hit`, `on_ball_lost`, `on_level_end`, `on_power`, `on_activate_power` (return 1 to replace the built-in power), `on_frame` and a final cleanup hook. The API offers `log`, board queries, the same queued changes as Lua, `state_set` and `state_get`, `rng_next` and `draw_*` calls (inside `on_frame` only).
+The header `include/peggleport_mod.h` is plain C and versioned (`PP_MOD_ABI_VERSION`). Your library exports `int32_t pp_mod_init(const PPModApi*)`, fills a `PPModHooks` structure and calls `api->register_hooks`. The hooks are `on_level_start`, `on_tick`, `on_shot`, `on_peg_hit`, `on_ball_lost`, `on_level_end`, `on_power`, `on_activate_power` (return 1 to replace the built-in power), `on_frame` and a final cleanup hook. The API offers `log`, board queries, the same queued changes as Lua, `physics_set` and `physics_get`, `state_set` and `state_get`, `rng_next` and `draw_*` calls (inside `on_frame` only).
 
 When a plugin is turned off, the game calls your final cleanup hook and then unloads the library, so stop any thread you started and release what you own in that hook. The same library is loaded again from disk, and `pp_mod_init` runs again, the next time it is ticked.
 
@@ -196,5 +258,5 @@ This is a best-effort check. A native plugin can hide what it does, and the dial
 
 ## Limits
 
-* No new Master characters, peg types or physics.
+* No new Master characters or peg types.
 * Native plugins are scanned, never contained.

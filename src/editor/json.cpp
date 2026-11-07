@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <set>
@@ -364,6 +365,12 @@ J levelToJson(const Level& L, const LevelMeta& m) {
   meta.set("board_width", J::num(m.boardWidth));
   meta.set("balls", J::num(m.balls));
   meta.set("orange", J::num(m.orange));
+  if (m.physics.any()) {
+    J ph = J::obj();
+    for (int k = 0; k < PhysicsParams::KeyCount; k++)
+      if (m.physics.has(k)) ph.set(physicsKey(k).name, J::num(std::strtod(physicsFormat(m.physics.v.at(k)).c_str(), nullptr)));
+    meta.set("physics", ph);
+  }
   root.set("meta", meta);
   Writer w;
   for (auto& e : L.entries)
@@ -462,6 +469,13 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
     auto n = [&](const char* k, int& dst) { if (auto v = m->get(k)) dst = (int)v->n; };
     s("name", meta.name); s("title", meta.title); s("background", meta.background); s("master", meta.master);
     n("board_width", meta.boardWidth); n("balls", meta.balls); n("orange", meta.orange);
+    if (const J* ph = m->get("physics"); ph && ph->t == J::Obj) {
+      meta.physics = PhysicsEdit();
+      for (const auto& kv : ph->o) {
+        int pk = 0;
+        if (kv.second.t == J::Num && physicsKeyByName(kv.first, pk) && std::isfinite(kv.second.n)) meta.physics.set(pk, kv.second.n);
+      }
+    }
   }
   const J* objs = j.get("objects");
   if (!objs || objs->t != J::Arr) return fail("no objects array");
