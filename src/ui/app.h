@@ -153,6 +153,12 @@ class App : public WidgetHost {
   void showLogView(bool large);
   void showModConsent(const std::string& modId, bool ask);
   void offerModConsent();
+  void requestModApply();
+  bool modApplyPending() const { return modApplyPending_; }
+  bool modApplyBlocked(std::string* why = nullptr) const;
+  const std::string& modApplyStatus() const { return modApplyStatus_; }
+  int modApplyCount() const { return modApplyCount_; }
+  std::function<void()> modAssetsHook;
   void showBoard(bool fromAdventure, bool newLevel);
   void startAdventureGame();
   void showIntroScreen();
@@ -257,6 +263,12 @@ class App : public WidgetHost {
     std::unique_ptr<Screen> owned;
   };
   void updateMovers();
+  void serviceModApply();
+  void runModApply();
+  void refreshAssets(const VfsChange& change);
+  bool modApplyPending_ = false;
+  int modApplyCount_ = 0;
+  std::string modApplyStatus_;
   Mover* mover(Panel* l);
   void inputToLayers(const Input& in);
 

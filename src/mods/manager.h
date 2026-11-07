@@ -13,10 +13,7 @@
 #include "mods/native.h"
 #include "mods/scanner.h"
 #include "mods/simhooks.h"
-
-namespace pp {
-class Vfs;
-}
+#include "vfs.h"
 
 namespace pp::mods {
 
@@ -25,7 +22,7 @@ struct ModInfo {
   std::filesystem::path dir, source;
   uint64_t hash = 0;
   std::string hashHex;
-  bool fromCli = false, enabled = false, zip = false;
+  bool fromCli = false, enabled = false, zip = false, discoveryFailed = false, failedOnLoad = false;
   ScanReport scan;
   bool consented = false;
   enum State { Off, NeedsConsent, Active, Failed } state = Off;
@@ -34,7 +31,15 @@ struct ModInfo {
   std::unique_ptr<NativeMod> native;
   bool hasCode() const { return !m.scripts.empty() || !m.native.empty(); }
   bool needsConsent() const { return scan.needsConsent() && !consented; }
+  bool willLoad() const { return !discoveryFailed && enabled && !needsConsent(); }
   const char* stateName() const;
+};
+
+struct ReloadResult {
+  bool skipped = false, rescanned = false, changed = false;
+  VfsChange assets;
+  int active = 0, total = 0, failed = 0;
+  long long ms = 0;
 };
 
 class ModManager final : public SimHooks {
@@ -46,6 +51,9 @@ class ModManager final : public SimHooks {
   void discover(const std::vector<std::string>& cliMods = {});
   void activate(Vfs* vfs);
   void deactivate();
+  ReloadResult reload(Vfs& vfs);
+  bool folderChanged() const;
+  std::string statusText() const;
   std::vector<std::unique_ptr<ModInfo>>& mods() { return mods_; }
   ModInfo* find(const std::string& id);
   bool setEnabled(const std::string& id, bool on);
@@ -82,9 +90,16 @@ class ModManager final : public SimHooks {
   std::map<std::string, std::string> consent_;
   std::vector<ModCmd> queue_;
   HostServices host_;
+  std::vector<std::string> cli_;
+  std::string folderSig_, appliedPlan_;
   uint64_t setHash_ = 0;
-  bool installed_ = false;
+  bool installed_ = false, activated_ = false;
   bool queueFull_ = false;
+  std::string folderSignature() const;
+  std::string loadPlan() const;
+  void rediscover();
+  void settleStates();
+  void failLoad(ModInfo& m, const std::string& err);
   void logDiscovered(const ModInfo& mi);
   void loadConfig(std::vector<std::string>& enabled);
   void addMod(const std::filesystem::path& src, bool cli);

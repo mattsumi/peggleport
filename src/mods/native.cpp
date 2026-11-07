@@ -150,6 +150,15 @@ std::unique_ptr<NativeMod> NativeMod::load(const std::filesystem::path& lib, con
 NativeMod::~NativeMod() {
   if (!im_) return;
   if (im_->hooked && im_->hooks.shutdown) { Cur c(im_.get()); im_->hooks.shutdown(); }
+  im_->hooks = PPModHooks{};
+  im_->hooked = false;
+  if (!im_->lib) return;
+#ifdef _WIN32
+  FreeLibrary((HMODULE)im_->lib);
+#else
+  dlclose(im_->lib);
+#endif
+  im_->lib = nullptr;
 }
 
 void NativeMod::levelStart() { if (im_->hooks.on_level_start) { Cur c(im_.get()); im_->hooks.on_level_start(); } }

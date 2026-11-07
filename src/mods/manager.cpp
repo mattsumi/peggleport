@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -37,6 +38,7 @@ void failMod(std::vector<std::unique_ptr<ModInfo>>& mods, std::unique_ptr<ModInf
   m->m.id = id;
   m->m.name = name;
   m->state = ModInfo::Failed;
+  m->discoveryFailed = true;
   m->error = err;
   pp::log::error("mod:" + id, "cannot load: " + err);
   mods.push_back(std::move(m));
@@ -196,6 +198,7 @@ void ModManager::logDiscovered(const ModInfo& mi) {
 }
 
 void ModManager::discover(const std::vector<std::string>& cliMods) {
+  cli_ = cliMods;
   mods_.clear();
   order_.clear();
   consent_.clear();
@@ -233,14 +236,84 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
   std::sort(rest.begin(), rest.end(), [](auto& a, auto& b) { return a->m.priority != b->m.priority ? a->m.priority > b->m.priority : a->m.id < b->m.id; });
   for (auto& m : rest) sorted.push_back(std::move(m));
   mods_ = std::move(sorted);
+  folderSig_ = folderSignature();
   pp::log::info("mods", std::to_string(mods_.size()) + " mod(s) found");
+}
+
+std::string ModManager::folderSignature() const {
+  if (userDir_.empty()) return {};
+  std::error_code ec;
+  fs::path root = modsDir();
+  if (!fs::is_directory(root, ec)) return "none";
+  std::vector<std::string> rows;
+  for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
+    if (ec) break;
+    std::string nm = it->path().filename().string();
+    if (!nm.empty() && nm[0] == '.') {
+      if (it->is_directory(ec)) it.disable_recursion_pending();
+      continue;
+    }
+    std::string row = it->path().lexically_relative(root).generic_string();
+    if (it->is_regular_file(ec)) {
+      row += "|" + std::to_string((unsigned long long)it->file_size(ec));
+      row += "|" + std::to_string((long long)it->last_write_time(ec).time_since_epoch().count());
+    }
+    rows.push_back(std::move(row));
+  }
+  std::sort(rows.begin(), rows.end());
+  uint64_t h = 1469598103934665603ull;
+  for (auto& r : rows) {
+    h = fnvMix(h, r.data(), r.size());
+    h = fnvMix(h, "\n", 1);
+  }
+  return hex64(h) + ":" + std::to_string(rows.size());
+}
+
+bool ModManager::folderChanged() const { return !userDir_.empty() && folderSignature() != folderSig_; }
+
+std::string ModManager::loadPlan() const {
+  std::string s;
+  for (auto& m : mods_)
+    if (m->willLoad()) s += m->m.id + ":" + m->hashHex + ";";
+  return s;
+}
+
+std::string ModManager::statusText() const {
+  int failed = 0, waiting = 0;
+  for (auto& m : mods_) {
+    if (m->enabled && m->state == ModInfo::Failed) failed++;
+    if (m->enabled && m->state == ModInfo::NeedsConsent) waiting++;
+  }
+  std::string s = std::to_string(activeCount()) + " of " + std::to_string(mods_.size()) + (mods_.size() == 1 ? " mod active" : " mods active");
+  if (failed) s += ", " + std::to_string(failed) + " could not load";
+  if (waiting) s += ", " + std::to_string(waiting) + " waiting for your OK";
+  return s;
+}
+
+void ModManager::rediscover() {
+  std::map<std::string, bool> wasEnabled;
+  std::map<std::string, size_t> rank;
+  for (size_t i = 0; i < mods_.size(); i++) {
+    wasEnabled[mods_[i]->m.id] = mods_[i]->enabled;
+    rank[mods_[i]->m.id] = i;
+  }
+  discover(cli_);
+  for (auto& m : mods_) {
+    auto it = wasEnabled.find(m->m.id);
+    if (it != wasEnabled.end() && !m->fromCli && !m->discoveryFailed) m->enabled = it->second;
+  }
+  std::stable_sort(mods_.begin(), mods_.end(), [&](const std::unique_ptr<ModInfo>& a, const std::unique_ptr<ModInfo>& b) {
+    auto ia = rank.find(a->m.id), ib = rank.find(b->m.id);
+    const size_t ra = ia == rank.end() ? rank.size() : ia->second, rb = ib == rank.end() ? rank.size() : ib->second;
+    return ra < rb;
+  });
 }
 
 bool ModManager::setEnabled(const std::string& id, bool on) {
   ModInfo* m = find(id);
-  if (!m || m->state == ModInfo::Failed) return false;
+  if (!m || m->discoveryFailed) return false;
   m->enabled = on;
-  pp::log::info("mod:" + id, on ? "enabled (loads the next time the game starts)" : "disabled (unloads the next time the game starts)");
+  pp::log::info("mod:" + id, on ? "enabled" : "disabled");
   return m->fromCli ? true : save();
 }
 bool ModManager::setConsent(const std::string& id, bool grant) {
@@ -258,7 +331,7 @@ void ModManager::move(const std::string& id, int delta) {
       long j = std::clamp<long>((long)i + delta, 0, (long)mods_.size() - 1);
       if ((size_t)j != i) {
         std::swap(mods_[i], mods_[(size_t)j]);
-        pp::log::info("mod:" + id, "load order changed (applies the next time the game starts)");
+        pp::log::info("mod:" + id, "load order changed");
       }
       save();
       return;
@@ -293,8 +366,11 @@ void ModManager::activate(Vfs* vfs) {
   for (auto& mp : mods_) {
     ModInfo& m = *mp;
     const std::string src = "mod:" + m.m.id;
-    if (m.state == ModInfo::Failed) continue;
+    if (m.discoveryFailed) continue;
+    if (m.failedOnLoad && m.enabled) continue;
+    m.failedOnLoad = false;
     m.state = ModInfo::Off;
+    m.error.clear();
     if (!m.enabled) continue;
     if (m.needsConsent()) {
       m.state = ModInfo::NeedsConsent;
@@ -302,15 +378,13 @@ void ModManager::activate(Vfs* vfs) {
       continue;
     }
     if (m.m.api > kModApi) {
-      m.state = ModInfo::Failed;
-      m.error = "needs a newer mod API";
+      failLoad(m, "needs a newer mod API");
       pp::log::error(src, "not loaded: " + m.error);
       continue;
     }
     std::string err;
     if (vfs && !vfs->mountMod(m.dir, &err)) {
-      m.state = ModInfo::Failed;
-      m.error = err;
+      failLoad(m, err);
       host_.log(m.m.id, pp::log::Level::Error, "not loaded: " + err);
       continue;
     }
@@ -318,26 +392,28 @@ void ModManager::activate(Vfs* vfs) {
       m.lua = std::make_unique<LuaMod>(m.m, m.dir, host_);
       host_.board = nullptr;
       if (!m.lua->open(&err)) {
-        m.state = ModInfo::Failed;
-        m.error = err;
+        failLoad(m, err);
         host_.log(m.m.id, pp::log::Level::Error, "failed to load: " + err);
         m.lua.reset();
+        if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
     }
     if (!m.m.native.empty()) {
       fs::path lib = resolveNative(m.dir, m.m);
       if (lib.empty()) {
-        m.state = ModInfo::Failed;
-        m.error = "native library not found for this platform: " + m.m.native;
+        failLoad(m, "native library not found for this platform: " + m.m.native);
         host_.log(m.m.id, pp::log::Level::Error, "not loaded: " + m.error);
+        m.lua.reset();
+        if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
       m.native = NativeMod::load(lib, m.m, host_, &err);
       if (!m.native) {
-        m.state = ModInfo::Failed;
-        m.error = err;
+        failLoad(m, err);
         host_.log(m.m.id, pp::log::Level::Error, "native plugin failed: " + err);
+        m.lua.reset();
+        if (vfs) vfs->unmountMod(m.dir);
         continue;
       }
     }
@@ -354,12 +430,80 @@ void ModManager::activate(Vfs* vfs) {
   g_modSetHash = setHash_;
   if (code) { g_simHooks = this; installed_ = true; }
   g_mods = this;
+  appliedPlan_ = loadPlan();
+  activated_ = true;
   pp::log::info("mods", std::to_string(activeCount()) + " of " + std::to_string(mods_.size()) + " mod(s) active");
+}
+
+ReloadResult ModManager::reload(Vfs& vfs) {
+  const auto t0 = std::chrono::steady_clock::now();
+  ReloadResult r;
+  auto finish = [&] {
+    r.total = (int)mods_.size();
+    r.active = activeCount();
+    for (auto& m : mods_)
+      if (m->enabled && m->state == ModInfo::Failed) r.failed++;
+    r.ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+  };
+  pp::log::info("mods", "applying mod changes");
+  bool rescan = folderChanged();
+  if (!rescan && activated_ && loadPlan() == appliedPlan_) {
+    r.skipped = true;
+    settleStates();
+    finish();
+    pp::log::info("mods", "nothing to change: " + statusText());
+    return r;
+  }
+  if (!rescan) {
+    for (auto& m : mods_)
+      if (m->willLoad() && m->hasCode() && hashModDir(m->dir) != m->hash) {
+        pp::log::warn("mod:" + m->m.id, "its files changed after the scan; looking at the mods folder again");
+        rescan = true;
+        break;
+      }
+  }
+  const std::string before = vfs.modSignature();
+  std::set<std::string> keys;
+  vfs.modKeys(keys);
+  deactivate();
+  if (rescan) rediscover();
+  vfs.unmountMods();
+  activate(&vfs);
+  r.rescanned = rescan;
+  r.changed = rescan || before != vfs.modSignature();
+  if (r.changed) {
+    vfs.modKeys(keys);
+    r.assets.any = true;
+    r.assets.keys = std::move(keys);
+  }
+  finish();
+  pp::log::info("mods", "mod changes applied: " + statusText() + " (" + std::to_string(r.ms) + " ms)");
+  return r;
+}
+
+void ModManager::failLoad(ModInfo& m, const std::string& err) {
+  m.state = ModInfo::Failed;
+  m.failedOnLoad = true;
+  m.error = err;
+}
+
+void ModManager::settleStates() {
+  for (auto& m : mods_) {
+    if (m->discoveryFailed || m->willLoad()) continue;
+    m->failedOnLoad = false;
+    const ModInfo::State want = m->enabled && m->needsConsent() ? ModInfo::NeedsConsent : ModInfo::Off;
+    if (m->state == want) continue;
+    m->state = want;
+    m->error.clear();
+    if (want == ModInfo::NeedsConsent) pp::log::warn("mod:" + m->m.id, "not loaded: it uses the network or native code and needs your consent first");
+  }
 }
 
 void ModManager::deactivate() {
   if (installed_ && g_simHooks == this) g_simHooks = nullptr;
   installed_ = false;
+  activated_ = false;
+  appliedPlan_.clear();
   if (g_modSetHash == setHash_) g_modSetHash = 0;
   if (g_mods == this) g_mods = nullptr;
   for (auto& m : mods_) {

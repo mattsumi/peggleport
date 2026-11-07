@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "log.h"
 #include "mods/manager.h"
 #include "ui/mods_screen.h"
 
@@ -31,6 +32,7 @@ std::string ConsentDialog::text(const std::string& id, bool ask) {
 
 ConsentDialog::ConsentDialog(App& a, const std::string& id, bool askConsent)
     : Dialog(a, D_ModConsent, true, askConsent ? "TRUST THIS MOD?" : "MOD SCAN", text(id, askConsent), askConsent ? "" : "OK", askConsent ? BUTTONS_YES_NO : BUTTONS_FOOTER), modId(id), ask(askConsent) {
+  if (mods::ModInfo* mi = mods::g_mods ? mods::g_mods->find(id) : nullptr) hash = mi->hashHex;
   textAlign = -1;
   linesFont = "PLAIN2";
   if (askConsent) setYesNo("Allow", "Not now");
@@ -38,7 +40,15 @@ ConsentDialog::ConsentDialog(App& a, const std::string& id, bool askConsent)
 
 void ConsentDialog::onButton(int id) {
   if (scrollActive && !scrollingOff) return;
-  if (ask && id == ID_YES && mods::g_mods) mods::g_mods->setConsent(modId, true);
+  if (ask && id == ID_YES && mods::g_mods) {
+    mods::ModInfo* mi = mods::g_mods->find(modId);
+    if (mi && mi->hashHex == hash) {
+      mods::g_mods->setConsent(modId, true);
+      app.requestModApply();
+    } else {
+      log::warn("mod:" + modId, "the mod changed while its permission dialog was open, so nothing was allowed; press Allow... again");
+    }
+  }
   closed = true;
   if (!hosted) doScrollOff();
 }

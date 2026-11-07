@@ -79,6 +79,7 @@ class FontManager {
   Font* get(const std::string& id);
   bool has(const std::string& id);
   std::vector<std::string> ids();
+  void reset();
 
  private:
   struct Res { std::string id, path, tags; };

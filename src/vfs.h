@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -42,12 +43,24 @@ struct VfsHit {
   const Layer* layer = nullptr;
 };
 
+struct VfsChange {
+  bool any = false;
+  std::set<std::string> keys;
+  bool touches(std::string_view path) const;
+  bool touchesFolder(std::string_view folder) const;
+  bool touchesImage(std::string_view path) const;
+};
+
 void vfsLogMiss(const char* kind, std::string_view path);
 
 class Vfs {
  public:
   bool mountGame(const std::filesystem::path& gameDir, std::string* err);
   bool mountMod(const std::filesystem::path& modDir, std::string* err);
+  bool unmountMod(const std::filesystem::path& modDir);
+  size_t unmountMods();
+  std::string modSignature() const;
+  void modKeys(std::set<std::string>& out) const;
   std::optional<VfsHit> read(std::string_view path) const;
   bool exists(std::string_view path) const;
   std::vector<std::string> keys() const;

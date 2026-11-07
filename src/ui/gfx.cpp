@@ -12,6 +12,7 @@
 #include <cctype>
 
 #include "image.h"
+#include "log.h"
 
 namespace pp::ui {
 
@@ -170,10 +171,9 @@ void Gfx::popClip() {
   applyClip();
 }
 
-Tex* Gfx::img(const std::string& idOrPath) {
-  auto it = cache_.find(idOrPath);
-  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
-  Tex T;
+void Gfx::fillTex(Tex& T, const std::string& idOrPath) {
+  if (T.t) SDL_DestroyTexture(T.t);
+  T = Tex();
   std::string path = idOrPath;
   if (const ResImage* ri = man_.image(idOrPath)) {
     path = ri->path;
@@ -196,9 +196,42 @@ Tex* Gfx::img(const std::string& idOrPath) {
       }
     }
   }
-  auto& slot = cache_[idOrPath] = T;
-  if (!slot.valid()) vfsLogMiss("image", idOrPath == path ? idOrPath : idOrPath + " (" + path + ")");
+}
+
+Tex* Gfx::img(const std::string& idOrPath) {
+  auto it = cache_.find(idOrPath);
+  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
+  auto& slot = cache_[idOrPath];
+  fillTex(slot, idOrPath);
+  if (!slot.valid()) {
+    std::string path = idOrPath;
+    if (const ResImage* ri = man_.image(idOrPath)) path = ri->path;
+    vfsLogMiss("image", idOrPath == path ? idOrPath : idOrPath + " (" + path + ")");
+  }
   return slot.valid() ? &slot : nullptr;
+}
+
+void Gfx::reloadAssets(const VfsChange& change) {
+  if (!change.any) return;
+  const bool manifest = change.touches("properties/resources.xml");
+  if (manifest) {
+    man_ = Manifest();
+    haveMan_ = man_.load(vfs_);
+  }
+  int refreshed = 0;
+  for (auto& [key, T] : cache_) {
+    std::string path = key;
+    if (const ResImage* ri = man_.image(key)) path = ri->path;
+    if (!manifest && !change.touchesImage(path) && !change.touchesImage(T.path)) continue;
+    fillTex(T, key);
+    refreshed++;
+  }
+  for (auto& [_, t] : boxCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  boxCache_.clear();
+  rgbaCache_.clear();
+  if (manifest || change.touchesFolder("fonts")) fp_ = makeDefaultFontProvider(r_, this);
+  pp::log::info("ui", "refreshed " + std::to_string(refreshed) + " of " + std::to_string(cache_.size()) + " cached images");
 }
 
 SDL_FRect Gfx::dest(float x, float y, float w, float h, bool snap) const {
