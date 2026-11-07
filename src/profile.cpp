@@ -527,9 +527,63 @@ bool ProfileMgr::deserializeUsers(const std::vector<uint8_t>& d) {
   return true;
 }
 
+fs::path ProfileMgr::modMastersPath() const { return dir_ / (game_ == Game::Nights ? "mod-masters.pp.ini" : "mod-masters.ini"); }
+
+void ProfileMgr::loadModMasters() {
+  modChars_.clear();
+  modDirty_ = false;
+  std::vector<uint8_t> d;
+  if (!readFile(modMastersPath(), d)) return;
+  std::string text(d.begin(), d.end());
+  size_t p = 0;
+  while (p < text.size()) {
+    size_t e = text.find('\n', p);
+    std::string line = text.substr(p, e == std::string::npos ? std::string::npos : e - p);
+    p = e == std::string::npos ? text.size() : e + 1;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    size_t a = line.find(' '), b = a == std::string::npos ? a : line.find(' ', a + 1);
+    if (b == std::string::npos) continue;
+    long id = std::atol(line.substr(0, a).c_str());
+    long slot = std::atol(line.substr(a + 1, b - a - 1).c_str());
+    if (id <= 0 || slot < 0 || slot > 1) continue;
+    modChars_[(uint32_t)id][(size_t)slot] = line.substr(b + 1);
+  }
+}
+
+std::string ProfileMgr::modMaster(const PlayerInfo& p, int slot) const {
+  auto it = modChars_.find(p.id);
+  return it != modChars_.end() && slot >= 0 && slot < 2 ? it->second[(size_t)slot] : std::string();
+}
+
+void ProfileMgr::setModMaster(const PlayerInfo& p, int slot, const std::string& key) {
+  if (slot < 0 || slot > 1) return;
+  if (key.empty() && !modChars_.count(p.id)) return;
+  auto& row = modChars_[p.id];
+  if (row[(size_t)slot] == key) return;
+  row[(size_t)slot] = key;
+  if (row[0].empty() && row[1].empty()) modChars_.erase(p.id);
+  modDirty_ = true;
+}
+
+bool ProfileMgr::saveModMasters() {
+  if (!modDirty_) return true;
+  modDirty_ = false;
+  std::string text;
+  for (auto& [id, row] : modChars_)
+    for (int s = 0; s < 2; s++)
+      if (!row[(size_t)s].empty()) text += std::to_string(id) + " " + std::to_string(s) + " " + row[(size_t)s] + "\n";
+  if (text.empty()) {
+    std::error_code ec;
+    fs::remove(modMastersPath(), ec);
+    return true;
+  }
+  return writeFileAtomic(modMastersPath(), std::vector<uint8_t>(text.begin(), text.end()));
+}
+
 bool ProfileMgr::load() {
   profiles_.clear();
   nextId_ = nextSeq_ = 1;
+  loadModMasters();
   std::vector<uint8_t> d;
   if (!readFile(dir_ / "users.dat", d)) return false;
   if (!deserializeUsers(d)) {
@@ -570,6 +624,10 @@ bool ProfileMgr::remove(const std::string& name) {
   for (size_t i = 0; i < profiles_.size(); i++)
     if (ieq(profiles_[i]->name, name)) {
       std::error_code ec;
+      if (modChars_.erase(profiles_[i]->id)) {
+        modDirty_ = true;
+        saveModMasters();
+      }
       fs::remove(detailsPath(*profiles_[i]), ec);
       for (GameMode m : {GameMode::Adventure, GameMode::QuickPlay, GameMode::Duel, GameMode::Challenge}) fs::remove(savedGamePath(*profiles_[i], m), ec);
       profiles_.erase(profiles_.begin() + (long)i);

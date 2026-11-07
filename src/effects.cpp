@@ -658,6 +658,15 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
         t.life = 150;
         t.layer = 1;
       }
+      if (const ModMaster* mm = e.a >= masters::kFirstPower ? masters::byPower(e.a) : nullptr) {
+        FxText& t = fxText(mm->banner, S.lastHit.x, S.lastHit.y, -1);
+        t.color = mm->color;
+        t.age = -35;
+        t.vy = -0.5f;
+        t.fadeOut = 10;
+        t.life = 150;
+        t.layer = 1;
+      }
       break;
     }
     case Event::Fever: {

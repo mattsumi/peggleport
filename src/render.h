@@ -128,6 +128,7 @@ class Renderer {
   void drawHud(const Board& b, const Hud& hud);
   void drawFrame(int dw);
   void drawPortrait(const Board& b, int dw);
+  void drawModPortrait(const Board& b, int dw);
   void drawOrbFront(const Board& b, int dw);
   struct Portrait {
     std::string key;

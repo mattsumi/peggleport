@@ -76,6 +76,7 @@ class Gfx {
   void popClip();
 
   Tex* img(const std::string& idOrPath);
+  Tex* imgFile(const std::string& file);
   void preload(const std::string& id) { img(id); }
   void draw(Tex* t, float x, float y, Mode m = {});
   void drawCel(Tex* t, float x, float y, int col, int row, Mode m = {});

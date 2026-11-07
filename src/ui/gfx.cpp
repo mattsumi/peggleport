@@ -10,6 +10,8 @@
 #include <string>
 #include <array>
 #include <cctype>
+#include <fstream>
+#include <iterator>
 
 #include "image.h"
 
@@ -198,6 +200,33 @@ Tex* Gfx::img(const std::string& idOrPath) {
   }
   auto& slot = cache_[idOrPath] = T;
   if (!slot.valid()) vfsLogMiss("image", idOrPath == path ? idOrPath : idOrPath + " (" + path + ")");
+  return slot.valid() ? &slot : nullptr;
+}
+
+Tex* Gfx::imgFile(const std::string& file) {
+  const std::string key = "file:" + file;
+  auto it = cache_.find(key);
+  if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
+  Tex T;
+  std::ifstream f(file, std::ios::binary);
+  std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+  Image im;
+  if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {
+    T.w = im.w;
+    T.h = im.h;
+    T.path = file;
+    if (r_) {
+      T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h);
+      if (T.t) {
+        SDL_UpdateTexture(T.t, nullptr, im.rgba.data(), im.w * 4);
+        SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+      } else {
+        T.w = 0;
+      }
+    }
+  }
+  auto& slot = cache_[key] = T;
   return slot.valid() ? &slot : nullptr;
 }
 
