@@ -411,6 +411,7 @@ void Renderer::fxSpaceBlast(float x, float y) {
 void Renderer::fxPegSparks(const Obj& o, float cx, float cy) {
   static const uint32_t rgb[5] = {0xa8c8ff, 0xffb060, 0xff90ff, 0x90ff90, 0xffff90};
   uint32_t col = rgb[std::clamp(o.pegType == 1 ? 0 : o.pegType == 2 ? 1 : o.pegType == 3 ? 2 : o.pegType == 4 ? 3 : 4, 0, 4)];
+  if (const PegTypeDef* cd = o.custom ? pegTypeDef(o.custom) : nullptr; cd && cd->hasColor) col = cd->color;
   FxState& S = fx_;
   int n = 10 + S.rand(6);
   for (int i = 0; i < n; i++) {
