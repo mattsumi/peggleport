@@ -141,7 +141,11 @@ The events these cause call your hooks again, up to 8 rounds per tick.
 
 ### Network and files
 
-With `permissions = net` you get `net.get(url, cb[, {headers = {...}}])`, `net.post(url, body, cb[, opts])` with `cb(status, body, err)`, and `net.tcp(host, port, {on_open=, on_data=, on_close=})`. Only plain `http://` works, there is no TLS. Bodies are limited to 1 MB, requests to 10 seconds and 4 at a time, and redirects are not followed. Callbacks arrive between frames, never inside the simulation, and `net.*` raises an error if you call it from a gameplay hook. Do not feed data from the network into the game: every player must get the same result from a gameplay hook, and network data differs.
+With `permissions = net` you get `net.get(url, cb[, {headers = {...}}])`, `net.post(url, body, cb[, opts])` with `cb(status, body, err)`, and `net.tcp(host, port, {on_open=, on_data=, on_close=})`. Bodies are limited to 1 MB, requests to 10 seconds and 4 at a time, and redirects are not followed. Callbacks arrive between frames, never inside the simulation, and `net.*` raises an error if you call it from a gameplay hook. Do not feed data from the network into the game: every player must get the same result from a gameplay hook, and network data differs.
+
+Both `http://` and `https://` work. For `https://` the certificate of the server is always checked, and there is no setting, option or manifest entry that turns the check off. It has to chain to one of the trusted root certificates of your operating system (the system roots on macOS, the Windows certificate store, the CA bundle in `/etc/ssl` and similar places on Linux), it has to be valid today and for the host name in the URL, and the connection has to use TLS 1.2 or newer. I do not check revocation lists. When something is wrong, `status` is 0, `body` is nil and `err` says what: `TLS certificate check failed: the certificate has expired`, `... is not valid for example.org`, `... is not signed by a trusted authority`, or `TLS handshake failed: the server does not offer TLS 1.2 or newer`. The same text goes to the log. If your computer has no trusted root certificates at all, every `https://` request fails with `TLS is unavailable: no trusted root certificates were found on this computer`.
+
+`net.tcp` takes `tls = true` in the same table when the server speaks TLS from the first byte, for example `net.tcp("mail.example.org", 465, {tls = true, on_open = ..., on_data = ...})`. It gets the same checks. `on_open` runs after the handshake, and when the check fails you only get `on_close(conn, err)`. If the server drops the connection without sending the TLS goodbye (close_notify), `on_close` also gets an `err`, because the data may have been cut short.
 
 With `permissions = fs` you get `fs.read`, `fs.write`, `fs.exists`, `fs.remove` and `fs.list` on plain file names inside `mod-data/<your mod id>` (1 MB per file, 64 files).
 
@@ -178,7 +182,6 @@ This is a best-effort check. A native plugin can hide what it does, and the dial
 ## Limits
 
 * No new Master characters, peg types or physics.
-* `https://` does not work.
 * Changing the mod list or permissions needs a restart.
 * The time limits do not interrupt one very long library call.
 * Native plugins are scanned, never contained.
