@@ -21,7 +21,7 @@ The choices are saved in `userdata/mods.json`.
 
 ### What happens when you change something
 
-I switch every mod off, take its files out of the game, and load the ticked ones again in the new order. A Lua mod starts from a fresh script each time, so anything it kept in globals or local variables is gone; what belongs to a match lives in `state.*` on the board. A native plugin gets its cleanup hook and is then unloaded from the game, and the next time it is ticked the library is loaded again from disk.
+I switch every mod off, take its files out of the game, and load the ticked ones again in the new order. A Lua mod starts from a fresh script each time, so anything it kept in globals or local variables is gone; what belongs to a match lives in `state.*` on the board. A native plugin gets its cleanup hook, its helper process ends, and the next time it is ticked a new helper loads the library again from disk.
 
 Art, sounds and level lists are read again too. Levels that a mod adds show up in Quick Play as soon as the tick is set, and they disappear again when you untick it. Your profiles, scores and trophies are never touched by this.
 
