@@ -196,6 +196,7 @@ class Board {
   uint64_t hash() const;
   void pegHit(int oi, bool byPower = false);
   bool setPegType(int oi, int custom);
+  int levelIndexOf(int oi) const { return oi >= (int)baseCount_ ? oi - (int)baseCount_ : -1; }
   void startSlow();
   void stopSlow();
   bool levelWon(bool strict) const;

@@ -288,7 +288,8 @@ int l_math_atan(lua_State* L) { lua_pushnumber(L, dm::atan2(luaL_checknumber(L, 
 
 void pushPeg(lua_State* L, const Board& b, int i) {
   const Obj& o = b.objs[(size_t)i];
-  lua_createtable(L, 0, 11);
+  lua_createtable(L, 0, 12);
+  if (const int li = b.levelIndexOf(i); li >= 0) { lua_pushinteger(L, li); lua_setfield(L, -2, "index"); }
   if (o.custom) {
     if (const PegTypeDef* d = pegTypeDef(o.custom)) {
       const std::string key = d->mod == IM(L)->mod->manifest().id ? d->id : d->key();
