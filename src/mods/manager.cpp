@@ -283,7 +283,7 @@ bool ModManager::folderChanged() const { return !userDir_.empty() && folderSigna
 std::string ModManager::loadPlan() const {
   std::string s;
   for (auto& m : mods_)
-    if (m->willLoad()) s += m->m.id + ":" + m->hashHex + ";";
+    if (m->willLoad()) s += m->m.id + ":" + m->hashHex + (m->unrestricted ? "!" : "") + ";";
   return s;
 }
 
