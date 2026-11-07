@@ -10,9 +10,11 @@ struct LuaWork {
   bool timed = false;
   bool aborted = false;
   unsigned tick = 0;
+  lua_State* cur = nullptr;
   void (*check)(lua_State*, LuaWork*) = nullptr;
   void (*refuse)(lua_State*, LuaWork*, long long) = nullptr;
   bool (*over)(LuaWork*) = nullptr;
+  void (*nudge)(LuaWork*) = nullptr;
 };
 
 inline thread_local LuaWork* gWork = nullptr;
@@ -35,6 +37,13 @@ inline bool workTick() {
 inline void workQuiet(long long units) {
   LuaWork* w = gWork;
   if (w) w->remaining -= units;
+}
+
+inline void workNudge(long long units) {
+  LuaWork* w = gWork;
+  if (!w) return;
+  w->remaining -= units;
+  if (w->remaining <= 0) w->nudge(w);
 }
 
 }

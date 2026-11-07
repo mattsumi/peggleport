@@ -125,9 +125,19 @@ void reportError(Impl* I, HostServices& h, const std::string& id, const std::str
 
 void countHook(lua_State* L, lua_Debug*) {
   Impl* I = IM(L);
-  I->remaining -= kStride;
-  if (I->remaining <= 0) { stopWith(I, "instruction budget exceeded"); luaL_error(L, "instruction budget exceeded"); }
+  long long stride = lua_gethookcount(L);
+  const bool pushed = stride != kStride;
+  if (pushed) lua_sethook(L, countHook, LUA_MASKCOUNT, kStride);
+  I->remaining -= stride;
+  if (I->remaining <= 0) {
+    const char* why = pushed ? "work budget exceeded" : "instruction budget exceeded";
+    stopWith(I, why);
+    luaL_error(L, "%s", why);
+  }
   if (I->timed && pastDeadline(I)) { stopWith(I, "time limit exceeded"); luaL_error(L, "time limit exceeded"); }
+}
+void workNudge(LuaWork* w) {
+  if (w->cur && lua_gethookcount(w->cur) != 1) lua_sethook(w->cur, countHook, LUA_MASKCOUNT, 1);
 }
 void workCheck(lua_State* L, LuaWork* w) {
   Impl* I = static_cast<Impl*>(w);
@@ -689,6 +699,7 @@ bool LuaMod::open(std::string* err) {
   im_->check = workCheck;
   im_->refuse = workRefuse;
   im_->over = workOver;
+  im_->nudge = workNudge;
   lua_sethook(L, countHook, LUA_MASKCOUNT, kStride);
   for (auto& s : man_.scripts) {
     std::string text;
@@ -718,6 +729,8 @@ bool LuaMod::pcallBudgeted(int nargs, int nres, bool timed, Ctx ctx, std::string
   I->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ctx == Ctx::Load ? 2000 : ctx == Ctx::Draw ? 25 : 250);
   lua_sethook(L_, countHook, LUA_MASKCOUNT, kStride);
   LuaWork* prevWork = gWork;
+  lua_State* prevCur = I->cur;
+  I->cur = L_;
   const bool prevMetered = I->metered;
   gWork = I;
   I->metered = true;
@@ -729,6 +742,7 @@ bool LuaMod::pcallBudgeted(int nargs, int nres, bool timed, Ctx ctx, std::string
     lua_pushstring(L_, "native exception");
   }
   I->metered = prevMetered;
+  I->cur = prevCur;
   gWork = prevWork;
   I->ctx = prev;
   lastInstructions = I->total - I->remaining;
