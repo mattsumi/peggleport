@@ -20,6 +20,7 @@ struct MatchInfo {
   int master[4]{0, 0, 0, 0};
   std::string level;
   uint64_t contentHash = 0;
+  std::string missingMaster;
 };
 
 class Session {

@@ -19,11 +19,16 @@ void setPendingInvite(const std::string& url);
 void showOnline(App& app);
 const char* masterDisplayName(int i);
 const char* masterKey(int i);
+int masterTotal(bool nights);
+std::string masterNameAt(bool nights, int i);
+std::string masterKeyAt(bool nights, int i);
+std::string masterNameForPower(int power);
 
 struct Prefs {
   std::string lobby;
   int mode = 0;
   int master = 0;
+  std::string masterMod;
   std::string level;
   void load(const std::filesystem::path& file);
   void save(const std::filesystem::path& file) const;

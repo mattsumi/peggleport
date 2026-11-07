@@ -253,4 +253,27 @@ static const char* kKeys[] = {"bjorn", "jimmy", "tut", "splork", "claude", "renf
 const char* masterDisplayName(int i) { return kMasters[std::clamp(i, 0, 10)]; }
 const char* masterKey(int i) { return kKeys[std::clamp(i, 0, 10)]; }
 
+int masterTotal(bool nights) { return (nights ? 11 : 10) + (int)masters::all().size(); }
+
+std::string masterNameAt(bool nights, int i) {
+  const int nb = nights ? 11 : 10;
+  const auto& mods = masters::all();
+  if (i >= nb && i - nb < (int)mods.size()) return mods[(size_t)(i - nb)].name;
+  return masterDisplayName(i);
+}
+
+std::string masterKeyAt(bool nights, int i) {
+  const int nb = nights ? 11 : 10;
+  const auto& mods = masters::all();
+  if (i >= nb && i - nb < (int)mods.size()) return mods[(size_t)(i - nb)].key();
+  return masterKey(i);
+}
+
+std::string masterNameForPower(int power) {
+  if (const ModMaster* m = masters::byPower(power)) return m->name;
+  for (int i = 0; i < 11; i++)
+    if (Board::masterByName(kKeys[i], false) == power) return kMasters[i];
+  return std::string();
+}
+
 }

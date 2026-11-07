@@ -4,6 +4,7 @@
 #include <sstream>
 #include <cstdio>
 #include <cstdint>
+#include <iterator>
 #include <utility>
 #include <memory>
 #include <vector>
@@ -12,6 +13,7 @@
 #include <cstring>
 
 #include "log.h"
+#include "masters.h"
 #include "sockcompat.h"
 
 namespace pp {
@@ -644,9 +646,18 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
           p.dead = true;
           return;
         }
-        send(p, WELCOME, W().u8((uint8_t)p.player).u8((uint8_t)mi_.players).u8(mi_.party).u32(mi_.seed)
-                             .u32((uint32_t)mi_.boardWidth).u64(mi_.contentHash).str(mi_.level)
-                             .u8((uint8_t)mi_.master[0]).u8((uint8_t)mi_.master[1]).u8((uint8_t)mi_.master[2]).u8((uint8_t)mi_.master[3]).b);
+        W welcome;
+        welcome.u8((uint8_t)p.player).u8((uint8_t)mi_.players).u8(mi_.party).u32(mi_.seed)
+            .u32((uint32_t)mi_.boardWidth).u64(mi_.contentHash).str(mi_.level)
+            .u8((uint8_t)mi_.master[0]).u8((uint8_t)mi_.master[1]).u8((uint8_t)mi_.master[2]).u8((uint8_t)mi_.master[3]);
+        if (std::any_of(std::begin(mi_.master), std::end(mi_.master), [](int m) { return m >= masters::kFirstPower; })) {
+          welcome.u8(4);
+          for (int i = 0; i < 4; i++) {
+            const ModMaster* mm = mi_.master[i] >= masters::kFirstPower ? masters::byPower(mi_.master[i]) : nullptr;
+            welcome.str(mm ? mm->key() : std::string());
+          }
+        }
+        send(p, WELCOME, welcome.b);
         pp::log::info("net", (p.name.empty() ? std::string("a player") : p.name) + " joined as player " + std::to_string(p.player + 1));
         return;
       }
@@ -704,6 +715,18 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
       mi_.level = r.str();
       for (int i = 0; i < 4; i++) mi_.master[i] = r.u8();
       welcomed_ = r.ok;
+      mi_.missingMaster.clear();
+      if (welcomed_ && r.p < body.size()) {
+        const int nk = r.u8();
+        for (int i = 0; i < nk && r.ok; i++) {
+          const std::string key = r.str();
+          if (!r.ok || i >= 4 || key.empty()) continue;
+          if (const ModMaster* mm = masters::byKey(key)) mi_.master[i] = mm->power;
+          else if (mi_.missingMaster.empty()) mi_.missingMaster = key;
+        }
+      }
+      for (int i = 0; i < 4; i++)
+        if (mi_.master[i] >= masters::kFirstPower && !masters::byPower(mi_.master[i]) && mi_.missingMaster.empty()) mi_.missingMaster = "power " + std::to_string(mi_.master[i]);
       if (welcomed_) pp::log::info("net", "joined as player " + std::to_string(local_ + 1) + " of " + std::to_string(mi_.players) + ", level " + mi_.level);
       return;
     case START:
