@@ -13,7 +13,7 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 mkdir -p "$DEST" "$PREFIX/bin" "$APPS"
-cp "$HERE/peggleport" "$HERE/pp_lobbyd" "$DEST/"
+cp "$HERE/peggleport" "$HERE/pp_lobbyd" "$HERE/pp_modhost" "$DEST/"
 ln -sf "$DEST/peggleport" "$PREFIX/bin/peggleport"
 ln -sf "$DEST/pp_lobbyd" "$PREFIX/bin/pp_lobbyd"
 sed "s|^Exec=peggleport|Exec=$DEST/peggleport|" "$HERE/packaging/linux/peggleport.desktop" > "$APPS/peggleport.desktop"
