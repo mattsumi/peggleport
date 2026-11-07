@@ -179,6 +179,7 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   meta.name = lb.name;
   meta.title = lb.title;
   meta.background = lb.background;
+  meta.master = lb.master;
   meta.boardWidth = lb.cfg.boardWidth;
   meta.balls = lb.cfg.balls;
   meta.orange = lb.cfg.orange;
