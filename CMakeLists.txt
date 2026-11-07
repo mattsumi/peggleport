@@ -158,7 +158,7 @@ FetchContent_MakeAvailable(mbedtls)
 find_package(Threads REQUIRED)
 add_library(pp_mods STATIC
   src/mods/json.cpp src/mods/manifest.cpp src/mods/zip.cpp src/mods/scanner.cpp
-  src/mods/luamod.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp)
+  src/mods/luamod.cpp src/mods/tls.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp)
 target_include_directories(pp_mods PUBLIC src third_party include)
 target_link_libraries(pp_mods PUBLIC pp_core pp_flags pp_lua SDL3::SDL3 ${CMAKE_DL_LIBS} Threads::Threads)
 target_link_libraries(pp_mods PRIVATE mbedtls mbedx509 mbedcrypto)
