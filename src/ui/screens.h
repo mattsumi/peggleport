@@ -4,6 +4,7 @@
 #include <string>
 #include "ui/app.h"
 #include "ui/sparkle.h"
+#include "ui/fireworks.h"
 
 namespace pp::ui {
 
@@ -126,6 +127,14 @@ class StoryScreen : public Screen {
   bool done = false, dreamy = false;
   std::string text;
   int totalVisible = 0, headVisible = 0;
+  bool win = false;
+  int tier = 0;
+  Button* bLink = nullptr;
+  std::unique_ptr<StoryFireworks> fw;
+  void initWin();
+  void updateWin();
+  void drawWin(Gfx& g);
+  void drawFireworks(Gfx& g);
 };
 
 class HelpScreen : public Screen {

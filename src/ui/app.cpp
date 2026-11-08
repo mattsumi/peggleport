@@ -187,6 +187,7 @@ bool Panel::input(const Input& in) {
 
 App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), audio(a), boardRenderer(br), cfg(c), game(c.game), profiles(c.game), highScores(c.game) {
   rng_ ^= cfg.seed * 2654435761u;
+  crt_.seed(cfg.seed ? cfg.seed : (uint32_t)SDL_GetTicks());
   userDir = cfg.userDir.empty() ? defaultUserDir(game) : cfg.userDir;
   log::info("game", titleText() + ": saved games are kept in " + userDir.string());
   stages.load(vfs);

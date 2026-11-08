@@ -55,7 +55,7 @@ void StageMgr::parseCfg(const std::string& text, bool pack, const std::string& l
           st.levels[n].dialog = v[1];
           if (v.size() > 2) st.levels[n].dialogTitle = v[2];
           if (v.size() > 3) st.levels[n].dialogChar = std::atoi(v[3].c_str());
-        } else if (ieq(k.key, "StageDialog") || ieq(k.key, "Credit")) {
+        } else if (ieq(k.key, "StageDialog")) {
           if (v.size() < 2) continue;
           int n = std::atoi(v[0].c_str()) - 1;
           if (n < 0 || n >= 5) continue;
@@ -63,6 +63,14 @@ void StageMgr::parseCfg(const std::string& text, bool pack, const std::string& l
           sd.text = v[1];
           if (v.size() > 2) sd.arg = std::atoi(v[2].c_str());
           st.story[n].push_back(sd);
+        } else if (ieq(k.key, "Credit")) {
+          if (v.size() < 2) continue;
+          int n = std::atoi(v[0].c_str()) - 1;
+          if (n < 0 || n >= 4) continue;
+          StoryData sd;
+          sd.text = v[1];
+          if (v.size() > 2 && !trim(v[2]).empty()) sd.arg = std::atoi(v[2].c_str());
+          st.credits[n].push_back(sd);
         } else if (ieq(k.key, "Name")) {
           if (!v.empty()) st.name = v[0];
         } else if (ieq(k.key, "Desc")) {

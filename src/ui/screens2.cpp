@@ -351,7 +351,10 @@ StoryScreen::StoryScreen(App& a, bool rev, bool eg) : Screen(a), reveal(rev), ea
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x21e);
   bContinue->x = 400 - bContinue->w / 2;
   bContinue->visible = false;
-  initText();
+  const int reached = a.curProfile ? std::max(0, a.curProfile->advStage) : 0;
+  win = rev || (a.numStages() > 0 && reached >= a.numStages());
+  if (win) initWin();
+  else initText();
 }
 
 void StoryScreen::initText() {
@@ -374,6 +377,10 @@ void StoryScreen::initText() {
 
 void StoryScreen::update() {
   Panel::update();
+  if (win) {
+    updateWin();
+    return;
+  }
   if (bContinue->visible) {
     float tx = 400 - bContinue->w / 2;
     if (bContinue->x < tx) bContinue->x = std::min(tx, bContinue->x + 30);
@@ -412,19 +419,20 @@ void StoryScreen::update() {
   app.playSample("TEXT_WOOSH");
 }
 void StoryScreen::finish() {
-  if (reveal) { app.showMainMenu(); return; }
+  if (win) { app.showMainMenu(); return; }
   if (app.game == Game::Nights) app.playSample("STAGE_DREAMY_OUT");
   app.showBoard(true, true);
 }
 void StoryScreen::onButton(int) { finish(); }
 bool StoryScreen::input(const Input& in) {
-  if (in.type == Input::MouseDown && !done && in.button > 0) {
+  if (!win && in.type == Input::MouseDown && !done && in.button > 0) {
     typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1;
     return true;
   }
   return Panel::input(in);
 }
 void StoryScreen::keyDown(int key, int) {
+  if (win) return;
   if (key == SDLK_ESCAPE || key == SDLK_RETURN || key == SDLK_SPACE) {
     if (done) finish();
     else { typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1; }
@@ -452,6 +460,10 @@ static uint32_t charColor(int i) {
 }
 
 void StoryScreen::drawLayer(Gfx& g) {
+  if (win) {
+    drawWin(g);
+    return;
+  }
   g.fill(0, 0, 800, 600, 0x000000);
   if (Tex* bx = g.img("IMAGE_DLG_DIALOGBOX")) g.drawBox(bx, -2, -4, 804, 608);
   const bool first = !app.curProfile || stage == 0 || app.curProfile->advCompletions != 0;

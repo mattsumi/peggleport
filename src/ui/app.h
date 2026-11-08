@@ -12,6 +12,7 @@
 #include "audio.h"
 #include "profile.h"
 #include "ui/gfx.h"
+#include "ui/fireworks.h"
 #include "ui/stages.h"
 #include "ui/widescreen.h"
 #include "ui/widgets.h"
@@ -240,6 +241,7 @@ class App : public WidgetHost {
   void stopMusic();
   Screen* helpOverlay() const { return overlay_.get(); }
   uint32_t rand();
+  CrtRand& crtRand() { return crt_; }
 
   void buttonDepress(int id) override {}
 
@@ -287,6 +289,7 @@ class App : public WidgetHost {
   bool switchGame_ = false;
   float canvasW_ = 800;
   uint32_t rng_ = 0x2545f491;
+  CrtRand crt_;
   friend class Dialog;
 };
 
