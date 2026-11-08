@@ -24,7 +24,7 @@ namespace pp::ed {
 static const struct { const char* name; Tool t; } kTools[] = {
     {"select", Tool::Select}, {"pan", Tool::Pan}, {"blue", Tool::PegBlue}, {"orange", Tool::PegOrange}, {"green", Tool::PegGreen},
     {"purple", Tool::PegPurple}, {"round", Tool::PegRound}, {"bumper", Tool::Bumper}, {"brick_straight", Tool::BrickStraight},
-    {"brick_curved", Tool::BrickCurved}, {"poly", Tool::Poly}, {"line", Tool::Line}, {"hole", Tool::Hole}, {"hole_exit", Tool::HoleExit}};
+    {"brick_curved", Tool::BrickCurved}, {"poly", Tool::Poly}, {"line", Tool::Line}, {"hole", Tool::Hole}, {"hole_exit", Tool::HoleExit}, {"emitter", Tool::Emitter}};
 const char* toolName(Tool t) {
   for (auto& e : kTools)
     if (e.t == t) return e.name;
@@ -81,6 +81,17 @@ void Editor::setCustomType(const std::string& key) {
     status = k.empty() ? "custom type removed" : "custom type " + k + " on " + std::to_string(n) + " peg(s)";
     changed();
   }
+}
+
+void Editor::setVfs(const Vfs* v) {
+  vfs = v;
+  emitterImage = imageExists("images/levels/flame4") ? "images/levels/flame4" : "";
+}
+bool Editor::imageExists(const std::string& path) const {
+  if (!vfs || path.empty()) return false;
+  for (const char* ext : {".jp2", ".jpg", ".png", ".gif", ".tga", ".j2k"})
+    if (vfs->exists(path + ext)) return true;
+  return false;
 }
 
 void Editor::resetHistory() {
@@ -446,6 +457,7 @@ NodeP Editor::makeFor(Tool t, V2 p) const {
     case Tool::BrickStraight: return newBrick(p.x, p.y, brickStraight, 1);
     case Tool::BrickCurved: { BrickParams b = brick; if (b.type == 5) b.type = 0; return newBrick(p.x, p.y, b, 1); }
     case Tool::Hole: return newHole(p.x, p.y, 40, 40, true, 0);
+    case Tool::Emitter: return newEmitter(p.x, p.y, emitterImage);
     default: return nullptr;
   }
 }
@@ -1091,19 +1103,29 @@ std::vector<Issue> Editor::validate() {
     if (g.kind == Geo::Circle) circles.push_back({n, g});
     else if (n->flag("collidable") && (g.kind == Geo::Poly || g.kind == Geo::Line)) solid.push_back({n, g});
   }
-  int outside = 0, partly = 0, wide = 0;
+  int wide = 0;
   for (auto& n : objs) {
     Geo g = geometry(*level, *n);
-    if (g.kind == Geo::None) continue;
+    if (g.kind == Geo::None || g.kind == Geo::Emitter) continue;
     float bx0 = g.x0 + sh, bx1 = g.x1 + sh;
     bool bg = n->flag("background") || !n->flag("collidable");
     if (bx1 < 0 || bx0 > W || g.y1 < 0 || g.y0 > kBoardH + 40) {
-      if (!bg) { outside++; add(Issue::Error, std::string(typeName(n->type)) + " is completely outside the playfield", n); }
+      if (!bg) add(Issue::Error, std::string(typeName(n->type)) + " is completely outside the playfield", n);
     } else if (bx0 < 0 || bx1 > W || g.y0 < 0 || g.y1 > kBoardH) {
-      if (!bg && pegOf(*n)) { partly++; add(Issue::Warn, std::string(typeName(n->type)) + " peg sticks out of the playfield", n); }
+      if (!bg && pegOf(*n)) add(Issue::Warn, std::string(typeName(n->type)) + " peg sticks out of the playfield", n);
     }
     if (W > 650 && (g.x0 < 0 || g.x1 > 650) && !bg) wide++;
   }
+  int emitters = 0;
+  for (auto& n : objs) {
+    if (n->type != 9) continue;
+    emitters++;
+    std::string img = n->str("emitter_image");
+    if (img.empty()) add(Issue::Warn, "emitter has no image", n);
+    else if (vfs && !imageExists(img)) add(Issue::Warn, "emitter image '" + img + "' was not found in the game or mod files", n);
+    if (n->i("width") < 1 || n->i("height") < 1) add(Issue::Warn, "emitter area is empty", n);
+  }
+  if (emitters) add(Issue::Info, std::to_string(emitters) + " emitter(s): particle effects of Peggle Nights");
   if (W > 650 && wide) add(Issue::Info, std::to_string(wide) + " object(s) lie outside the original 650 px region (this level needs the wide board)");
   if (W == 650) {
     int beyond = 0;
@@ -1165,7 +1187,7 @@ std::vector<Issue> Editor::validate() {
   int skipped = 0;
   for (auto& e : level->entries)
     if (e.n && !isObjectType(e.n->type)) skipped++;
-  if (skipped) add(Issue::Info, std::to_string(skipped) + " entries (emitters / bare objects) are kept but not shown");
+  if (skipped) add(Issue::Info, std::to_string(skipped) + " bare object entries are kept but not shown");
   static const std::string okChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
   if (meta.name.empty() || meta.name.find_first_not_of(okChars) != std::string::npos) add(Issue::Error, "level name '" + meta.name + "' must be letters, digits, '_' or '-'");
   bool hasErr = false, hasWarn = false;

@@ -9,7 +9,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | Area | What is there |
 |---|---|
 | Top bar | New, Open (a level browser with a filter), Save, To mod, Export and Import (JSON), Undo, Redo, Grid, Snap, Fit, Animate, Oranges, Check, Test play, Exit |
-| Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
+| Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole), effects (emitter) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
 | Canvas | The board, zoomed and panned. The playfield outline is white. On a wide board the original 650 pixel region is marked with a dashed gold guide |
 | Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art, board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
 | Bottom bar | Cursor position, zoom, grid, selection, saved or modified, and the last message |
@@ -22,6 +22,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | 1 2 3 4 5 6 | Blue, orange, green, purple, round peg, bumper |
 | B / K | Straight brick / curved brick |
 | P / L / O / X | Polygon (click points, close with a click on the first point, Enter or a double click), line (drag), hole, hole exit (select a hole, then click where the ball should come out) |
+| N | Emitter (click to place one) |
 | Click, Shift-click, drag a box | Select, add to the selection, box select. Alt-drag copies |
 | Drag | Move the selection. The round handle above it rotates (15 degree steps while Snap is on) |
 | Drag a corner | With one polygon selected, its corners show as small squares. Drag one to move only that corner. It snaps to the grid like everything else |
@@ -52,6 +53,7 @@ The `:` key opens a one line command box for typed commands, which some people p
 * **Round and bumper**: any radius. A bumper has no peg properties.
 * **Bricks** have all the brick settings of the game (type, subdivisions, radius or length, sweep, end angles, thickness, rotation) and can also be a peg.
 * **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. Select one and every corner gets a handle: drag a handle to move that corner, double-click an edge to add a corner, and press Delete on a chosen corner to remove it. The **Corners** part of the Object tab does the same with buttons and exact numbers (Corner X and Corner Y). A corner will not move onto another one or across an edge, and the polygon always keeps at least 3 corners. Every change is one undo step. **Lines** are single walls. **Holes** have a score, an out delay and a size.
+* **Emitters** are the particle effects of Peggle Nights, like flames and sparks. Pick the Emitter tool (N) and click to place one. It shows as an orange frame, the area the particles come from, with a small square in the middle that holds the effect's picture. Click the square or the frame to select it and drag it to move it. The Object tab has all of its settings: the size and shape of the area, the picture, opacity, colour and size, how fast and how many particles, how long they live, speed, gravity and spin. An emitter can have a mover like any other object. The editor shows where an emitter is and which picture it uses, it does not run the effect.
 * **Movers**: pick a type in the Mover tab. All 15 types are there with radius, period, time offset, two pauses, phase, path rotation, rotation and reverse. When you add a mover the object stays where it is.
 * The level files use the classic 650 by 560 coordinates. On a wide board the game centres the level, so the playfield reaches past 0 and 650 on both sides. The editor draws exactly that.
 
@@ -81,8 +83,8 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 **F6**, the Check button and every save run the checks.
 
 * **Errors**: no objects, no pegs, no peg that can turn orange, no bucket, an object completely outside the playfield, an invalid level name.
-* **Warnings**: fewer possible orange pegs than the orange target (the original rules want 25), pegs that overlap each other or a wall, polygon or line, pegs in the side walls or in the bucket zone, pegs that stick out of the playfield, duplicate object ids, movers that do nothing.
-* **Info**: peg counts, where the bucket comes from, objects outside the original 650 pixel region on a wide board, and entries the editor keeps but does not show.
+* **Warnings**: fewer possible orange pegs than the orange target (the original rules want 25), pegs that overlap each other or a wall, polygon or line, pegs in the side walls or in the bucket zone, pegs that stick out of the playfield, duplicate object ids, movers that do nothing, emitters without a picture or with a picture the game cannot find.
+* **Info**: peg counts, emitters, where the bucket comes from, objects outside the original 650 pixel region on a wide board, and entries the editor keeps but does not show.
 
 Markers on the canvas show the objects a message is about.
 
@@ -92,6 +94,6 @@ The Gen tab makes a grid (columns, rows, spacing, origin), a circle, a spiral or
 
 ## What it cannot do yet
 
-* Peggle Nights emitters and bare physics objects are kept in the file but neither drawn nor editable.
+* Bare physics objects (no shipped level has one) are kept in the file but neither drawn nor editable.
 * Movers that move another mover's anchor are kept but not editable. Several objects sharing one mover path can only be made through an imported JSON file.
 * You cannot draw level art.
