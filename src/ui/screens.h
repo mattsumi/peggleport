@@ -5,7 +5,7 @@
 #include "ui/app.h"
 #include "ui/sparkle.h"
 #include "ui/fireworks.h"
-#include "ui/fairies.h"
+#include "ui/nights_loading.h"
 
 namespace pp::ui {
 
@@ -28,9 +28,12 @@ class LoadingScreen : public Screen {
   std::vector<std::string> resList;
   int startedFrom = 0;
   Button* playBtn = nullptr;
-  std::unique_ptr<LoadingFairies> fairies;
+  std::unique_ptr<NightsLoading> nights;
+  std::vector<NightsCmd> cmds;
   int mouseX = 0, mouseY = 0;
-  void drawFairies(Gfx& g);
+  void updateNights();
+  void updateDeluxe(int cnt, float loadTime);
+  void renderNights(Gfx& g);
   void doBallBounce();
   void updateBall();
   void spawnParticles(float x, float y, int n);

@@ -18,6 +18,8 @@
 
 namespace pp::ui {
 
+static const char* const kNightsFont = "OVERLOAD16OUTLINE";
+
 static float interp(float v, float a, float b, float lo, float hi) {
   if (b == a) return hi;
   float t = std::clamp((v - a) / (b - a), 0.0f, 1.0f);
@@ -26,7 +28,9 @@ static float interp(float v, float a, float b, float lo, float hi) {
 
 
 LoadingScreen::LoadingScreen(App& a) : Screen(a) {
-  playBtn = embeddedButton(0, "IMAGE_LOAD_PLAYNOW", 0xe4, 0x1be);
+  const bool nightsGame = a.game == Game::Nights;
+  if (nightsGame) playBtn = embeddedButton(0, "IMAGE_LOAD_PLAYNOW", NightsLoading::kPlayX, NightsLoading::kPlayY);
+  else playBtn = embeddedButton(0, "IMAGE_LOAD_PLAYNOW", 0xe4, 0x1be);
   playBtn->visible = false;
   if (playBtn->image && playBtn->image->rows == 1) {
     playBtn->image->rows = 2;
@@ -38,10 +42,10 @@ LoadingScreen::LoadingScreen(App& a) : Screen(a) {
     for (auto& id : a.gfx.man().groupImages(g)) resList.push_back(id);
   if (resList.size() > 400) resList.resize(400);
   fastBoot = a.cfg.fastBoot;
-  if (fastBoot) updateCount = 400;
+  if (nightsGame) nights = std::make_unique<NightsLoading>(a.crtRand(), fastBoot);
+  else if (fastBoot) updateCount = 400;
   a.gfx.img("IMAGE_LOAD_POPCAP");
-  if (a.game == Game::Nights) {
-    fairies = std::make_unique<LoadingFairies>(a.crtRand());
+  if (nightsGame) {
     a.gfx.img("IMAGE_LOAD_FLY0");
     a.gfx.img("IMAGE_LOAD_FLY1");
   }
@@ -84,7 +88,6 @@ void LoadingScreen::updateBall() {
       ballVY *= -0.9f;
       ballVX *= 1.0f;
       app.playSample("PEGHIT_LOW");
-      if (app.game == Game::Nights) app.playSample("LOGO_BUZZ_ON");
     } else if (ballX > rightX) {
       if (ballX > rightX + 0x14) ballState = 3;
     }
@@ -95,12 +98,33 @@ void LoadingScreen::updateBall() {
 void LoadingScreen::update() {
   Panel::update();
   int cnt = updateCount;
-  if (cnt == 1) app.playSample(app.game == Game::Nights ? "MOONLIGHT" : "MORNING");
+  if (!nights && cnt == 1) app.playSample("MORNING");
   if (cnt > 20 && nextRes < resList.size()) {
     uint64_t t0 = SDL_GetTicksNS();
     while (nextRes < resList.size() && (SDL_GetTicksNS() - t0) < 6000000) app.gfx.img(resList[nextRes++]);
   }
   float loadTime = resList.empty() ? 1.0f : (float)nextRes / (float)resList.size();
+  if (nights) updateNights();
+  else updateDeluxe(cnt, loadTime);
+  if (adventureStartDelay > 0 && --adventureStartDelay == 0) app.startAdventureGame();
+}
+
+void LoadingScreen::updateNights() {
+  NightsLoading::Env env;
+  env.mouseX = mouseX;
+  env.mouseY = mouseY;
+  env.loadFraction = resList.empty() ? 1.0f : (float)nextRes / (float)resList.size();
+  env.loadDone = nextRes >= resList.size();
+  unsigned snd = nights->update(env);
+  if (snd & NightsLoading::kMoonlight) app.playSample("MOONLIGHT");
+  if (snd & NightsLoading::kPegHit) app.playSample("PEGHIT_LOW");
+  if (snd & NightsLoading::kLogoBuzz) app.playSample("LOGO_BUZZ_ON");
+  if (snd & NightsLoading::kMusic) app.playMusic("music/opening.ogg");
+  loaded = nights->ready();
+  playBtn->visible = loaded;
+}
+
+void LoadingScreen::updateDeluxe(int cnt, float loadTime) {
   if (playPulse) playPulse++;
   const int start = fastBoot ? 0 : 250;
   const float rate = fastBoot ? 0.01f : 0.001f;
@@ -137,14 +161,14 @@ void LoadingScreen::update() {
     sunAngle += 0.2f;
     doneCnt++;
   }
-  if (fairies) {
-    if (cnt == 201) fairies->restartScene();
-    fairies->update(cnt >= 201, mouseX, mouseY);
-  }
-  if (adventureStartDelay > 0 && --adventureStartDelay == 0) app.startAdventureGame();
 }
 
 void LoadingScreen::drawLayer(Gfx& g) {
+  if (nights) {
+    nights->drawScene(cmds, (int)g.textWidth(kNightsFont, NightsLoading::kLoadingText));
+    renderNights(g);
+    return;
+  }
   g.fill(0, 0, 800, 600, 0x000000);
   int cnt = updateCount;
   if (cnt < 200 && !fastBoot) return;
@@ -156,9 +180,8 @@ void LoadingScreen::drawLayer(Gfx& g) {
   }
   if (sunAngle != 0)
     if (Tex* sh = g.img("IMAGE_LOAD_SUNHEAD")) g.draw(sh, 283, 307 + sunY);
-  const bool nights = app.game == Game::Nights;
-  float finalY = nights ? 36 : 140;
-  float logoX = nights ? 132 : 170;
+  float finalY = 140;
+  float logoX = 170;
   float logoY = finalY;
   {
     const float initialY = 200, startY = -60, hill = 50, rise = 70;
@@ -198,15 +221,19 @@ void LoadingScreen::drawLayer(Gfx& g) {
   }
   if (ballState > 0)
     if (Tex* b = g.img("IMAGE_LOAD_BALL")) g.draw(b, ballX - b->lw() / 2, ballY - b->lh() / 2);
-  if (showDeluxe && nights) {
-    if (Tex* n = g.img("IMAGE_LOAD_NIGHTS")) g.draw(n, 400 - n->lw() / 2, 250);
-  } else if (showDeluxe) {
+  if (showDeluxe) {
     if (Tex* d = g.img("IMAGE_LOAD_DELUXE")) g.draw(d, 300, 334);
     if (Tex* tm = g.img("IMAGE_LOAD_TM")) g.draw(tm, 574, 310, Mode(1, 0x000000));
   }
 }
 
 void LoadingScreen::drawOverlay(Gfx& g) {
+  if (nights) {
+    Tex* fly = g.img("IMAGE_LOAD_FLY0");
+    nights->drawOverlay(cmds, fly && fly->valid() ? (int)fly->lw() : 33);
+    renderNights(g);
+    return;
+  }
   int cnt = updateCount;
   if (playPulse > 0 && playPulse < 50 && playBtn->visible) {
     float v = playPulse < 25 ? (float)playPulse : (float)(50 - playPulse);
@@ -226,20 +253,42 @@ void LoadingScreen::drawOverlay(Gfx& g) {
       if (Tex* pc = g.img("IMAGE_LOAD_POPCAP")) g.draw(pc, (800 - pc->lw()) / 2, (600 - pc->lh()) / 2, Mode(alpha / 255.0f));
     }
   }
-  if (fairies) drawFairies(g);
 }
 
-void LoadingScreen::drawFairies(Gfx& g) {
-  Tex* cels[2] = {g.img("IMAGE_LOAD_FLY0"), g.img("IMAGE_LOAD_FLY1")};
-  int size = cels[0] && cels[0]->valid() ? (int)cels[0]->lw() : 33;
-  std::vector<LoadingFairies::Sprite> sprites;
-  std::vector<LoadingFairies::Dot> dots;
-  fairies->layout(size, sprites, dots);
-  for (const auto& s : sprites) {
-    Tex* t = cels[s.cel & 1];
-    if (t && t->valid()) g.draw(t, (float)s.x, (float)s.y, Mode(s.alpha / 255.0f));
+static uint32_t packRgb(const NightsCmd& c) { return ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | (uint32_t)c.b; }
+
+static Mode nightsMode(const NightsCmd& c) {
+  if (!c.colorize) return Mode(1.0f, 0xffffff, c.add);
+  return Mode(c.a / 255.0f, packRgb(c), c.add);
+}
+
+void LoadingScreen::renderNights(Gfx& g) {
+  for (const NightsCmd& c : cmds) {
+    Mode m = nightsMode(c);
+    switch (c.op) {
+      case NightsCmd::Fill: g.fill(c.x, c.y, (float)c.w, (float)c.h, packRgb(c), c.a / 255.0f, c.add); break;
+      case NightsCmd::Text: g.drawString(kNightsFont, c.x, c.y, c.img, packRgb(c), c.a / 255.0f); break;
+      case NightsCmd::Highlight: {
+        Tex* t = playBtn->image;
+        if (!t) break;
+        Mode lit(1.0f, packRgb(c), true);
+        g.drawCel(t, c.x, c.y, 0, 0, lit);
+        if (playBtn->down && playBtn->over) g.drawCel(t, c.x, c.y, 0, 1, lit);
+        else if (playBtn->overAlpha > 0) g.drawCel(t, c.x, c.y, 0, 1, Mode(playBtn->overAlpha, packRgb(c), true));
+        break;
+      }
+      default: {
+        Tex* t = g.img(c.img);
+        if (!t || !t->valid()) break;
+        if (c.op == NightsCmd::Stretch) g.drawStretch(t, c.x, c.y, (float)c.w, (float)c.h, m);
+        else if (c.op == NightsCmd::Cel) g.drawSrc(t, (float)c.sx, (float)c.sy, (float)c.sw, (float)c.sh, c.x, c.y, m);
+        else if (c.op == NightsCmd::Centered) g.draw(t, c.x - t->lw() / 2, c.y - t->lh() / 2, m);
+        else if (c.op == NightsCmd::Rotated) g.drawRot(t, c.x + (float)c.w, c.y + (float)c.h, c.angle, 1, 1, m);
+        else g.draw(t, c.x, c.y, m);
+        break;
+      }
+    }
   }
-  for (const auto& d : dots) g.fill((float)d.x, (float)d.y, (float)d.w, (float)d.h, d.rgb, d.alpha / 255.0f, true);
 }
 
 bool LoadingScreen::input(const Input& in) {
@@ -252,8 +301,8 @@ bool LoadingScreen::input(const Input& in) {
     mouseY = (int)in.y;
   }
   bool used = Panel::input(in);
-  if (fairies && !used && in.type == Input::MouseDown && mouseVisible) {
-    int popped = fairies->click(mouseX, mouseY);
+  if (nights && !used && in.type == Input::MouseDown && mouseVisible) {
+    int popped = nights->click(mouseX, mouseY);
     for (int i = 0; i < popped; i++) app.playSample("FAIRY_POP");
   }
   return used;
