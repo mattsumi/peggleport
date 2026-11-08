@@ -63,6 +63,7 @@ add_library(pp_core STATIC
   src/zen.cpp
   src/aiscore.cpp
   src/mover.cpp
+  src/follow.cpp
   src/match.cpp
   src/net.cpp
   src/lobby.cpp

@@ -930,7 +930,7 @@ struct SlowMoInterp {
       Obj& o = b.objs[i];
       if (!o.hasMover || !o.canMove || o.gone || o.mtick < 1) continue;
       float x = o.pos.x, y = o.pos.y, r = o.rot;
-      o.mv.calc(o.mtick - 1, f, x, y, r);
+      b.drawCalc(o, f, x, y, r);
       objs.push_back({i, {o.pos, o.rot}});
       o.pos = {x, y};
       if (o.shape == Shape::Poly || o.shape == Shape::Brick) o.rot = r;

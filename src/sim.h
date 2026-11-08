@@ -31,8 +31,15 @@ struct Mover {
   int type = 0, time = 200, offset = 0, pause1 = 0, pause2 = 0, phase1 = 0, phase2 = 0;
   float ax = 0, ay = 0, rx = 0, ry = 0, phase = 0, moveRot = 0, maxAngle = 0, rotation = 0, postDelay = 0;
   bool single = false;
+  bool linked = false;
+  int sub = -1;
+  float lastX = 0, lastY = 0, outX = 0, outY = 0;
+  static Mover fromNode(const Node& n, bool single);
   void calc(int tick, float& x, float& y, float& rot) const;
   void calc(int tick, float frac, float& x, float& y, float& rot) const;
+  void translate(float dx, float dy);
+  void follow(const Mover& s);
+  void step(int tick, float frac, float& x, float& y, float& rot, const Mover* s);
   bool rotating() const { int t = type < 0 ? -type : type; return t == 8 || t == 9 || t == 13 || t == 14; }
 };
 
@@ -360,6 +367,8 @@ class Board {
   void addShotScore(int n) { incShotScore(n); }
   std::vector<std::pair<int, int>> contactNotes() const { std::vector<std::pair<int, int>> v; for (auto& n : notes_) v.push_back({n.ball, n.obj}); return v; }
   void noteContact(Ball& b, Obj& o);
+  const Mover* subMover(const Mover& m) const;
+  void drawCalc(const Obj& o, float frac, float& x, float& y, float& r) const;
 
  private:
   struct Note { int ball, obj; bool hat = false; };
@@ -393,6 +402,9 @@ class Board {
   void widen();
   void rebuild(Obj& o);
   void updateObj(Obj& o);
+  void moverStep(Obj& o, float& x, float& y, float& r);
+  void linkFollowers(const Level& L, const std::vector<const Node*>& nodeOf, size_t first);
+  std::vector<Mover> freeMovers_;
   bool updateBall(Ball& b);
   std::vector<int> gather(const Ball& b) const;
   bool collide(Ball& b, int bi, const std::vector<int>* pre = nullptr, V2* firstHit = nullptr);

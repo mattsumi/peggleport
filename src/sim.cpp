@@ -113,22 +113,7 @@ bool Board::makeObj(const Level& L, const Node& n, Obj& o) {
   if (auto mv = n.val("mover")) mn = L.resolve(*mv);
   if (mn) {
     o.hasMover = true;
-    Mover& m = o.mv;
-    m.type = (int)mn->i("move_type");
-    m.ax = mn->f("anchor_x");
-    m.ay = mn->f("anchor_y");
-    m.time = (int)mn->i("time", 200);
-    m.offset = (int)mn->i("offset");
-    m.rx = (float)mn->i("radius");
-    m.ry = (float)mn->i("radius2");
-    m.phase = mn->f("phase");
-    m.moveRot = mn->f("move_rotation");
-    m.maxAngle = mn->f("max_angle");
-    m.rotation = mn->f("rotation");
-    m.pause1 = (int)mn->i("pause1"); m.pause2 = (int)mn->i("pause2");
-    m.phase1 = (int)mn->i("phase1"); m.phase2 = (int)mn->i("phase2");
-    m.postDelay = mn->f("post_delay_phase");
-    m.single = cfg.fpBits == 24;
+    o.mv = Mover::fromNode(*mn, cfg.fpBits == 24);
   }
   float baseRot = 0;
   switch (o.shape) {
@@ -240,6 +225,7 @@ void Board::addLevel(const Level& L, bool fromBase) {
         objs[first + i].exitIdx = ex;
       }
   }
+  linkFollowers(L, nodeOf, first);
 }
 
 void Board::widen() {
@@ -269,12 +255,22 @@ void Board::widen() {
         else o.pos.x += dw;
       }
     }
-    if (o.hasMover) {
+    if (o.mv.linked) {
+      if (!o.fromBase) {
+        o.mv.outX += dw * 0.5f;
+        if (o.mv.sub != -1) o.mv.lastX += dw * 0.5f;
+      }
+      if (o.shape != Shape::Line) o.pos = {o.mv.outX, o.mv.outY};
+    } else if (o.hasMover) {
       float x = o.pos.x, y = o.pos.y, r = o.rot;
       o.mv.calc(o.mtick, x, y, r);
       o.pos = {x, y};
     }
     rebuild(o);
+  }
+  for (auto& f : freeMovers_) {
+    f.ax += dw * 0.5f;
+    f.outX += dw * 0.5f;
   }
 }
 
@@ -342,11 +338,11 @@ void Board::updateObj(Obj& o) {
   }
   if (o.lit) o.litAge++;
   if (o.flash > 0) o.flash--;
-  if (o.hasMover && o.canMove) {
-    o.mtick++;
+  if (o.hasMover && (o.canMove || o.mv.sub != -1)) {
+    if (o.canMove) o.mtick++;
     V2 old = o.pos;
     float x = o.pos.x, y = o.pos.y, r = o.rot;
-    o.mv.calc(o.mtick, x, y, r);
+    moverStep(o, x, y, r);
     if (o.shape == Shape::Hole) {
       const float dx = x - old.x, dy = y - old.y;
       o.pos = {dx + old.x, dy + old.y};
@@ -713,6 +709,7 @@ uint64_t Board::hash() const {
     h = mix(h, o.pos.x); h = mix(h, o.pos.y); h = mix(h, o.rot); h = mix(h, o.collidable);
     if (o.moveCount) { h = mix(h, o.moveCount); h = mix(h, o.canMove); }
     if (o.custom) { h = mix(h, o.custom); h = mix(h, o.hits); h = mix(h, o.hitTick); h = mix(h, o.radius); }
+    if (o.mv.linked) { h = mix(h, o.mv.ax); h = mix(h, o.mv.ay); h = mix(h, o.mv.lastX); h = mix(h, o.mv.lastY); h = mix(h, o.mv.outX); h = mix(h, o.mv.outY); }
   }
   for (auto& b : balls) {
     h = mix(h, b.pos.x); h = mix(h, b.pos.y); h = mix(h, b.vel.x); h = mix(h, b.vel.y); h = mix(h, b.stuck);
