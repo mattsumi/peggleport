@@ -227,6 +227,7 @@ uint32_t App::rand() {
 void App::applySettings() {
   if (audio) {
     audio->setVolumes(settings.muted ? 0 : settings.sfx, settings.muted ? 0 : settings.music);
+    audio->setFeverVolume(settings.muted ? 0 : settings.fever);
   }
   if (showCursorHook) showCursorHook(settings.customCursors);
 }
