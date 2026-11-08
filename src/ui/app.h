@@ -212,6 +212,7 @@ class App : public WidgetHost {
   int mantelBefore = 0;
   bool quitPaused = false;
   bool newMantel = false;
+  std::set<int> newTrophies;
   int challengeStep = 0;
   void showScreen(const std::string& name);
   void doNotYet(const std::string& text);

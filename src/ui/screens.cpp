@@ -89,6 +89,7 @@ void LoadingScreen::updateBall() {
 void LoadingScreen::update() {
   Panel::update();
   int cnt = updateCount;
+  if (cnt == 1 && app.game == Game::Deluxe) app.playSample("MORNING");
   if (cnt > 20 && nextRes < resList.size()) {
     uint64_t t0 = SDL_GetTicksNS();
     while (nextRes < resList.size() && (SDL_GetTicksNS() - t0) < 6000000) app.gfx.img(resList[nextRes++]);
@@ -326,7 +327,13 @@ void MainMenu::update() {
   sunTick++;
   if (bubbleFade > 0) bubbleFade--;
   if (!bubbleDimmed) {}
-  if (trophyAnim < trophyAnimMax) trophyAnim++;
+  if (trophyAnim < trophyAnimMax) {
+    trophyAnim++;
+    if (!isNights) {
+      if (trophyAnim == 160) app.playSample("AWARD");
+      else if (trophyAnim == 10) app.playSample("APPLAUSE");
+    }
+  }
   placeButtons();
   bool any = false;
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) any = any || b->over || b->down;

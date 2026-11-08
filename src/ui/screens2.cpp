@@ -732,8 +732,21 @@ void TrophyScreen::syncPage() {
   bPrev->visible = page > 0;
   bNext->visible = page + 1 < (int)app.trophies.pages().size();
   if (app.curProfile) { app.curProfile->i38 = page; app.curProfile->dirty = true; }
+  badgeTicks = applauseTicks = 0;
+  const auto& pages = app.trophies.pages();
+  if (page >= 0 && page < (int)pages.size())
+    for (int i = 0; i < 5 && i < (int)pages[page].trophies.size(); i++)
+      if (app.newTrophies.erase(pages[page].trophies[i].id)) badgeTicks = 100;
 }
-void TrophyScreen::update() { Panel::update(); if (hoverTicks > 0 && --hoverTicks == 0) hovered = -1; }
+void TrophyScreen::update() {
+  Panel::update();
+  if (badgeTicks > 0 && --badgeTicks == 0) {
+    applauseTicks = 10;
+    app.playSample("AWARD");
+  }
+  if (applauseTicks > 0 && --applauseTicks == 0) app.playSample("APPLAUSE");
+  if (hoverTicks > 0 && --hoverTicks == 0) hovered = -1;
+}
 void TrophyScreen::onButtonEnter(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 0; } }
 void TrophyScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 10; } }
 void TrophyScreen::doPlay(int slot) {

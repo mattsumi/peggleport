@@ -632,7 +632,10 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         }
         if (mode != EndLevelDialog::ChallengeLose) app.endBodyOverride.clear();
       }
-      if (p && won && ct && !app.challengeMore) p->awardTrophy(ct->id);
+      if (p && won && ct && !app.challengeMore) {
+        p->awardTrophy(ct->id);
+        app.newTrophies.insert(ct->id);
+      }
     }
     if (p && won && !duel_) {
       if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
