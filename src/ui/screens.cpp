@@ -79,6 +79,7 @@ void LoadingScreen::updateBall() {
       ballVY *= -0.9f;
       ballVX *= 1.0f;
       app.playSample("PEGHIT_LOW");
+      if (app.game == Game::Nights) app.playSample("LOGO_BUZZ_ON");
     } else if (ballX > rightX) {
       if (ballX > rightX + 0x14) ballState = 3;
     }
@@ -89,7 +90,7 @@ void LoadingScreen::updateBall() {
 void LoadingScreen::update() {
   Panel::update();
   int cnt = updateCount;
-  if (cnt == 1 && app.game == Game::Deluxe) app.playSample("MORNING");
+  if (cnt == 1) app.playSample(app.game == Game::Nights ? "MOONLIGHT" : "MORNING");
   if (cnt > 20 && nextRes < resList.size()) {
     uint64_t t0 = SDL_GetTicksNS();
     while (nextRes < resList.size() && (SDL_GetTicksNS() - t0) < 6000000) app.gfx.img(resList[nextRes++]);
