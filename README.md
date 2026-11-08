@@ -47,3 +47,7 @@ sudo apt-get install build-essential cmake pkg-config libasound2-dev libpulse-de
 On Windows use Visual Studio 2022 with the C++ workload and run the commands in a Developer PowerShell. On macOS run `xcode-select --install` and install CMake with Homebrew.
 
 The program ends up in `build/peggleport` (`build\Release\peggleport.exe` with Visual Studio). `pp_lobbyd` is the lobby server for online play and is explained in the FAQ.
+
+## License
+
+PegglePort is released under the MIT license, see `LICENSE`. The libraries it builds on keep their own licenses, listed in `THIRD_PARTY.md`. It contains no Peggle files, you need your own copy of the game.
