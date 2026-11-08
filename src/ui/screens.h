@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include "ui/app.h"
+#include "ui/sparkle.h"
 
 namespace pp::ui {
 
@@ -48,6 +49,15 @@ class MainMenu : public Screen {
   static int mantelAt(App& app, float mx, float my);
   static const DecalInfo* decalAt(App& app, float mx, float my, int* stageOut);
   void drawNights(Gfx& g);
+  struct Sparkle {
+    SparkleField field;
+    float fade;
+    bool live;
+  };
+  std::vector<Sparkle> sparkles;
+  void buildSparkles();
+  void updateSparkles();
+  void drawSparkles(Gfx& g);
   Button *bAdv, *bSolo, *bDuel, *bChal, *bReplay, *bOptions, *bDemo, *bQuit, *bLink, *bUpsell;
   void setBubble(int which, int delay);
   void placeButtons();

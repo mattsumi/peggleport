@@ -94,6 +94,74 @@ int MainMenu::mantelAt(App& app, float mx, float my) {
   return -1;
 }
 
+void MainMenu::buildSparkles() {
+  sparkles.clear();
+  PlayerInfo* p = app.curProfile;
+  if (!isNights || !p) return;
+  struct Item {
+    std::string name;
+    int x, y, w, h;
+    float emit;
+    int group;
+  };
+  std::vector<Item> items;
+  for (int id : {1, 3, 2, 0})
+    if (mantelEarned(app, id)) {
+      const MantelTrophy& t = kMantel[id];
+      items.push_back({"Trophy:" + std::to_string(id), t.rx, t.ry, t.rw, t.rh, 1.0f, -1});
+    }
+  std::vector<int> stages;
+  for (int i = app.stages.numStages(); i < app.stages.numAllStages(); i++) {
+    const StageInfo* s = app.stages.stage(i);
+    if (!s) continue;
+    for (const DecalInfo& d : s->decals) {
+      if (!app.gfx.img(d.image)) continue;
+      auto at = std::find(stages.begin(), stages.end(), i);
+      if (at == stages.end()) at = stages.insert(stages.end(), i);
+      items.push_back({"Decal:" + d.image + std::to_string(d.layer), d.hx, d.hy, d.hw, d.hh, d.emit, (int)(at - stages.begin())});
+    }
+  }
+  bool changed = false;
+  for (const Item& it : items) {
+    if (!p->mantelSeen.insert(it.name).second) continue;
+    changed = true;
+    if (!p->mantelSeenKnown) continue;
+    float scale = 0.2f;
+    if (it.group >= 0) scale = (float)(int)((double)it.group * 0.800000011920929) + 0.2f;
+    if (it.w != 0 && it.h != 0) sparkles.push_back({SparkleField(it.x, it.y, it.w, it.h, it.emit, app.rand()), 0.0f - scale, true});
+  }
+  if (!p->mantelSeenKnown) {
+    p->mantelSeenKnown = true;
+    changed = true;
+  }
+  if (changed) {
+    p->dirty = true;
+    app.saveProfile();
+  }
+}
+
+void MainMenu::updateSparkles() {
+  if (app.anyDialog()) return;
+  for (Sparkle& s : sparkles) {
+    s.fade = std::min(s.fade + 0.005f, 1.0f);
+    if (s.live && s.fade > -0.2f && !s.field.update()) s.live = false;
+  }
+}
+
+void MainMenu::drawSparkles(Gfx& g) {
+  static const char* const kImage[SparkleField::kImages] = {"IMAGE_TROPHY_PARTICLE1", "IMAGE_TROPHY_PARTICLE2", "IMAGE_TROPHY_PARTICLE3",
+                                                            "IMAGE_TROPHY_PARTICLE4", "IMAGE_TROPHY_PARTICLE5", "IMAGE_TROPHY_PARTICLE6"};
+  for (const Sparkle& s : sparkles) {
+    if (!s.live) continue;
+    for (const SparkleField::Particle& q : s.field.particles()) {
+      Tex* t = g.img(kImage[q.image]);
+      if (!t) continue;
+      float k = s.field.scale(q);
+      g.drawRot(t, q.x, q.y, 0, k, k, Mode(s.field.alpha(q) / 255.0f, 0xffffff, true));
+    }
+  }
+}
+
 void MainMenu::drawNights(Gfx& g) {
   drawLoungeScene(g, sunTick);
   for (int id : {1, 3, 2, 0})
@@ -113,6 +181,7 @@ void MainMenu::drawNights(Gfx& g) {
       }
     }
   }
+  drawSparkles(g);
   if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, (float)bubbleFade / 15.0f, true);
   drawSpeechBubble(g, bubble, 1.0f - (bubbleFade > 0 ? (float)bubbleFade / 15.0f : 0.0f), bubbleFade == 0);
   {

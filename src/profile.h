@@ -92,6 +92,8 @@ struct PlayerInfo {
   uint8_t tipCounts[10]{};
   uint16_t tipOther = 0, trophyLevelSeen = 0;
   std::set<std::string> acedLevels;
+  std::set<std::string> mantelSeen;
+  bool mantelSeenKnown = false;
   bool dirty = false;
 
   static constexpr int kWriterVersion = 23, kMinVersion = 19;

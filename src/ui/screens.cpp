@@ -308,6 +308,7 @@ void MainMenu::syncPlayerInfo() {
   }
   bLink->visible = p != nullptr;
   bAdv->blink = 0;
+  buildSparkles();
 }
 
 void MainMenu::setBubble(int which, int delay) {
@@ -335,6 +336,7 @@ void MainMenu::update() {
       else if (trophyAnim == 10) app.playSample("APPLAUSE");
     }
   }
+  updateSparkles();
   placeButtons();
   bool any = false;
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) any = any || b->over || b->down;

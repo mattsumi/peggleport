@@ -166,6 +166,8 @@ void PlayerInfo::reset(bool keepLists) {
     clearedLevels.clear();
     advScores.clear();
     acedLevels.clear();
+    mantelSeen.clear();
+    mantelSeenKnown = false;
     statsB.reset();
   }
   trophyLevelSeen = 0;
@@ -272,6 +274,11 @@ std::vector<uint8_t> PlayerInfo::serialize(int version) const {
     w.u32((uint32_t)acedLevels.size());
     for (auto& s : acedLevels) w.str(s);
   }
+  if (mantelSeenKnown) {
+    w.u32(0x314d5050);
+    w.u32((uint32_t)mantelSeen.size());
+    for (auto& s : mantelSeen) w.str(s);
+  }
   return w.bytes();
 }
 
@@ -336,10 +343,15 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
   if (version >= 22) tipOther = r.u16();
   if (version >= 23) trophyLevelSeen = r.u16();
   acedLevels.clear();
-  if (r.ok() && r.remaining() >= 8) {
+  while (r.ok() && r.remaining() >= 8) {
     uint32_t magic = r.u32();
     if (magic == 0x314e5050) {
       for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) acedLevels.insert(r.str());
+    } else if (magic == 0x314d5050) {
+      for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) mantelSeen.insert(r.str());
+      mantelSeenKnown = true;
+    } else {
+      break;
     }
   }
   if (!r.ok() || !ok) {
