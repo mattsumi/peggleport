@@ -474,6 +474,16 @@ void Board::stepBalls() {
       if (balls[(size_t)i].uid == uid) return i;
     return -1;
   };
+  auto hatIndexOf = [&](int uid) {
+    for (int i = 0; i < (int)balls.size(); i++)
+      if (balls[(size_t)i].hatUid == uid) return i;
+    return -1;
+  };
+  auto litThisTick = [&](int oi) {
+    for (const Note& n : notes_)
+      if (n.obj == oi) return true;
+    return false;
+  };
   int curFirst = -1;
   std::vector<int> cand;
   auto flush = [&]() {
@@ -482,16 +492,27 @@ void Board::stepBalls() {
     if (bi >= 0) {
       collide(balls[(size_t)bi], bi, &cand);
       done[(size_t)bi] = 1;
+    } else if ((bi = hatIndexOf(curFirst - SAP_BALL)) >= 0) {
+      collideHat(balls[(size_t)bi], bi, cand);
     }
     cand.clear();
   };
   for (const auto& key : std::vector<std::array<int, 4>>(sapPairs_.begin(), sapPairs_.end())) {
     const std::pair<int, int> pr{SAP_BALL + key[0], key[3]};
     int fi = indexOf(pr.first - SAP_BALL);
-    if (fi < 0 || !live[(size_t)fi]) continue;
+    const int hi = fi < 0 ? hatIndexOf(pr.first - SAP_BALL) : -1;
+    if (fi < 0 && hi < 0) continue;
+    if (!live[(size_t)(fi < 0 ? hi : fi)]) continue;
     if (pr.first != curFirst) {
       flush();
       curFirst = pr.first;
+    }
+    if (hi >= 0) {
+      if (pr.second < SAP_BALL && balls[(size_t)hi].hatAge > 10) {
+        const Obj& ho = objs[(size_t)pr.second];
+        if (ho.collidable && !ho.gone && ho.pegType && !ho.lit && !litThisTick(pr.second)) cand.push_back(pr.second);
+      }
+      continue;
     }
     if (pr.second >= SAP_BALL) {
       int si = indexOf(pr.second - SAP_BALL);
@@ -511,16 +532,13 @@ void Board::stepBalls() {
   flush();
   for (int bi = 0; bi < (int)balls.size(); bi++)
     if (live[(size_t)bi] && !done[(size_t)bi]) phys::ballTranslate(balls[(size_t)bi], balls[(size_t)bi].vel.x, balls[(size_t)bi].vel.y);
-  hatContacts(hatNotes_);
-  notes_.insert(notes_.begin(), hatNotes_.begin(), hatNotes_.end());
-  hatNotes_.clear();
   for (auto& nt : notes_) {
     curBall_ = nt.ball;
     Ball& b = balls[nt.ball];
     if (!b.alive) continue;
     Obj& o = objs[nt.obj];
     if (nt.hat) {
-      if (!o.lit) pegHit(nt.obj);
+      hatHit(b, nt.obj);
       continue;
     }
     if (o.shape == Shape::Hole) holeHit(b, nt.obj);
@@ -630,7 +648,10 @@ bool Board::fire(float angle) {
   phys::ballSetPos(b, p.x, p.y);
   b.pos = b.prev = p;
   b.vel = gun::launchVelocity(angle, gunSpeed_);
-  if (b.hat) hatInit(b);
+  if (b.hat) {
+    hatInit(b, true);
+    b.hatAge = tick > hatBorn_ ? tick - hatBorn_ : 0;
+  }
   balls.push_back(b);
   phase = Phase::Shot;
   { int bits; static_assert(sizeof(bits) == sizeof(angle)); std::memcpy(&bits, &angle, sizeof bits); ev(Event::Shot, bits); }
@@ -714,6 +735,7 @@ uint64_t Board::hash() const {
   for (auto& b : balls) {
     h = mix(h, b.pos.x); h = mix(h, b.pos.y); h = mix(h, b.vel.x); h = mix(h, b.vel.y); h = mix(h, b.stuck);
     h = mix(h, b.fire); h = mix(h, b.spooky);
+    if (b.hat) { h = mix(h, b.hatAge); h = mix(h, b.disp.x); h = mix(h, b.disp.y); }
   }
   for (auto& kv : modState) { h = fnvMix(h, kv.first.data(), kv.first.size()); h = mix(h, kv.second); }
   if (!physics.isDefault())

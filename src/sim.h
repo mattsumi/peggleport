@@ -120,6 +120,8 @@ struct Ball {
   bool hat = false;
   V2 disp, hatPos, hatPrev;
   int hatAge = 0;
+  int hatUid = 0;
+  float hx0 = 0, hy0 = 0, hx1 = 0, hy1 = 0;
   int stuck = 0, age = 0, holeOut = 0, holeCooldown = 0;
   int slot = 0;
   int rimTick = 0, rimCount = 0;
@@ -249,7 +251,8 @@ class Board {
   void timeBomb();
   static int spinLight(int startDeg, int timer0);
   int spinCode_ = 0;
-  void hatInit(Ball& b);
+  void hatInit(Ball& b, bool atOrigin = false);
+  int hatBorn_ = 0;
   void hatUpdate(Ball& b);
   static void setPolyActive(Obj& o, bool on);
   void clickInShot();
@@ -372,13 +375,15 @@ class Board {
 
  private:
   struct Note { int ball, obj; bool hat = false; };
-  void hatContacts(std::vector<Note>& out);
+  void collideHat(const Ball& owner, int bi, const std::vector<int>& cand);
+  void hatHit(const Ball& owner, int oi);
+  Ball* hatCur_ = nullptr;
   std::shared_ptr<const Level> base_, level_;
   std::vector<int> nonOrange_;
   std::vector<int> orangeSet_, otherSet_;
   int purple_ = -1, popIdx_ = 0, popDelay_ = 0, settle_ = 0;
   std::vector<int> hitList_;
-  std::vector<Note> notes_, hatNotes_;
+  std::vector<Note> notes_;
 
   static constexpr int SAP_BALL = 1 << 20;
   struct SapEnd { int id; bool start; };

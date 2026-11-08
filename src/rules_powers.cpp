@@ -150,11 +150,14 @@ int Board::spinLight(int startDeg, int timer0) {
   return light;
 }
 
-void Board::hatInit(Ball& b) {
+void Board::hatInit(Ball& b, bool atOrigin) {
   b.hat = true;
   b.hatAge = 0;
-  b.disp = {b.pos.x <= 325.0f ? b.pos.x + 200.0f : b.pos.x - 200.0f, b.pos.y - 200.0f};
+  const V2 from = atOrigin ? V2{0.0f, 0.0f} : b.pos;
+  b.disp = {from.x <= 325.0f ? from.x + 200.0f : from.x - 200.0f, from.y - 200.0f};
   b.hatPos = b.hatPrev = {b.disp.x, b.disp.y - 21.0f};
+  b.hx0 = b.hy0 = -6.0f;
+  b.hx1 = b.hy1 = 6.0f;
 }
 
 void Board::hatUpdate(Ball& b) {
@@ -164,21 +167,33 @@ void Board::hatUpdate(Ball& b) {
   b.disp.y = b.disp.y + 0.25f * (b.pos.y - b.disp.y);
   b.hatPrev = b.hatPos;
   b.hatPos = {0.0f + b.disp.x, b.disp.y - 21.0f};
+  b.hx0 = b.hatPos.x - 20.0f;
+  b.hy0 = b.hatPos.y - 20.0f;
+  b.hx1 = b.hatPos.x + 20.0f;
+  b.hy1 = b.hatPos.y + 20.0f;
   b.hatAge++;
 }
 
-void Board::hatContacts(std::vector<Note>& out) {
-  for (int bi = 0; bi < (int)balls.size(); bi++) {
-    const Ball& b = balls[(size_t)bi];
-    if (!b.alive || !b.hat || b.hatAge < 11) continue;
-    for (int oi = 0; oi < (int)objs.size(); oi++) {
-      const Obj& o = objs[(size_t)oi];
-      if (!o.pegType || o.lit || o.gone || !o.collidable) continue;
-      float hitT = 1e30f;
-      V2 hitPt;
-      if (phys::circleCheck(o.pos, o.radius, b.hatPos, {0.0f, 0.0f}, 20.0f, hitT, hitPt)) out.push_back({bi, oi, true});
-    }
-  }
+void Board::hatHit(const Ball& owner, int oi) {
+  Ball h;
+  h.pos = h.prev = owner.hatPos;
+  h.r = 20.0f;
+  h.slot = 1000000;
+  h.hat = true;
+  hatCur_ = &h;
+  if (!objs[(size_t)oi].lit) pegHit(oi);
+  hatCur_ = nullptr;
+}
+
+void Board::collideHat(const Ball& owner, int bi, const std::vector<int>& cand) {
+  Ball h;
+  h.pos = h.prev = owner.hatPos;
+  h.vel = {0.0f, 0.0f};
+  h.r = 20.0f;
+  h.fire = true;
+  const size_t n0 = notes_.size();
+  collide(h, bi, &cand);
+  for (size_t i = n0; i < notes_.size(); i++) notes_[i].hat = true;
 }
 
 }
