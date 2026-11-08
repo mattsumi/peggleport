@@ -341,9 +341,6 @@ IoResult HostProcess::receive(std::vector<uint8_t>& out, int timeoutMs) {
 
 fs::path findModHost() {
   std::error_code ec;
-  wchar_t envbuf[MAX_PATH * 2];
-  DWORD n = GetEnvironmentVariableW(L"PEGGLEPORT_MODHOST", envbuf, MAX_PATH * 2);
-  if (n > 0 && n < MAX_PATH * 2 && fs::is_regular_file(fs::path(envbuf), ec)) return fs::path(envbuf);
   wchar_t self[MAX_PATH * 2];
   DWORD len = GetModuleFileNameW(nullptr, self, MAX_PATH * 2);
   if (len == 0 || len >= MAX_PATH * 2) return {};
