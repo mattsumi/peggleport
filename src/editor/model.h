@@ -34,13 +34,14 @@ NodeP newLine(float x1, float y1, float x2, float y2, bool visible = false);
 NodeP newPoly(float x, float y, const std::vector<V2>& localOpen);
 NodeP newBrick(float x, float y, const BrickParams& bp, int pegType = 1);
 NodeP newHole(float x, float y, int w, int h, bool circular, int score = 0);
+NodeP newEmitter(float x, float y, const std::string& image);
 NodeP newMover(int type, float anchorX, float anchorY);
 BrickParams brickParamsOf(const Node& n);
 void syncBrickCache(Node& n);
 NodeP cloneNode(const NodeP& n, std::map<const Node*, NodeP>* remap = nullptr);
 
 struct Geo {
-  enum Kind { None, Circle, Line, Poly, Hole } kind = None;
+  enum Kind { None, Circle, Line, Poly, Hole, Emitter } kind = None;
   V2 c;
   float r = 0, rot = 0;
   bool circular = false;
@@ -83,6 +84,7 @@ struct PropDef {
   const char* enums;
   int enumBase;
   const char* group;
+  bool vf = false;
 };
 const std::vector<PropDef>& propsFor(const Node& n);
 const std::vector<PropDef>& moverProps();

@@ -33,7 +33,7 @@ void putStr(Node& n, const std::string& key, const std::string& v) {
   n.fields[key] = x;
 }
 void eraseField(Node& n, const std::string& key) { n.fields.erase(key); }
-bool isObjectType(int t) { return t == 2 || t == 3 || t == 5 || t == 6 || t == 8; }
+bool isObjectType(int t) { return t == 2 || t == 3 || t == 5 || t == 6 || t == 8 || t == 9; }
 const char* typeName(int t) {
   switch (t) {
     case 1: return "physobj";
@@ -184,6 +184,63 @@ NodeP newHole(float x, float y, int w, int h, bool circular, int score) {
   if (score) putNum(*n, "score", Prim::I32, score);
   return n;
 }
+static NodeP newVF(double v) {
+  auto n = std::make_shared<Node>();
+  putNum(*n, "tag", Prim::U8, 1);
+  putNum(*n, "value", Prim::F32, v);
+  return n;
+}
+static void putChild(Node& n, const char* key, NodeP c) {
+  Val v;
+  v.k = VK::Child;
+  v.n = std::move(c);
+  n.fields[key] = v;
+}
+static Node* makeStruct(Node& holder, const std::string& name) {
+  auto s = std::make_shared<Node>();
+  auto vf = [&](const char* k, double d) { putChild(*s, k, newVF(d)); };
+  auto f = [&](const char* k) { putNum(*s, k, Prim::F32, 0); };
+  if (name == "scale") { vf("value", 1); vf("velocity", 0); f("rand"); }
+  else if (name == "rotation") { vf("value", 0); vf("velocity", 0); f("rand"); }
+  else if (name == "color") { vf("r", 1); vf("g", 1); vf("b", 1); }
+  else if (name == "velocity") { vf("x", 0); vf("y", 0); f("x_rand"); f("y_rand"); f("acc_x"); f("gravity"); }
+  else if (name == "polar") { f("vel"); f("vel_rand"); f("acc"); f("rot_vel"); f("rot_vel_rand"); }
+  else return nullptr;
+  Node* raw = s.get();
+  putChild(holder, name.c_str(), s);
+  return raw;
+}
+NodeP newEmitter(float x, float y, const std::string& image) {
+  auto n = std::make_shared<Node>();
+  n->type = 9;
+  commonFlags(*n);
+  n->flags["additive"] = true;
+  n->flags["random_start"] = true;
+  n->flags["unk_flag_14"] = true;
+  putNum(*n, "main", Prim::I32, 2);
+  putNum(*n, "x", Prim::F32, x);
+  putNum(*n, "y", Prim::F32, y);
+  putNum(*n, "width", Prim::I32, 120);
+  putNum(*n, "height", Prim::I32, 60);
+  putStr(*n, "emitter_image", image);
+  putStr(*n, "emitter_image_2", image);
+  putNum(*n, "fast_forward", Prim::I32, 0);
+  putNum(*n, "hardware_rate", Prim::F32, 1);
+  putStr(*n, "trigger_obj", "");
+  putNum(*n, "unk_byte_0x942", Prim::U8, 1);
+  putNum(*n, "rand_rate", Prim::F32, 0.1);
+  putNum(*n, "software_rate", Prim::F32, 0);
+  putNum(*n, "spiral_count", Prim::F32, 0);
+  putNum(*n, "max", Prim::I32, 50);
+  putNum(*n, "alpha_fade_at", Prim::F32, 0.5);
+  putNum(*n, "alpha_into", Prim::F32, 0.1);
+  putNum(*n, "duration", Prim::F32, 1);
+  putChild(*n, "rate", newVF(0.1));
+  putChild(*n, "distrib", newVF(1));
+  if (Node* v = makeStruct(*n, "velocity")) putNum(*v, "gravity", Prim::F32, -0.01);
+  makeStruct(*n, "scale");
+  return n;
+}
 NodeP newMover(int type, float ax, float ay) {
   auto n = std::make_shared<Node>();
   n->type = 0;
@@ -306,6 +363,16 @@ Geo geometry(const Level& L, const Node& n, int tick) {
       bounds(g);
       break;
     }
+    case 9: {
+      g.kind = Geo::Emitter;
+      g.c = pos;
+      g.circular = n.flag("circular");
+      float hw = std::max(1.0f, (float)n.i("width") * 0.5f), hh = std::max(1.0f, (float)n.i("height") * 0.5f);
+      g.pts = {{pos.x - hw, pos.y - hh}, {pos.x + hw, pos.y - hh}, {pos.x + hw, pos.y + hh}, {pos.x - hw, pos.y + hh}};
+      g.r = 8;
+      g.x0 = pos.x - 8; g.x1 = pos.x + 8; g.y0 = pos.y - 8; g.y1 = pos.y + 8;
+      break;
+    }
     default: break;
   }
   return g;
@@ -339,6 +406,18 @@ float distToGeo(const Geo& g, V2 p) {
       }
       if (p.x >= g.x0 && p.x <= g.x1 && p.y >= g.y0 && p.y <= g.y1) return 0;
       return std::max(std::max(g.x0 - p.x, p.x - g.x1), std::max(g.y0 - p.y, p.y - g.y1));
+    case Geo::Emitter: {
+      float marker = std::max(0.0f, std::sqrt((p - g.c).len2()) - g.r);
+      float hw = (g.pts[1].x - g.pts[0].x) * 0.5f, hh = (g.pts[2].y - g.pts[1].y) * 0.5f;
+      float edge = 1e9f;
+      if (g.circular) {
+        float dx = (p.x - g.c.x) / hw, dy = (p.y - g.c.y) / hh;
+        edge = std::fabs(std::sqrt(dx * dx + dy * dy) - 1.0f) * std::min(hw, hh);
+      } else {
+        for (size_t i = 0; i < 4; i++) edge = std::min(edge, distToSegment(p, g.pts[i], g.pts[(i + 1) % 4]));
+      }
+      return std::min(marker, edge);
+    }
     case Geo::Poly: {
       if (pointInPoly(g.pts, p)) return 0;
       float best = 1e9f;
@@ -639,6 +718,7 @@ const char* kMoverTypeNames[] = {"None", "Vertical Cycle", "Horizontal Cycle", "
 #define PS(key, label, grp) PropDef{key, label, PK::Str, Prim::U8, false, 0, 0, 0, 0, false, nullptr, 0, grp}
 #define PE(key, label, prim, def, names, base, grp) PropDef{key, label, PK::Enum, prim, false, def, base, base + 99, 1, false, names, base, grp}
 #define PC(key, label, grp) PropDef{key, label, PK::Color, Prim::U32, false, 0, 0, 16777215, 1, false, nullptr, 0, grp}
+#define PVF(key, label, def, lo, hi, step, req, grp) PropDef{key, label, PK::Float, Prim::F32, false, def, lo, hi, step, req, nullptr, 0, grp, true}
 
 static void addCommon(std::vector<PropDef>& v) {
   v.push_back(PB("collidable", "Collidable", true, "Object"));
@@ -664,6 +744,61 @@ static void addCommon(std::vector<PropDef>& v) {
   v.push_back(PF("image_rot", "Image rot", 0, -7, 7, 0.05, false, "Draw"));
   v.push_back(PC("solid_color", "Fill colour", "Draw"));
   v.push_back(PC("outline_color", "Outline colour", "Draw"));
+}
+static void addEmitterCommon(std::vector<PropDef>& v) {
+  v.push_back(PB("visible", "Visible", true, "Object"));
+  v.push_back(PB("can_move", "Moving", true, "Object"));
+  v.push_back(PS("id", "Id", "Object"));
+  v.push_back(PB("foreground", "Foreground", false, "Draw"));
+  v.push_back(PB("foreground2", "Foreground 2", false, "Draw"));
+  v.push_back(PB("background", "Background", false, "Draw"));
+  v.push_back(PB("draw_sort", "Draw sort", false, "Draw"));
+  v.push_back(PB("draw_float", "Draw float", false, "Draw"));
+}
+static void addEmitter(std::vector<PropDef>& v) {
+  v.push_back(PF("pos.x", "X", 0, -2000, 3000, 1, false, "Area"));
+  v.push_back(PF("pos.y", "Y", 0, -2000, 3000, 1, false, "Area"));
+  v.push_back(PI("width", "Width", Prim::I32, 120, 1, 4000, 1, true, "Area"));
+  v.push_back(PI("height", "Height", Prim::I32, 60, 1, 4000, 1, true, "Area"));
+  v.push_back(PB("circular", "Round area", false, "Area"));
+  v.push_back(PS("emitter_image", "Image", "Look"));
+  v.push_back(PB("additive", "Additive glow", false, "Look"));
+  v.push_back(PB("attached", "Attached", false, "Look"));
+  v.push_back(PB("orient_rot_to_vel", "Face direction", false, "Look"));
+  v.push_back(PB("random_start", "Random start", false, "Look"));
+  v.push_back(PVF("alpha", "Opacity", 1, 0, 1, 0.05, false, "Look"));
+  v.push_back(PVF("color.r", "Red", 1, 0, 1, 0.05, true, "Look"));
+  v.push_back(PVF("color.g", "Green", 1, 0, 1, 0.05, true, "Look"));
+  v.push_back(PVF("color.b", "Blue", 1, 0, 1, 0.05, true, "Look"));
+  v.push_back(PVF("scale.value", "Size", 1, 0, 50, 0.1, true, "Look"));
+  v.push_back(PVF("scale.velocity", "Size change", 0, -50, 50, 0.1, true, "Look"));
+  v.push_back(PF("scale.rand", "Size random", 0, 0, 50, 0.1, true, "Look"));
+  v.push_back(PVF("rate", "Rate", 0.1, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PF("rand_rate", "Random rate", 0, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PI("max", "Max particles", Prim::I32, 50, 0, 100000, 1, true, "Rate"));
+  v.push_back(PF("duration", "Life", 1, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PF("alpha_fade_at", "Fade out at", 0.5, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PF("alpha_into", "Fade in", 0.1, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PVF("distrib", "Distribution", 1, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PF("hardware_rate", "Hardware rate", 1, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PF("software_rate", "Software rate", 0, 0, 1000, 0.05, true, "Rate"));
+  v.push_back(PF("spiral_count", "Spiral count", 0, -1000, 1000, 0.5, true, "Rate"));
+  v.push_back(PI("fast_forward", "Fast forward", Prim::I32, 0, 0, 100000, 1, true, "Rate"));
+  v.push_back(PS("trigger_obj", "Trigger object id", "Rate"));
+  v.push_back(PVF("velocity.x", "Speed X", 0, -1000, 1000, 0.1, true, "Motion"));
+  v.push_back(PVF("velocity.y", "Speed Y", 0, -1000, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("velocity.x_rand", "Speed X random", 0, 0, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("velocity.y_rand", "Speed Y random", 0, 0, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("velocity.acc_x", "Acceleration X", 0, -100, 100, 0.01, true, "Motion"));
+  v.push_back(PF("velocity.gravity", "Gravity", 0, -100, 100, 0.01, true, "Motion"));
+  v.push_back(PF("polar.vel", "Outward speed", 0, -1000, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("polar.vel_rand", "Outward random", 0, 0, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("polar.acc", "Outward acceleration", 0, -100, 100, 0.01, true, "Motion"));
+  v.push_back(PF("polar.rot_vel", "Spin around", 0, -100, 100, 0.01, true, "Motion"));
+  v.push_back(PF("polar.rot_vel_rand", "Spin random", 0, 0, 100, 0.01, true, "Motion"));
+  v.push_back(PVF("rotation.value", "Rotation", 0, -100, 100, 0.05, true, "Motion"));
+  v.push_back(PVF("rotation.velocity", "Rotation speed", 0, -100, 100, 0.05, true, "Motion"));
+  v.push_back(PF("rotation.rand", "Rotation random", 0, 0, 100, 0.05, true, "Motion"));
 }
 static void addPeg(std::vector<PropDef>& v) {
   v.push_back(PB("is_peg", "Is a peg", false, "Peg"));
@@ -723,6 +858,10 @@ const std::vector<PropDef>& propsFor(const Node& n) {
       v.push_back(PI("score", "Score", Prim::I32, 0, 0, 10000000, 1000, false, "Hole"));
       v.push_back(PI("out_delay", "Out delay", Prim::I32, 0, 0, 1000, 1, false, "Hole"));
       break;
+    case 9:
+      addEmitter(v);
+      addEmitterCommon(v);
+      return cache[n.type] = v;
     default: break;
   }
   addCommon(v);
@@ -753,12 +892,48 @@ const std::vector<PropDef>& moverProps() {
   return v;
 }
 
-static Node* addr(Node& n, const char*& key) {
-  if (std::strncmp(key, "peg.", 4) == 0) {
-    key += 4;
-    return pegOf(n);
+static Node* structOf(Node& n, const std::string& name) {
+  auto it = n.fields.find(name);
+  return it != n.fields.end() && it->second.k == VK::Child ? it->second.n.get() : nullptr;
+}
+static Node* addr(Node& n, const char*& key, bool create = false) {
+  Node* cur = &n;
+  while (const char* dot = std::strchr(key, '.')) {
+    std::string head(key, dot);
+    key = dot + 1;
+    if (head == "peg") {
+      cur = pegOf(*cur);
+    } else {
+      Node* c = structOf(*cur, head);
+      if (!c && create) c = makeStruct(*cur, head);
+      cur = c;
+    }
+    if (!cur) return nullptr;
   }
-  return &n;
+  return cur;
+}
+static const Node* vfOf(const Node* holder, const char* key) {
+  if (!holder) return nullptr;
+  auto v = holder->val(key);
+  return v && v->k == VK::Child && v->n ? v->n.get() : nullptr;
+}
+static bool setVf(Node& holder, const char* key, double v, const std::string* expr) {
+  auto it = holder.fields.find(key);
+  if (it == holder.fields.end() || it->second.k != VK::Child || !it->second.n) {
+    putChild(holder, key, std::make_shared<Node>());
+    it = holder.fields.find(key);
+  }
+  Node& f = *it->second.n;
+  if (expr) {
+    putNum(f, "tag", Prim::U8, 0);
+    putStr(f, "expr", *expr);
+    f.fields.erase("value");
+  } else {
+    putNum(f, "tag", Prim::U8, 1);
+    putNum(f, "value", Prim::F32, v);
+    f.fields.erase("expr");
+  }
+  return true;
 }
 bool hasProp(const Node& n, const PropDef& d) {
   if (!std::strcmp(d.key, "is_peg")) return pegOf(n) != nullptr;
@@ -781,12 +956,22 @@ double getNum(const Level& L, const Node& n, const PropDef& d) {
     auto it = t->flags.find(k);
     return it == t->flags.end() ? (d.def ? 1.0 : 0.0) : (it->second ? 1.0 : 0.0);
   }
+  if (d.vf) {
+    const Node* f = vfOf(t, k);
+    return f && f->i("tag") ? (double)f->f("value") : d.def;
+  }
   if (!t->has(k)) return d.def;
   return d.prim == Prim::F32 ? (double)t->f(k) : (double)t->i(k);
 }
 std::string getStr(const Node& n, const PropDef& d) { return n.str(d.key); }
 std::string propText(const Level& L, const Node& n, const PropDef& d) {
   char b[64];
+  if (d.vf) {
+    const char* k = d.key;
+    Node* t = addr(const_cast<Node&>(n), k);
+    const Node* f = vfOf(t, k);
+    if (f && !f->i("tag")) return "=" + f->str("expr");
+  }
   switch (d.kind) {
     case PK::Bool: return getNum(L, n, d) != 0 ? "on" : "off";
     case PK::Str: {
@@ -842,12 +1027,13 @@ bool setNum(Level& L, Node& n, const PropDef& d, double v) {
     putNum(n, "move_type", Prim::I8, v != 0 ? -t : t);
     return true;
   }
-  Node* t = addr(n, k);
+  Node* t = addr(n, k, true);
   if (!t) return false;
   if (d.isFlag) {
     t->flags[k] = v != 0;
     return true;
   }
+  if (d.vf) return setVf(*t, k, v, nullptr);
   if (!d.required && v == d.def && !t->has(k)) return true;
   if (!d.required && v == d.def && d.prim != Prim::U8 && std::strcmp(d.key, "brick_type")) {
     t->fields.erase(k);
@@ -864,6 +1050,11 @@ bool setNum(Level& L, Node& n, const PropDef& d, double v) {
   return true;
 }
 bool setStr(Node& n, const PropDef& d, const std::string& s) {
+  if (n.type == 9 && (!std::strcmp(d.key, "emitter_image") || !std::strcmp(d.key, "trigger_obj"))) {
+    putStr(n, d.key, s);
+    if (!std::strcmp(d.key, "emitter_image")) putStr(n, "emitter_image_2", s);
+    return true;
+  }
   if (s.empty()) n.fields.erase(d.key);
   else putStr(n, d.key, s);
   return true;
@@ -893,6 +1084,12 @@ bool setPropText(Level& L, Node& n, const PropDef& d, const std::string& text) {
       return false;
     }
     default: {
+      if (d.vf && !text.empty() && text[0] == '=') {
+        const char* k = d.key;
+        Node* t = addr(n, k, true);
+        std::string expr = text.substr(1);
+        return t && setVf(*t, k, 0, &expr);
+      }
       char* end = nullptr;
       double v = std::strtod(text.c_str(), &end);
       if (end == text.c_str()) return false;

@@ -136,6 +136,7 @@ class EditorScreen : public Screen {
   void tabLevel(float x, float y0, float w);
   void tabGen(float x, float y0, float w);
   void tabChecks(float x, float y0, float w);
+  void drawEmitter(const Node& n, const Geo& g);
   void circleC(V2 c, float r, uint32_t col, float a, bool fill = false);
   void poly(const std::vector<V2>& pts, bool closed, uint32_t col, float a, bool fill = false);
   void ellipseC(float x0, float y0, float x1, float y1, uint32_t col, float a);
@@ -176,6 +177,7 @@ EditorScreen::~EditorScreen() {
 }
 
 void EditorScreen::loadBase() {
+  ed.setVfs(&app.vfs);
   if (auto b = app.vfs.read("levels/_base.dat")) {
     auto lv = parseLevel(b->bytes);
     if (lv) ed.base = std::make_shared<Level>(std::move(*lv));
@@ -314,6 +316,27 @@ void EditorScreen::circleC(V2 c, float r, uint32_t col, float a, bool fill) {
     px = x;
     py = y;
   }
+}
+void EditorScreen::drawEmitter(const Node& n, const Geo& g) {
+  const uint32_t col = 0xffb040;
+  if (g.circular) ellipseC(g.pts[0].x, g.pts[0].y, g.pts[2].x, g.pts[2].y, col, 0.9f);
+  else poly(g.pts, true, col, 0.9f);
+  V2 c = toCanvas(g.c);
+  const float r = 14;
+  R(c.x - r - 2, c.y - r - 2, 2 * r + 4, 2 * r + 4, 0x000000, 0.45f);
+  std::string img = n.str("emitter_image");
+  Tex* t = img.empty() ? nullptr : g_->img(img);
+  if (t && t->valid()) {
+    float k = std::min(1.0f, std::min(2 * r / t->lw(), 2 * r / t->lh()));
+    float w = t->lw() * k, h = t->lh() * k;
+    g_->drawStretch(t, c.x - w * 0.5f, c.y - h * 0.5f, w, h, Mode(0.9f));
+  } else {
+    g_->line(c.x - r + 3, c.y - r + 3, c.x + r - 3, c.y + r - 3, col, 0.9f);
+    g_->line(c.x - r + 3, c.y + r - 3, c.x + r - 3, c.y - r + 3, col, 0.9f);
+  }
+  F(c.x - r - 2, c.y - r - 2, 2 * r + 4, 2 * r + 4, col, 0.9f);
+  std::string name = img.empty() ? "emitter" : img.substr(img.find_last_of("/\\") == std::string::npos ? 0 : img.find_last_of("/\\") + 1);
+  T(c.x + r + 6, c.y - fh_ * 0.5f, name, col);
 }
 void EditorScreen::ellipseC(float x0, float y0, float x1, float y1, uint32_t col, float a) {
   if (!dr_) return;
@@ -492,6 +515,7 @@ void EditorScreen::drawOverlay2() {
           poly(ex.pts, true, 0xff66dd, 0.9f);
         }
         break;
+      case Geo::Emitter: drawEmitter(*n, g); break;
       case Geo::Circle:
         if (outside || !boardOk_) circleC(g.c, g.r, pegColor(pegTypeOf(*n)), 0.8f, true);
         else if (!pegTypeOf(*n)) circleC(g.c, g.r, 0xbbbbbb, 0.0f);
@@ -503,6 +527,7 @@ void EditorScreen::drawOverlay2() {
       uint32_t c = kCyan;
       if (g.kind == Geo::Circle) { circleC(g.c, g.r + 2 / zoom_, c, 1.0f); circleC(g.c, g.r + 3.5f / zoom_, c, 0.5f); }
       else if (g.kind == Geo::Hole && g.circular) ellipseC(g.x0 - 2, g.y0 - 2, g.x1 + 2, g.y1 + 2, c, 1.0f);
+      else if (g.kind == Geo::Emitter && g.circular) ellipseC(g.pts[0].x - 2, g.pts[0].y - 2, g.pts[2].x + 2, g.pts[2].y + 2, c, 1.0f);
       else { poly(g.pts, g.kind != Geo::Line, c, 1.0f); }
       if (Node* m = moverOf(*ed.level, *n)) {
         int period = std::max(2, (int)m->i("time", 200)), step = std::max(1, period / 90);
@@ -566,6 +591,7 @@ void EditorScreen::drawOverlay2() {
     if (t == Tool::PegBlue || t == Tool::PegOrange || t == Tool::PegGreen || t == Tool::PegPurple) circleC(p, 10, pegColor(t == Tool::PegBlue ? 1 : t == Tool::PegOrange ? 2 : t == Tool::PegGreen ? 4 : 3), 0.5f, true);
     else if (t == Tool::PegRound || t == Tool::Bumper) circleC(p, ed.roundRadius, t == Tool::Bumper ? 0xcccccc : 0x3d8bff, 0.5f, true);
     else if (t == Tool::Hole) ellipseC(p.x - 20, p.y - 20, p.x + 20, p.y + 20, 0x66ff88, 0.8f);
+    else if (t == Tool::Emitter) poly({V2(p.x - 60, p.y - 30), V2(p.x + 60, p.y - 30), V2(p.x + 60, p.y + 30), V2(p.x - 60, p.y + 30)}, true, 0xffb040, 0.6f);
     else if (t == Tool::Line || t == Tool::Poly || t == Tool::HoleExit) circleC(p, 3 / zoom_, kGold, 1.0f, true);
     if (ed.lineActive()) poly({ed.boxA(), ed.boxB()}, false, kGold, 1.0f);
   }
@@ -659,6 +685,8 @@ void EditorScreen::drawPalette() {
   tool("Line (L)", Tool::Line);
   tool("Hole (O)", Tool::Hole);
   tool("Hole exit (X)", Tool::HoleExit);
+  head("Effects");
+  tool("Emitter (N)", Tool::Emitter, 0xffb040);
   head("Arrange");
   float hw = (w - 4) / 2;
   button({x, y, hw, h}, "Flip H", [&] { ed.mirrorSelection(true); }, false, true);
@@ -1421,6 +1449,7 @@ void EditorScreen::keyDown(int key, int mod) {
     case SDLK_L: ed.tool = Tool::Line; return;
     case SDLK_O: ed.tool = Tool::Hole; return;
     case SDLK_X: ed.tool = Tool::HoleExit; return;
+    case SDLK_N: ed.tool = Tool::Emitter; return;
     case SDLK_G: showGrid_ = !showGrid_; return;
     case SDLK_S: ed.snap = !ed.snap; say(ed.snap ? "snap on" : "snap off"); return;
     case SDLK_F: fitView(); return;

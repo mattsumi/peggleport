@@ -15,7 +15,7 @@
 
 namespace pp::ed {
 
-enum class Tool { Select, Pan, PegBlue, PegOrange, PegGreen, PegPurple, PegRound, Bumper, BrickStraight, BrickCurved, Poly, Line, Hole, HoleExit };
+enum class Tool { Select, Pan, PegBlue, PegOrange, PegGreen, PegPurple, PegRound, Bumper, BrickStraight, BrickCurved, Poly, Line, Hole, HoleExit, Emitter };
 const char* toolName(Tool t);
 bool toolFromName(const std::string& s, Tool& t);
 
@@ -42,6 +42,10 @@ class Editor {
   std::vector<Issue> issues;
   int revision = 0;
   std::map<const Node*, std::string> customTypes;
+  const Vfs* vfs = nullptr;
+  std::string emitterImage;
+  void setVfs(const Vfs* v);
+  bool imageExists(const std::string& path) const;
   std::string customType(const NodeP& n) const;
   void setCustomType(const std::string& key);
 
