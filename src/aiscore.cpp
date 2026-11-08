@@ -65,6 +65,7 @@ struct AIMgr::Run {
   std::vector<int> pegList;
   std::vector<int> orange, other;
   bool clearAll = false;
+  bool nights = false;
   float aimDefault = 0;
   float gunStart = 0;
   int aimedIdx = -1;
@@ -383,12 +384,17 @@ void AIMgr::Run::notifyBall(int ci, int oi) {
       v = 50;
     }
   }
-  if (computer && !(o.pegType == 4 && false)) {
-    if (c.m == 1 && c.left == 1 && o.pegType == 2) v = 1;
+  if (computer) {
     const int m = c.m;
-    v = (int)((double)(10 * v) / (2.0 + (double)m * 1.0));
-    if (c.left < 3) v = (int)((double)(10 * v) / (2.0 + (double)(c.left + m) * 1.0));
-    if (c.m == 1 && o.pegType == 2 && duel) v = v * 4;
+    const int limit = skill == 10 ? 6 : skill >= 1 ? 5 : skill >= 0 ? 3 : 2;
+    if (nights && m > limit) {
+      v = 0;
+    } else {
+      if (m == 1 && c.left == 1 && o.pegType == 2) v = nights ? (int)((double)v * 1.5) : 1;
+      v = (int)((double)(10 * v) / (2.0 + (double)m * 1.0));
+      if (c.left < 3) v = (int)((double)(10 * v) / (2.0 + (double)(c.left + m) * 1.0));
+      if (m == 1 && o.pegType == 2 && duel) v = v * 4;
+    }
   }
   if (mult) v *= scoreMult(c.left);
   if (v > 10000 && o.pegType == 3) v = 10000;
@@ -535,6 +541,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
   r.fireball = b.pturn[b.cur][Board::P_FIREBALL] > 0;
   r.charge = b.pturn[b.cur][Board::P_TIMEBOMB] > 0;
   r.clearAll = b.cfg.clearLevel;
+  r.nights = b.cfg.nights;
   r.gunStart = b.gunAngle;
   r.aimDefault = aim;
   r.ownScore = b.score[b.cur];
