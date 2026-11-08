@@ -152,7 +152,8 @@ void dumpTo(const Json& j, std::string& o, int ind, int lvl) {
 }
 
 bool Json::parse(std::string_view text, Json& out, std::string* err) {
-  P p{text};
+  P p;
+  p.s = text;
   if (text.size() >= 3 && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) p.i = 3;
   if (!p.value(out)) { if (err) *err = p.err; return false; }
   p.ws();

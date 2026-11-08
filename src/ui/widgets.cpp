@@ -48,7 +48,7 @@ bool Button::mouseUp(float lx, float ly, int button) {
 }
 
 void Button::draw(Gfx& g) {
-  if (!visible || !image && kind != Kind::Link) return;
+  if (!visible || (!image && kind != Kind::Link)) return;
   Mode full(alpha);
   float dx = 0, dy = 0;
   bool pressed = down && over;

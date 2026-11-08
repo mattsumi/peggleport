@@ -278,9 +278,6 @@ IoResult HostProcess::receive(std::vector<uint8_t>& out, int timeoutMs) {
 
 fs::path findModHost() {
   std::error_code ec;
-  if (const char* env = std::getenv("PEGGLEPORT_MODHOST")) {
-    if (*env && fs::is_regular_file(env, ec)) return fs::path(env);
-  }
   fs::path self;
 #ifdef __APPLE__
   uint32_t size = 0;
