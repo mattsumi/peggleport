@@ -352,7 +352,7 @@ StoryScreen::StoryScreen(App& a, bool rev, bool eg) : Screen(a), reveal(rev), ea
   bContinue->x = 400 - bContinue->w / 2;
   bContinue->visible = false;
   const int reached = a.curProfile ? std::max(0, a.curProfile->advStage) : 0;
-  win = rev || (a.numStages() > 0 && reached >= a.numStages());
+  win = a.game != Game::Nights && (rev || (a.numStages() > 0 && reached >= a.numStages()));
   if (win) initWin();
   else initText();
 }
@@ -419,7 +419,7 @@ void StoryScreen::update() {
   app.playSample("TEXT_WOOSH");
 }
 void StoryScreen::finish() {
-  if (win) { app.showMainMenu(); return; }
+  if (win || reveal) { app.showMainMenu(); return; }
   if (app.game == Game::Nights) app.playSample("STAGE_DREAMY_OUT");
   app.showBoard(true, true);
 }
