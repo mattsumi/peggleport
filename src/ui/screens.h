@@ -50,11 +50,13 @@ class MainMenu : public Screen {
   static const DecalInfo* decalAt(App& app, float mx, float my, int* stageOut);
   void drawNights(Gfx& g);
   struct Sparkle {
+    std::string name;
     SparkleField field;
     float fade;
     bool live;
   };
   std::vector<Sparkle> sparkles;
+  float fadeOf(const std::string& name) const;
   void buildSparkles();
   void updateSparkles();
   void drawSparkles(Gfx& g);

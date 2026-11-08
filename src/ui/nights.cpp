@@ -94,6 +94,15 @@ int MainMenu::mantelAt(App& app, float mx, float my) {
   return -1;
 }
 
+static std::string trophyName(int id) { return "Trophy:" + std::to_string(id); }
+static std::string decalName(const DecalInfo& d) { return "Decal:" + d.image + std::to_string(d.layer); }
+
+float MainMenu::fadeOf(const std::string& name) const {
+  for (const Sparkle& s : sparkles)
+    if (s.name == name) return (float)(int)(std::clamp(s.fade, 0.0f, 1.0f) * 255.0f) / 255.0f;
+  return 1.0f;
+}
+
 void MainMenu::buildSparkles() {
   sparkles.clear();
   PlayerInfo* p = app.curProfile;
@@ -108,7 +117,7 @@ void MainMenu::buildSparkles() {
   for (int id : {1, 3, 2, 0})
     if (mantelEarned(app, id)) {
       const MantelTrophy& t = kMantel[id];
-      items.push_back({"Trophy:" + std::to_string(id), t.rx, t.ry, t.rw, t.rh, 1.0f, -1});
+      items.push_back({trophyName(id), t.rx, t.ry, t.rw, t.rh, 1.0f, -1});
     }
   std::vector<int> stages;
   for (int i = app.stages.numStages(); i < app.stages.numAllStages(); i++) {
@@ -118,7 +127,7 @@ void MainMenu::buildSparkles() {
       if (!app.gfx.img(d.image)) continue;
       auto at = std::find(stages.begin(), stages.end(), i);
       if (at == stages.end()) at = stages.insert(stages.end(), i);
-      items.push_back({"Decal:" + d.image + std::to_string(d.layer), d.hx, d.hy, d.hw, d.hh, d.emit, (int)(at - stages.begin())});
+      items.push_back({decalName(d), d.hx, d.hy, d.hw, d.hh, d.emit, (int)(at - stages.begin())});
     }
   }
   bool changed = false;
@@ -128,7 +137,7 @@ void MainMenu::buildSparkles() {
     if (!p->mantelSeenKnown) continue;
     float scale = 0.2f;
     if (it.group >= 0) scale = (float)(int)((double)it.group * 0.800000011920929) + 0.2f;
-    if (it.w != 0 && it.h != 0) sparkles.push_back({SparkleField(it.x, it.y, it.w, it.h, it.emit, app.rand()), 0.0f - scale, true});
+    sparkles.push_back({it.name, SparkleField(it.x, it.y, it.w, it.h, it.emit, app.rand()), 0.0f - scale, it.w != 0 && it.h != 0});
   }
   if (!p->mantelSeenKnown) {
     p->mantelSeenKnown = true;
@@ -166,7 +175,7 @@ void MainMenu::drawNights(Gfx& g) {
   drawLoungeScene(g, sunTick);
   for (int id : {1, 3, 2, 0})
     if (mantelEarned(app, id))
-      if (Tex* t = g.img(kMantel[id].image)) g.draw(t, (float)kMantel[id].sx, (float)kMantel[id].sy);
+      if (Tex* t = g.img(kMantel[id].image)) g.draw(t, (float)kMantel[id].sx, (float)kMantel[id].sy, Mode(fadeOf(trophyName(id))));
   {
     int st = -1;
     const DecalInfo* hov = decalAt(app, app.mouseX - x, app.mouseY - y, &st);
@@ -175,8 +184,9 @@ void MainMenu::drawNights(Gfx& g) {
       if (!s) continue;
       for (const DecalInfo& d : s->decals) {
         if (Tex* t = g.img(d.image)) {
-          g.draw(t, (float)d.x, (float)d.y);
-          if (&d == hov) g.draw(t, (float)d.x, (float)d.y, Mode(0.5f + 0.2f * std::sin(sunTick * 0.15f), 0xffffff, true));
+          float a = fadeOf(decalName(d));
+          g.draw(t, (float)d.x, (float)d.y, Mode(a));
+          if (&d == hov) g.draw(t, (float)d.x, (float)d.y, Mode((0.5f + 0.2f * std::sin(sunTick * 0.15f)) * a, 0xffffff, true));
         }
       }
     }
