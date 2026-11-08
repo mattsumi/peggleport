@@ -523,6 +523,23 @@ void EditorScreen::drawOverlay2() {
       circleC(h, 5 / zoom_, kCyan, 0.9f, true);
     }
   }
+  if (ed.cornersEditable() && ed.tool == Tool::Select && !animate_) {
+    int cs = ed.cornerIndex(), count = ed.cornerCount();
+    bool over = cv_.contains(app.mouseX, app.mouseY) && !openDlg_ && !prompt_.on;
+    int hot = ed.gestureActive() ? cs : over ? ed.cornerAt(ed.hover) : -1;
+    for (int i = 0; i < count; i++) {
+      V2 c = toCanvas(ed.cornerWorld(i));
+      float h = i == cs || i == hot ? 5.0f : 4.0f;
+      R(c.x - h, c.y - h, 2 * h, 2 * h, i == cs ? kGold : i == hot ? 0xffffff : kPanel);
+      F(c.x - h, c.y - h, 2 * h, 2 * h, kCyan);
+    }
+    V2 at;
+    if (hot < 0 && over && !ed.gestureActive() && ed.edgeAt(ed.hover, &at) >= 0) {
+      V2 c = toCanvas(at);
+      g_->line(c.x - 5, c.y, c.x + 5, c.y, kGold, 1.0f);
+      g_->line(c.x, c.y - 5, c.x, c.y + 5, kGold, 1.0f);
+    }
+  }
   for (auto& i : ed.issues)
     if (i.node && i.sev != Issue::Info) {
       Geo g = geometry(*ed.level, *i.node, 0);
@@ -722,6 +739,45 @@ void EditorScreen::tabObject(float x, float y0, float w) {
   std::snprintf(hd, sizeof hd, "%zu selected: %s%s", ed.sel.size(), typeName(n->type), ed.sel.size() > 1 ? " (+)" : "");
   T(x, y, hd, kGold);
   y += fh_ + 4;
+  if (n->type == 3 && ed.cornersEditable()) {
+    y += 3;
+    T(x, y, "- Corners", kLine + 0x303030);
+    y += fh_ + 2;
+    const int count = ed.cornerCount(), ci = ed.cornerIndex();
+    auto stepCorner = [this](int dir) {
+      int c = ed.cornerCount();
+      if (c > 0) ed.selectCorner(((ed.cornerIndex() < 0 ? (dir > 0 ? -1 : 0) : ed.cornerIndex()) + dir + c) % c);
+      dirtyLayout();
+    };
+    propRow(x, y, w, "Corner", ci >= 0 ? std::to_string(ci + 1) + " of " + std::to_string(count) : std::to_string(count) + " corners",
+            [stepCorner](int b) { stepCorner(b == 3 ? -1 : 1); }, stepCorner, true);
+    if (ci >= 0) {
+      V2 cw = ed.cornerWorld(ci);
+      for (int axis = 0; axis < 2; axis++) {
+        char vb[32];
+        std::snprintf(vb, sizeof vb, "%.4g", axis ? cw.y : cw.x);
+        std::string val = vb;
+        auto setAxis = [this, ci, axis](double v) {
+          V2 c = ed.cornerWorld(ci);
+          ed.setCorner(ci, axis ? V2(c.x, (float)v) : V2((float)v, c.y));
+          dirtyLayout();
+        };
+        propRow(x, y, w, axis ? "Corner Y" : "Corner X", val,
+                [this, val, axis, setAxis](int b) {
+                  if (b == 1) startPrompt(axis ? "Corner Y" : "Corner X", val, [setAxis](const std::string& t) { setAxis(std::strtod(t.c_str(), nullptr)); });
+                },
+                [this, axis, ci, setAxis](int dir) { V2 c = ed.cornerWorld(ci); setAxis((axis ? c.y : c.x) + dir * (mods_.shift ? 10.0 : 1.0)); }, true);
+      }
+    }
+    float hw = (w - 4) / 2;
+    button({x, y, hw, 20}, "Add corner", [this] { ed.addCorner(); say(ed.status); });
+    button({x + hw + 4, y, hw, 20}, "Remove corner", [this] { ed.removeCorner(); say(ed.status); }, false, ci >= 0 && count > 3);
+    y += 25;
+    T(x, y, "Drag a corner to move it.", kDim);
+    T(x, y + 15, "Double-click an edge to add one.", kDim);
+    T(x, y + 30, "Delete removes the chosen corner.", kDim);
+    y += 48;
+  }
   std::string group;
   for (auto& d : propsFor(*n)) {
     if (group != d.group) {
@@ -1323,6 +1379,7 @@ void EditorScreen::keyDown(int key, int mod) {
   if (key == SDLK_ESCAPE) {
     if (ed.gestureActive() || !ed.polyPoints().empty()) ed.cancelGesture();
     else if (ed.tool != Tool::Select) ed.tool = Tool::Select;
+    else if (ed.cornerIndex() >= 0) ed.selectCorner(-1);
     else ed.clearSelection();
     return;
   }
@@ -1344,7 +1401,12 @@ void EditorScreen::keyDown(int key, int mod) {
   }
   switch (key) {
     case SDLK_DELETE:
-    case SDLK_BACKSPACE: ed.deleteSelection(); return;
+    case SDLK_BACKSPACE: {
+      bool corner = ed.cornerIndex() >= 0;
+      ed.deleteKey();
+      if (corner) say(ed.status);
+      return;
+    }
     case SDLK_V: ed.tool = Tool::Select; return;
     case SDLK_H: ed.tool = Tool::Pan; return;
     case SDLK_1: ed.tool = Tool::PegBlue; return;

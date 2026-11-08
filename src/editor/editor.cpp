@@ -92,6 +92,8 @@ void Editor::resetHistory() {
   metaDirty = false;
   sel.clear();
   polyPts_.clear();
+  cornerPoly_.reset();
+  cornerIdx_ = -1;
   g_ = G();
   issues.clear();
   changed();
@@ -477,6 +479,10 @@ void Editor::deleteSelection() {
 }
 void Editor::moveSelection(float dx, float dy) {
   if (sel.empty()) return;
+  if (int ci = cornerIndex(); ci >= 0) {
+    setCorner(ci, cornerWorld(ci) + V2(dx, dy));
+    return;
+  }
   begin("Move", sel);
   std::set<const Node*> done;
   for (auto& n : sel) translateNode(*n, dx, dy, &done);
@@ -646,6 +652,102 @@ void Editor::removeMover() {
   for (auto& n : sel) detachMover(*level, *n);
   commit();
 }
+bool Editor::cornersEditable() const {
+  return sel.size() == 1 && sel.front()->type == 3 && sel.front()->val("vertices") && polyCorners(*sel.front()).size() >= 2;
+}
+int Editor::cornerCount() const { return cornersEditable() ? (int)polyCorners(*sel.front()).size() : 0; }
+int Editor::cornerIndex() const {
+  if (!cornersEditable() || sel.front() != cornerPoly_) return -1;
+  return cornerIdx_ >= 0 && cornerIdx_ < cornerCount() ? cornerIdx_ : -1;
+}
+void Editor::selectCorner(int i) {
+  if (!cornersEditable() || i < 0 || i >= cornerCount()) {
+    cornerPoly_.reset();
+    cornerIdx_ = -1;
+    return;
+  }
+  cornerPoly_ = sel.front();
+  cornerIdx_ = i;
+}
+V2 Editor::cornerWorld(int i) const { return cornersEditable() ? polyCornerWorld(*level, *sel.front(), i) : V2(); }
+int Editor::cornerAt(V2 p) const { return cornersEditable() ? hitCorner(*level, *sel.front(), p, 7.0f / std::max(0.05f, zoom_)) : -1; }
+int Editor::edgeAt(V2 p, V2* at) const { return cornersEditable() ? hitEdge(*level, *sel.front(), p, 6.0f / std::max(0.05f, zoom_), at) : -1; }
+bool Editor::applyCorners(const NodeP& poly, const std::vector<V2>& corners, const std::string& label) {
+  begin(label, {poly});
+  bool ok = polySetCorners(*poly, corners);
+  if (ok) commit(); else abort();
+  return ok;
+}
+bool Editor::setCorner(int i, V2 world) {
+  if (!cornersEditable()) return false;
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  if (i < 0 || (size_t)i >= c.size()) { status = "no such corner"; return false; }
+  auto next = c;
+  next[(size_t)i] = polyWorldToLocal(*level, *poly, world);
+  if (!polyShapeOk(c, next)) { status = "that corner would collapse or cross the shape"; return false; }
+  if (!applyCorners(poly, next, "Move corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = i;
+  return true;
+}
+bool Editor::addCorner() {
+  if (!cornersEditable()) return false;
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  int edge = cornerIndex();
+  if (edge < 0) {
+    float best = -1;
+    for (size_t i = 0; i < c.size(); i++) {
+      float l = (c[(i + 1) % c.size()] - c[i]).len2();
+      if (l > best) { best = l; edge = (int)i; }
+    }
+  }
+  V2 mid = (c[(size_t)edge] + c[((size_t)edge + 1) % c.size()]) * 0.5f;
+  auto next = c;
+  next.insert(next.begin() + edge + 1, mid);
+  if (!polyShapeOk(c, next)) { status = "no room for another corner there"; return false; }
+  if (!applyCorners(poly, next, "Add corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = edge + 1;
+  status = "corner added";
+  return true;
+}
+bool Editor::addCornerAt(V2 world) {
+  V2 at;
+  int edge = edgeAt(world, &at);
+  if (edge < 0) return false;
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  auto next = c;
+  next.insert(next.begin() + edge + 1, polyWorldToLocal(*level, *poly, at));
+  if (!polyShapeOk(c, next)) { status = "no room for another corner there"; return false; }
+  if (!applyCorners(poly, next, "Add corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = edge + 1;
+  status = "corner added";
+  return true;
+}
+bool Editor::removeCorner() {
+  int i = cornerIndex();
+  if (i < 0) { status = "select a corner first"; return false; }
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  if (c.size() <= 3) { status = "a polygon needs at least 3 corners"; return false; }
+  auto next = c;
+  next.erase(next.begin() + i);
+  if (!polyShapeOk(c, next)) { status = "removing that corner would cross the shape"; return false; }
+  if (!applyCorners(poly, next, "Remove corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = std::max(0, i - 1);
+  status = "corner removed";
+  return true;
+}
+bool Editor::deleteKey() {
+  if (cornerIndex() >= 0) return removeCorner();
+  deleteSelection();
+  return true;
+}
 int Editor::generate(const std::string& kind, const std::vector<float>& a, int pegType) {
   std::vector<V2> pts;
   auto A = [&](size_t i, float d) { return i < a.size() ? a[i] : d; };
@@ -689,7 +791,7 @@ bool Editor::overRotateHandle(V2 p) const {
   return rotateHandle(h) && (p - h).len2() <= (9.0f / zoom_) * (9.0f / zoom_);
 }
 void Editor::cancelGesture() {
-  if (g_.kind == G::Move || g_.kind == G::Rotate) abort();
+  if (g_.kind == G::Move || g_.kind == G::Rotate || g_.kind == G::Corner) abort();
   g_ = G();
   polyPts_.clear();
 }
@@ -712,6 +814,24 @@ void Editor::mouseDown(V2 p, int button, Mods m, int clicks) {
         g_.ang0 = std::atan2(p.y - g_.pivot.y, p.x - g_.pivot.x);
         begin("Rotate", sel);
         return;
+      }
+      if (cornersEditable()) {
+        NodeP poly = sel.front();
+        int ci = cornerAt(p);
+        if (ci >= 0) {
+          cornerPoly_ = poly;
+          cornerIdx_ = ci;
+          g_ = G();
+          g_.kind = G::Corner;
+          g_.corner = ci;
+          g_.start = p;
+          g_.cornerStart = cornerWorld(ci);
+          g_.cornersAtStart = polyCorners(*poly);
+          g_.primary = poly;
+          begin("Move corner", {poly});
+          return;
+        }
+        if (clicks >= 2 && addCornerAt(p)) return;
       }
       NodeP hit = hitObject(p);
       if (hit) {
@@ -789,6 +909,23 @@ void Editor::mouseMove(V2 p, Mods m) {
       }
       break;
     }
+    case G::Corner: {
+      V2 w = g_.cornerStart + (p - g_.start);
+      if (snap) w = snapPt(w);
+      if (!g_.moved && w.x == g_.cornerStart.x && w.y == g_.cornerStart.y) break;
+      if (g_.moved && w.x == g_.appliedD.x && w.y == g_.appliedD.y) break;
+      auto next = g_.cornersAtStart;
+      next[(size_t)g_.corner] = polyWorldToLocal(*level, *g_.primary, w);
+      if (!polyShapeOk(g_.cornersAtStart, next)) {
+        status = "that corner would collapse or cross the shape";
+        break;
+      }
+      polySetCorners(*g_.primary, next);
+      g_.appliedD = w;
+      g_.moved = true;
+      changed();
+      break;
+    }
     case G::Box: g_.b = p; break;
     case G::Line: {
       V2 q = snapPt(p);
@@ -809,6 +946,7 @@ void Editor::mouseUp(V2 p, int button, Mods m) {
   switch (g_.kind) {
     case G::Move:
     case G::Rotate:
+    case G::Corner:
       if (g_.moved) commit(); else abort();
       break;
     case G::Box: {
@@ -1158,6 +1296,18 @@ std::string Editor::exec(const std::string& line, bool* okOut) {
     if (w.size() > 1 && w[1] == "remove") { removeMover(); msg = "mover removed"; }
     else if (w.size() > 2 && w[1] == "add") { ok = addMover(std::atoi(w[2].c_str())); msg = ok ? "mover added" : "no object can take a mover"; }
     else { ok = false; msg = "usage: mover add TYPE | mover remove"; }
+  } else if (c == "corner") {
+    if (w.size() > 1 && w[1] == "add") { ok = addCorner(); msg = ok ? "corner added" : status; }
+    else if (w.size() > 1 && w[1] == "remove") { ok = removeCorner(); msg = ok ? "corner removed" : status; }
+    else if (w.size() > 1 && w[1] == "move") {
+      auto q = nums(w, 2);
+      ok = q.size() >= 3 && setCorner((int)q[0], V2(q[1], q[2]));
+      msg = ok ? "corner moved" : (q.size() >= 3 ? status : "usage: corner move N x y");
+    } else if (!n.empty()) {
+      selectCorner((int)n[0]);
+      ok = cornerIndex() >= 0;
+      msg = ok ? "corner " + std::to_string(cornerIndex()) : "no such corner";
+    } else { ok = false; msg = "usage: corner N | corner add | corner remove | corner move N x y"; }
   } else if (c == "gen") {
     if (w.size() > 1) {
       int type = 1;
