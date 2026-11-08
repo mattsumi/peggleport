@@ -423,9 +423,9 @@ void App::showLoadingScreen() {
 
 void App::showMainMenu() {
   duelSes = DuelSession{};
-  if (audio) audio->stopMusic();
   killDialog(D_Options);
   if (cur_ && std::string(cur_->name()) == "mainmenu") return;
+  playMusic("fadeout");
   Dir leave = Right;
   if (cur_ && std::string(cur_->name()) == "loading") leave = Left;
   Screen* old = cur_.get();
