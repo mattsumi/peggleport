@@ -93,7 +93,7 @@ void ImportDialog::drawLayer(Gfx& g) {
   if (!status.empty()) {
     text = status;
   } else if (!haveScan) {
-    text = "Bring in your players from the original Peggle Deluxe. Choose the folder named userdata where the original game keeps its saves, or one player file such as user1.dat. The original files are only read, never changed.";
+    text = "Bring in your players from the original Peggle Deluxe or Peggle Nights. Choose the folder named userdata where the original game keeps its saves, or one player file such as user1.dat. The original files are only read, never changed.";
     auto where = originalSaveFolders(app.game);
     if (!where.empty()) text += "\n\nUsual place on this computer:\n" + pathToUtf8(where.front());
   } else {

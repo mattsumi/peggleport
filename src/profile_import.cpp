@@ -18,7 +18,8 @@ namespace {
 
 constexpr size_t kMaxFile = 16u * 1024u * 1024u;
 constexpr uint32_t kMaxItems = 1000000;
-constexpr int kDeluxeFirst = 19, kDeluxeLast = 23;
+constexpr int kDeluxeFirst = 19, kDeluxeLast = 23, kNightsVersion = 28;
+constexpr int kNightsStyleCount = 24;
 
 std::string lowerStr(std::string s) {
   for (auto& c : s) c = (char)std::tolower((unsigned char)c);
@@ -71,6 +72,13 @@ bool readSetStr(DataReader& r, std::vector<std::string>& out) {
   if (!fits(r, n, 2)) return false;
   out.clear();
   for (uint32_t i = 0; i < n; i++) out.push_back(r.str());
+  return r.ok();
+}
+
+bool readVecInt(DataReader& r) {
+  uint32_t n = r.u32();
+  if (!fits(r, n, 4) || n > 100000) return false;
+  for (uint32_t i = 0; i < n; i++) r.i32();
   return r.ok();
 }
 
@@ -156,6 +164,64 @@ bool parseDeluxe(DataReader& r, int version, PlayerInfo& p, std::string& why) {
   }
   if (version >= 22) p.tipOther = r.u16();
   if (version >= 23) p.trophyLevelSeen = r.u16();
+  if (!r.ok()) { why = "the file ends too early"; return false; }
+  return true;
+}
+
+bool parseNights(DataReader& r, PlayerInfo& p, std::string& why) {
+  p.maxStage = r.i32();
+  p.maxLevel = r.i32();
+  p.levelSelectStage = r.i32();
+  p.advStage = r.i32();
+  p.advLevel = r.i32();
+  p.char1 = r.i32();
+  p.char2 = r.i32();
+  p.strB4 = r.str();
+  p.i38 = r.i32();
+  std::vector<int> ints;
+  if (!readSetInt(r, ints)) { why = "the list of trophies is cut short"; return false; }
+  p.trophies.insert(ints.begin(), ints.end());
+  if (!readSetInt(r, ints)) { why = "the list of adventure scores is cut short"; return false; }
+  p.advScores.insert(ints.begin(), ints.end());
+  std::vector<std::pair<int, int>> pairs;
+  if (!readMapInt(r, pairs)) { why = "the list of trophy scores is cut short"; return false; }
+  for (auto& kv : pairs) p.trophyTop[kv.first] = kv.second;
+  p.strD0 = r.str();
+  p.fEd = r.bit();
+  p.computerPlayer = r.bit();
+  p.fEe = r.bit();
+  p.colorblind = r.bit();
+  p.storyPending = r.bit();
+  p.fEf = r.bit();
+  r.bit();
+  r.bit();
+  r.endBit();
+  p.computerSkill = r.i32();
+  p.b54 = r.u8();
+  p.b124 = r.u8();
+  p.b128 = r.u8();
+  std::vector<std::string> strs;
+  if (!readSetStr(r, strs)) { why = "the list of cleared levels is cut short"; return false; }
+  p.clearedLevels.insert(strs.begin(), strs.end());
+  p.advCompletions = r.i32();
+  p.b58 = r.u8();
+  p.tipsMask = r.i32();
+  r.i32();
+  p.advScore = r.i32();
+  p.advLevelAttempts = r.i32();
+  p.advRetries = r.i32();
+  if (!r.ok() || !readStats(r, p.statsA, kNightsStyleCount) || !readStats(r, p.statsB, kNightsStyleCount)) { why = "the statistics are cut short"; return false; }
+  p.tipCount = r.u16();
+  for (uint8_t& v : p.tipCounts) v = r.u8();
+  p.tipOther = r.u16();
+  r.u16();
+  if (!readSetStr(r, strs)) { why = "the list of aced levels is cut short"; return false; }
+  p.acedLevels.insert(strs.begin(), strs.end());
+  r.i32();
+  if (!readVecInt(r) || !readVecInt(r)) { why = "a list of numbers is cut short"; return false; }
+  if (!readSetStr(r, strs) || !readSetStr(r, strs)) { why = "a list of levels is cut short"; return false; }
+  if (!readSetInt(r, ints)) { why = "a list of numbers is cut short"; return false; }
+  if (!readSetStr(r, strs)) { why = "a list of names is cut short"; return false; }
   if (!r.ok()) { why = "the file ends too early"; return false; }
   return true;
 }
@@ -250,6 +316,9 @@ bool parseOriginalProfile(const std::vector<uint8_t>& data, ImportedProfile& out
   if (version >= kDeluxeFirst && version <= kDeluxeLast) {
     out.game = Game::Deluxe;
     ok = parseDeluxe(r, version, p, why);
+  } else if (version == kNightsVersion) {
+    out.game = Game::Nights;
+    ok = parseNights(r, p, why);
   } else {
     out.problem = "it was saved by a version of the game I do not know (file version " + std::to_string(version) + ")";
     return false;
@@ -596,6 +665,7 @@ std::vector<std::string> describeImported(const ImportedProfile& ip) {
   else v.push_back("Adventure: stage " + std::to_string(p.maxStage + 1) + ", level " + std::to_string(p.maxLevel + 1));
   v.push_back(std::to_string(p.trophies.size()) + " challenge trophies");
   v.push_back(std::to_string(p.clearedLevels.size()) + " levels cleared");
+  if (ip.game == Game::Nights) v.push_back(std::to_string(p.acedLevels.size()) + " levels aced");
   if (!p.advScores.empty()) v.push_back("Best adventure score " + withCommas(*p.advScores.rbegin()));
   return v;
 }
