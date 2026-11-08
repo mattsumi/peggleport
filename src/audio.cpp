@@ -85,6 +85,7 @@ float volumeCurve(float v) {
 struct Audio::Music {
 #ifdef PP_HAVE_OPENMPT
   openmpt_module* mod = nullptr;
+  int lockOrder = -1;
   ~Music() { if (mod) openmpt_module_destroy(mod); }
 #endif
   std::vector<uint8_t> file;
@@ -324,6 +325,7 @@ void Audio::tickMusic() {
   if (pendOrder_ >= 0 && music_ && music_->mod) {
     if (openmpt_module_get_current_row(music_->mod) / 16 != pendRow_) {
       openmpt_module_set_position_order_row(music_->mod, pendOrder_, 0);
+      music_->lockOrder = pendOrder_;
       pendOrder_ = -1;
     }
   }
@@ -362,6 +364,9 @@ void Audio::playLevelMusic(bool nights) {
     lvlBase_ = nights ? 0 : e * 6;
     intensity_ = 0;
     pendOrder_ = -1;
+#ifdef PP_HAVE_OPENMPT
+    if (music_ && music_->mod) music_->lockOrder = lvlBase_;
+#endif
   }
 }
 
@@ -468,8 +473,20 @@ void Audio::render(float* out, int frames) {
 #ifdef PP_HAVE_OPENMPT
     else if (m.mod) {
       std::vector<float> tmp((size_t)frames * 2);
-      size_t got = openmpt_module_read_interleaved_float_stereo(m.mod, 44100, (size_t)frames, tmp.data());
-      for (size_t i = 0; i < got * 2; i++) out[i] += tmp[i] * mg;
+      int done = 0;
+      while (done < frames) {
+        int want = frames - done;
+        if (m.lockOrder >= 0) {
+          int pat = openmpt_module_get_current_pattern(m.mod);
+          int rows = openmpt_module_get_pattern_num_rows(m.mod, pat);
+          if (openmpt_module_get_current_row(m.mod) >= rows - 1) want = std::min(want, 32);
+        }
+        size_t got = openmpt_module_read_interleaved_float_stereo(m.mod, 44100, (size_t)want, tmp.data());
+        if (got == 0) break;
+        for (size_t i = 0; i < got * 2; i++) out[((size_t)done) * 2 + i] += tmp[i] * mg;
+        done += (int)got;
+        if (m.lockOrder >= 0 && openmpt_module_get_current_order(m.mod) != m.lockOrder) openmpt_module_set_position_order_row(m.mod, m.lockOrder, 0);
+      }
     }
 #endif
   };
