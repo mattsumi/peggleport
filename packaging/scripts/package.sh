@@ -30,6 +30,18 @@ cp "$ROOT/README.md" "$ROOT/FAQ.md" "$ROOT/THIRD_PARTY.md" "$STAGE/"
 [ -f "$ROOT/LICENSE" ] && cp "$ROOT/LICENSE" "$STAGE/"
 cp -R "$ROOT/faq" "$STAGE/faq"
 
+mkdir -p "$STAGE/licenses"
+for d in "$BUILD"/_deps/*-src; do
+  [ -d "$d" ] || continue
+  n=$(basename "$d" -src)
+  for f in "$d"/LICENSE "$d"/LICENSE.txt "$d"/COPYING; do
+    if [ -f "$f" ]; then cp "$f" "$STAGE/licenses/$n-$(basename "$f")"; fi
+  done
+done
+for f in "$BUILD"/_deps/openmpt-src/include/*/LICENSE; do
+  if [ -f "$f" ]; then cp "$f" "$STAGE/licenses/openmpt-$(basename "$(dirname "$f")")-LICENSE"; fi
+done
+
 mkdir -p "$STAGE/examples/mods"
 cp -R "$ROOT"/examples/mods/* "$STAGE/examples/mods/"
 cp -R "$ROOT/examples/plugin" "$STAGE/examples/plugin"
