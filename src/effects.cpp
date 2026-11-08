@@ -140,7 +140,7 @@ uint32_t rgbaOf(uint32_t rgb, int a) { return (rgb << 8) | (uint32_t)std::clamp(
 namespace {
 enum : int {
   T_FEVERBLAST_ROCKET = 4, T_COIN = 8, T_STREAK = 6, T_TRAIL = 0x13, T_STAR = 0x14, T_CATCHERGLOW = 0x1a, T_CATCHERSPARK = 0x1b, T_LETTER = 0x1d,
-  T_STYLESPARK = 0x2e,
+  T_STYLESPARK = 0x2e, T_CHAIN_BOLT = 0x60, T_CHAIN_ARC = 0x61, T_CHAIN_EMBER = 0x62,
 };
 int bucketIndex(const Board& b) {
   for (size_t i = 0; i < b.objs.size(); i++)
@@ -368,11 +368,118 @@ void Renderer::fxBubble(float x, float y, int rise, int cel, int age) {
   e.age = -age;
 }
 
-void Renderer::fxElectro(float x0, float y0, float x1, float y1, int life) {
-  FxEffect& e = fxAdd(0x30, x0, y0, 2);
-  e.fa = x1;
-  e.fb = y1;
-  e.life = life;
+void Renderer::fxChainBolt(const Board& b, int from, int to, int delay, bool fire) {
+  FxState& S = fx_;
+  const V2 a = b.objs[(size_t)from].pos;
+  const V2 end = to >= 0 ? b.objs[(size_t)to].pos : strikeRod_;
+  const uint32_t arcColor = fire ? 0xff6622u : 0x8888ffu, boltColor = fire ? 0xff6622u : 0x6666ffu;
+  for (int k = 0; k < 10; k++) {
+    const float t = std::fabs((float)(S.rand(1000) - 500) / 500.0f);
+    const float px = a.x * t + end.x * (1.0f - t), py = a.y * t + end.y * (1.0f - t);
+    const float th = (float)S.rand(360) * PI / 180.0f, c = std::cos(th), sn = std::sin(th);
+    const float speed = (float)S.rand(1000) / 1000.0f * 1.5f + 0.4f;
+    FxEffect& f = fxAdd(T_CHAIN_ARC, px + 20.0f * c, py + 20.0f * sn, 0);
+    f.vx = speed * c;
+    f.vy = speed * sn - 0.1f;
+    f.ay = 0.001f;
+    f.life = 130;
+    f.age = fire ? 0 : -delay;
+    f.i34 = (int)arcColor;
+  }
+  FxEffect& bolt = fxAdd(T_CHAIN_BOLT, a.x, a.y, 0);
+  bolt.life = fire ? 30 : 45;
+  bolt.age = 0;
+  bolt.i30 = from;
+  bolt.i34 = to;
+  bolt.i38 = (int)boltColor;
+  if (!fire) return;
+  for (int k = 0; k < 20; k++) {
+    const float th = (float)S.rand(360) * PI / 180.0f;
+    const float r = (float)S.rand(10000) * 0.001f;
+    const float rise = (float)S.rand(1000) / 1000.0f;
+    FxEffect& m = fxAdd(T_CHAIN_EMBER, end.x + r * std::cos(th), end.y + r * std::sin(th), 0);
+    m.life = 35;
+    m.vy = -rise;
+    m.age = -S.rand(35);
+  }
+}
+
+void Renderer::drawChainBolt(const Board& b, const FxEffect& e) {
+  if (e.i30 < 0 || e.i30 >= (int)b.objs.size() || e.i34 >= (int)b.objs.size()) return;
+  const V2 a = b.objs[(size_t)e.i30].pos;
+  const V2 c = e.i34 >= 0 ? b.objs[(size_t)e.i34].pos : V2{(float)b.rod.x, b.rod.y};
+  Tex* small = img("IMAGE_LIGHTNING_FRONT_SMALL");
+  Tex* big = img("IMAGE_LIGHTNING_FRONT");
+  Tex* glow = img("IMAGE_LIGHTNING_BACK");
+  const float dx = a.x - c.x, dy = a.y - c.y;
+  const float len = std::sqrt(dx * dx + dy * dy);
+  Tex* front = small && small->lh() < len ? big : small;
+  if (!front) return;
+  const float height = front->lh();
+  const int n = (int)std::ceil(len / height);
+  if (n <= 0) return;
+  const float sdx = dx / (float)n, sdy = dy / (float)n, seg = len / (float)n;
+  const float rot = std::atan2(sdx, sdy) + PI;
+  const int cel = (e.age / 4) % std::max(1, front->cols);
+  const uint32_t color = (uint32_t)e.i38;
+  for (int i = 0; i < n; i++) {
+    const float cx = BX + a.x - sdx * ((float)i + 0.5f), cy = BY + a.y - sdy * ((float)i + 0.5f);
+    if (glow) {
+      const float w = glow->lw() * 0.5f, h = glow->lh() * (seg / glow->lh());
+      put(glow, {0, 0, glow->lw(), glow->lh()}, cx - w / 2, cy - h / 2, {rgbaOf(color, 255), Blend::Add}, w, h, rot, w / 2, h / 2);
+    }
+    const float w = front->cw() * (0.5f + seg * 0.5f / height), h = front->ch() * (seg / height);
+    put(front, {cel * front->cw(), 0, front->cw(), front->ch()}, cx - w / 2, cy - h / 2, {0xffffffffu, Blend::Normal}, w, h, rot, w / 2, h / 2);
+  }
+}
+
+void Renderer::drawRodRings(const Board& b, Tex* ring) {
+  if (!ring) return;
+  const Rod& r = b.rod;
+  const int W = (int)ring->lw(), H = (int)ring->lh();
+  for (int v : r.rings) {
+    const float p = (float)(1.0 - (double)v / 90.0);
+    float alpha = 205.0f;
+    if ((double)p < 0.4000000059604645) alpha = (float)((double)p / 0.4000000059604645 * 205.0);
+    if (0.6000000238418579 < (double)p) alpha = (float)((1.0 - ((double)p - 0.6000000238418579) / 0.3999999761581421) * (double)alpha);
+    const double s = 0.4000000059604645 * (double)p + 0.44999998807907104;
+    const int w = (int)((double)W * s), h = (int)((double)H * s);
+    const int Y = (int)((double)r.y - (double)(h >> 1) + 40.0 - 44.0 * (double)p);
+    const int X = (int)((double)r.anchorX - (double)(w >> 1));
+    put(ring, {0, 0, ring->lw(), ring->lh()}, BX + (float)X, BY + (float)Y, {rgbaOf(0xffffff, (int)alpha), Blend::Add}, (float)w, (float)h);
+  }
+}
+
+void Renderer::drawRodSparks(const Board& b) {
+  Tex* sp = img("IMAGE_LIGHTNING_BALLSPARK");
+  if (!sp) return;
+  const Rod& r = b.rod;
+  const float cx = BX + (float)r.x, cy = BY + (float)(int)((double)r.y - 2.0);
+  const int perCel = (int)std::ceil(40.0 / (double)std::max(1, sp->cols));
+  for (const Rod::Spark& k : r.sparks) {
+    int idx = k.life / std::max(1, perCel);
+    if (k.ang < 0.0f) idx = sp->cols - idx - 1;
+    idx = std::clamp(idx, 0, sp->cols - 1);
+    const float w = sp->cw() * 0.8f, h = sp->ch() * 0.8f;
+    put(sp, {idx * sp->cw(), 0, sp->cw(), sp->ch()}, cx - w / 2, cy - h / 2, {rgbaOf(0xffffff, 200), Blend::Add}, w, h, std::fabs(k.ang), w / 2, h / 2);
+  }
+}
+
+void Renderer::drawRod(const Board& b) {
+  if (!b.chainUsed || !(b.rod.y < 600.0f) || b.bucketIndex() < 0) return;
+  const Rod& r = b.rod;
+  const char* id = r.state == 4 || r.state == 2 || r.state == 1 ? "IMAGE_LIGHTNING_ROD_ZAP"
+                   : r.state >= 5 && r.state <= 9               ? "IMAGE_LIGHTNING_ROD"
+                                                                : "IMAGE_LIGHTNING_ROD_ON";
+  drawRodRings(b, img("IMAGE_LIGHTNING_ROD_RING_BACK"));
+  if (Tex* t = img(id)) {
+    Paint p{0xffffffffu, Blend::Normal};
+    if (r.state == 9) p = {rgbaOf(0xffffff, 255 - (int)((double)r.timer * 255.0 / 100.0)), Blend::Add};
+    const int X = r.x - ((int)t->lw() >> 1), Y = (int)((double)r.y - (double)((int)t->lh() >> 1));
+    put(t, {0, 0, t->lw(), t->lh()}, BX + (float)X, BY + (float)Y, p);
+  }
+  drawRodSparks(b);
+  drawRodRings(b, img("IMAGE_LIGHTNING_ROD_RING_FRONT"));
 }
 
 void Renderer::fxTimeBomb(float x, float y) {
@@ -425,6 +532,15 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
   const Event& e = r.e;
   FxState& S = fx_;
   switch (e.type) {
+    case Event::ChainStrike: {
+      float ry;
+      std::memcpy(&ry, &e.c, sizeof ry);
+      strikeRod_ = {(float)e.b, ry};
+      break;
+    }
+    case Event::ChainBolt:
+      if (e.a >= 0 && e.a < (int)b.objs.size() && e.b < (int)b.objs.size()) fxChainBolt(b, e.a, e.b, e.c & 0xff, ((e.c >> 8) & 1) != 0);
+      break;
     case Event::PegLit: {
       if (e.a < 0 || e.a >= (int)b.objs.size()) break;
       bool fever = (e.b & 0x40000000) != 0;
@@ -1309,29 +1425,22 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
       putCentered(t, X, Y, {}, 1.0f, -tilt);
       break;
     }
-    case 0x30: {
-      Tex* front = img("IMAGE_LIGHTNING_FRONT");
-      Tex* back = img("IMAGE_LIGHTNING_BACK");
-      Tex* spark = img("IMAGE_LIGHTNING_BALLSPARK");
-      float dx = e.fa - e.x, dy = e.fb - e.y, len = std::sqrt(dx * dx + dy * dy);
-      if (len < 1.0f) break;
-      float al = std::min(1.0f, (float)(e.age + 1) / 3.0f);
-      if (e.life - e.age < 8) al = std::min(al, (float)(e.life - e.age) / 8.0f);
-      int a = std::clamp((int)(al * 255.0f), 0, 255);
-      float rot = std::atan2(dx, dy);
-      auto along = [&](Tex* t, SDL_FRect src, float wid, Paint p) {
-        put(t, {src.x, src.y, src.w, src.h}, X - wid / 2, Y, p, wid, len, rot, wid / 2, 0);
-      };
-      if (back) along(back, {0, 0, back->lw(), back->lh()}, 70.0f, {rgbaOf(0x6080ff, a * 3 / 4), Blend::Add});
-      if (front) {
-        int cel = (e.age / 2) % std::max(1, front->cols);
-        along(front, {cel * front->cw(), 0, front->cw(), front->ch()}, front->cw() * 0.8f, {rgbaOf(0xffffff, a), Blend::Add});
-      }
-      if (spark) {
-        int cel = (e.age / 2) % std::max(1, spark->cols);
-        for (int end = 0; end < 2; end++)
-          put(spark, {cel * spark->cw(), 0, spark->cw(), spark->ch()}, (end ? BX + e.fa : X) - spark->cw() / 2, (end ? BY + e.fb : Y) - spark->ch() / 2, {rgbaOf(0xffffff, a), Blend::Add});
-      }
+    case T_CHAIN_BOLT: drawChainBolt(b, e); break;
+    case T_CHAIN_ARC: {
+      Tex* t = img("IMAGE_SPACESTAR");
+      if (!t) break;
+      const int k = (int)((double)(e.life - e.age) * 0.05);
+      if (k <= 0) break;
+      put(t, {0, 0, t->lw(), t->lh()}, (float)(int)(X - (float)k), (float)(int)(Y - (float)k), {rgbaOf((uint32_t)e.i34, 255), Blend::Add}, (float)(2 * k), (float)(2 * k));
+      break;
+    }
+    case T_CHAIN_EMBER: {
+      Tex* t = img("IMAGE_EMBER");
+      if (!t) break;
+      const int delay = std::max(1, t->frameDelay);
+      if (e.age >= t->cols * delay) break;
+      const int cel = std::min(t->cols - 1, e.age / delay);
+      put(t, {cel * t->cw(), 0, t->cw(), t->ch()}, X - t->cw() / 2, Y - t->ch() / 2, {0x80606080u, Blend::Add});
       break;
     }
     case 9: {

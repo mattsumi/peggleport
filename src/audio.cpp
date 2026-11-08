@@ -272,6 +272,11 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::Zen: if (e.a == 1 || e.a == 2) play("GONG"); break;
       case Event::Hint: play("COINSPIN_NO"); break;
       case Event::StyleShot: if (e.a != 18) play("SKILLSHOT", 0, 1, 1); break;
+      case Event::ChainStart: play("LIGHTNING_START"); break;
+      case Event::ChainStrike: play("POWERUP_LIGHTNING_HIT", 0, 1, 1); break;
+      case Event::ChainBolt:
+        if (e.b >= 0) playLater(e.c & 0xff, "PEGSPARK", (float)((e.c >> 16) - 12), 1, 1);
+        break;
       case Event::TimeBomb: play("EXPLODE"); break;
       default: break;
     }
@@ -292,6 +297,18 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
     } else if (!fireAlive && fireLoopEnd_ > 0) {
       stopSample("FIREBALLLOOP");
       fireLoopEnd_ = 0;
+    }
+  }
+  {
+    bool chainAlive = false;
+    for (const auto& bl : b.balls) chainAlive = chainAlive || (bl.chain && bl.alive);
+    if (chainAlive && updates_ >= chainLoopEnd_) {
+      play("LIGHTNING_LOOP", 0, 1, 0, true);
+      const Sample* ls = sample("LIGHTNING_LOOP");
+      chainLoopEnd_ = updates_ + (ls && ls->rate > 0 ? (int)((double)ls->pcm.size() / 2 / ls->rate * 100.0) : 100);
+    } else if (!chainAlive && chainLoopEnd_ > 0) {
+      stopSample("LIGHTNING_LOOP");
+      chainLoopEnd_ = 0;
     }
   }
   if (b.slowOn && !prevSlow_) {

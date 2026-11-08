@@ -1111,6 +1111,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   }
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawEffects(b, 0);
+  drawRod(b);
   fxDrawTexts(b, -1);
   SDL_SetRenderClipRect(r_, &objClip);
   for (auto& bl : b.balls) drawBall(b, bl, false);

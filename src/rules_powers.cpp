@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 #include "physobj.h"
@@ -307,7 +308,28 @@ void Board::rodUpdate() {
     if (m > b) m = 2 * b - m;
     return F32((double)m / (double)b);
   };
-  if (r.state == 1 || r.state == 2) r.age++;
+  for (size_t i = 0; i < r.rings.size();) {
+    if (--r.rings[i] <= 0) r.rings.erase(r.rings.begin() + (long)i);
+    else i++;
+  }
+  const bool zapping = r.state == 1 || r.state == 2;
+  if (zapping) {
+    if (r.age % 25 == 0) r.rings.push_back(90);
+    r.age++;
+  }
+  auto sparkRand = [&r]() {
+    r.sfx = r.sfx * 214013u + 2531011u;
+    return (int)((r.sfx >> 16) & 0x7fffu);
+  };
+  for (size_t i = 0; i < r.sparks.size();) {
+    if (--r.sparks[i].life <= 0) r.sparks.erase(r.sparks.begin() + (long)i);
+    else i++;
+  }
+  if (zapping && sparkRand() % 10 == 0 && r.sparks.size() < 3) {
+    float ang = F32((double)sparkRand() / 32767.0 * 3.1415927410125732 * 2.0);
+    if (sparkRand() % 2 == 0) ang = -ang;
+    r.sparks.push_back({ang, 40});
+  }
   switch (r.state) {
     case 0:
       if (electro) {
@@ -460,7 +482,11 @@ void Board::rodUpdate() {
 
 void Board::chainLightning(int p0) {
   chainUsed = true;
-  ev(Event::ChainStrike, p0);
+  {
+    int yb;
+    std::memcpy(&yb, &rod.y, sizeof yb);
+    ev(Event::ChainStrike, p0, rod.x, yb);
+  }
   const Obj& P0 = objs[(size_t)p0];
   const float px = P0.pos.x, py = P0.pos.y;
   const float Tx = (float)rod.x, Ty = rod.y;

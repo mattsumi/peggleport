@@ -87,10 +87,17 @@ struct Obj {
 };
 
 struct Rod {
+  struct Spark {
+    float ang;
+    int life;
+  };
   int state = 0;
   int timer = 0, bob = 0, age = 0;
   int x = 0, anchorX = 0;
   float y = 586.0f, vy = 0, baseY = 0;
+  std::vector<int> rings;
+  std::vector<Spark> sparks;
+  uint32_t sfx = 0x2545f491u;
 };
 
 struct Event {
