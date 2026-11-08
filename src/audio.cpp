@@ -271,6 +271,7 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::FlipperMove: play(e.a ? "FLIPPERUP" : "FLIPPERDOWN"); break;
       case Event::Zen: if (e.a == 1 || e.a == 2) play("GONG"); break;
       case Event::Hint: play("COINSPIN_NO"); break;
+      case Event::StyleShot: if (e.a != 18) play("SKILLSHOT", 0, 1, 1); break;
       case Event::TimeBomb: play("EXPLODE"); break;
       default: break;
     }
