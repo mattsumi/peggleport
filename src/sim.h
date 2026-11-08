@@ -79,10 +79,18 @@ struct Obj {
   phys::Line pline;
   phys::Poly ppoly;
   std::vector<V2> brickInner, brickOuter;
+  int brickIdx[4]{};
   float hw = 0, hh = 0;
   bool circular = false;
   int score = 0, outDelay = 0, exitIdx = -1;
   float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+};
+
+struct Rod {
+  int state = 0;
+  int timer = 0, bob = 0, age = 0;
+  int x = 0, anchorX = 0;
+  float y = 586.0f, vy = 0, baseY = 0;
 };
 
 struct Event {
@@ -100,7 +108,10 @@ struct Event {
               Hint,
               TimeBomb,
               Toggle,
-              Bubble   } type;
+              Bubble,
+              ChainStart,
+              ChainStrike,
+              ChainBolt   } type;
   int a = 0, b = 0;
   int c = 0;
 };
@@ -120,6 +131,7 @@ struct Ball {
   int uid = 0;
   bool alive = true, slowFlag = false, touchedBumper = false;
   bool fire = false, spooky = false;
+  bool chain = false;
   bool spookyUsed = false;
   bool hat = false;
   V2 disp, hatPos, hatPrev;
@@ -260,6 +272,14 @@ class Board {
   void polyNotify(Obj& o);
   void polyFlip(Obj& o);
   void addBubbles(const Obj& o, int kind);
+  Rod rod;
+  bool chainUsed = false;
+  int bucketIndex() const;
+  bool electroBall() const;
+  float rodTargetX(const Obj& bucket) const;
+  void rodUpdate();
+  void rodMoveX();
+  void chainLightning(int pegIdx);
   void hatUpdate(Ball& b);
   static void setPolyActive(Obj& o, bool on);
   void clickInShot();

@@ -75,6 +75,10 @@ static void buildBrickLocal(const Node& n, Obj& o) {
   BrickShape s = brickInitFromParams(p);
   o.local = s.pts;
   o.brickInner.assign(s.pts.begin() + s.innerStart, s.pts.begin() + s.innerEnd + 1);
+  o.brickIdx[0] = s.innerEnd;
+  o.brickIdx[1] = s.outerStart;
+  o.brickIdx[2] = s.innerStart;
+  o.brickIdx[3] = s.outerEnd;
   o.brickOuter.assign(s.pts.begin() + s.outerStart, s.pts.begin() + s.outerEnd + 1);
   std::reverse(o.brickOuter.begin(), o.brickOuter.end());
 }
@@ -625,6 +629,7 @@ void Board::stepCore() {
     return;
   }
   updateScoreDisplay();
+  if (chainUsed) rodUpdate();
   shotLogic();
   tick++;
   gunLogic();
@@ -645,6 +650,10 @@ bool Board::fire(float angle) {
   orangeHitShot = 0;
   Ball b;
   b.fire = pturn[cur][P_FIREBALL] > 0;
+  if (cfg.nights && pturn[cur][P_CHAIN] > 0) {
+    b.chain = true;
+    chainUsed = true;
+  }
   b.hat = hatOn;
   if (cfg.nights && superOn) b.mode = ultraOn ? 2 : 1;
   b.slot = 0;
@@ -742,6 +751,11 @@ uint64_t Board::hash() const {
     h = mix(h, b.pos.x); h = mix(h, b.pos.y); h = mix(h, b.vel.x); h = mix(h, b.vel.y); h = mix(h, b.stuck);
     h = mix(h, b.fire); h = mix(h, b.spooky);
     if (b.hat) { h = mix(h, b.hatAge); h = mix(h, b.disp.x); h = mix(h, b.disp.y); }
+    if (chainUsed) h = mix(h, b.chain);
+  }
+  if (chainUsed) {
+    h = mix(h, rod.state); h = mix(h, rod.timer); h = mix(h, rod.bob); h = mix(h, rod.age);
+    h = mix(h, rod.x); h = mix(h, rod.anchorX); h = mix(h, rod.y); h = mix(h, rod.vy); h = mix(h, rod.baseY);
   }
   for (auto& kv : modState) { h = fnvMix(h, kv.first.data(), kv.first.size()); h = mix(h, kv.second); }
   if (!physics.isDefault())

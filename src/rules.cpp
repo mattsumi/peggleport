@@ -530,6 +530,10 @@ void Board::pegHit(int oi, bool byPower) {
     greenFlag = true;
     doPower(oi);
   }
+  if (Ball* cb = (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[(size_t)curBall_] : nullptr; cb && cb->chain) {
+    cb->chain = false;
+    chainLightning(oi);
+  }
 }
 
 bool Board::customHit(int oi, bool force) {
@@ -1058,6 +1062,10 @@ void Board::beginTurn(bool next) {
   superOn = ultraOn = false;
   triplerOn = hatOn = false;
   activatePowers();
+  if (cfg.nights && pturn[cur][P_CHAIN] > 0) {
+    chainUsed = true;
+    ev(Event::ChainStart);
+  }
   if (pegsHitShot > 0) {
     pegsHitShot = 0;
     makeScorePeg();
