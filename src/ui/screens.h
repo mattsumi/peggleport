@@ -54,7 +54,7 @@ class MainMenu : public Screen {
   void updateBubbles();
   int advStage = 0, advLevel = 0, bubbleCount = 0;
   int bubble = 0, bubbleOld = 0, bubbleFade = 0, bubbleDwell = 0, trophyTier = 0, hoverSeq = 0, mouseMoveDelay = 0, sunTick = 0, bubbleDimmed = 0;
-  bool mouseMoved = false, randomPick = false, cry = false;
+  bool mouseMoved = false, randomPick = false, cry = false, secretDone = false;
   int trophyAnim = 0, trophyAnimMax = 0;
   bool isNights = false;
 };
@@ -111,9 +111,9 @@ class StoryScreen : public Screen {
   Button* bContinue = nullptr;
   int page = 1;
   int typed = 0, wait = 0, start = 20, boxFade = 0, boxes = 0, shownChars = 0;
-  bool done = false;
+  bool done = false, dreamy = false;
   std::string text;
-  int totalVisible = 0;
+  int totalVisible = 0, headVisible = 0;
 };
 
 class HelpScreen : public Screen {
@@ -155,7 +155,7 @@ class ProgressScreen : public Screen {
   void keyDown(int key, int mod) override;
   bool input(const Input& in) override;
   void finish();
-  int mode, t = 0, newest = -1, hovered = -1, prevHovered = -1;
+  int mode, t = 0, newest = -1, hovered = -1, prevHovered = -1, drumEnd = 0, closing = 0;
   Button* bContinue;
 };
 
@@ -172,7 +172,7 @@ class CreditsScreen : public Screen {
   struct Page { std::vector<Line> lines; int hold = 200, start = 0, trophy = 0, shown = -1; };
   std::vector<Page> pages;
   size_t page = 0;
-  int t = 0;
+  int t = 0, total = 0;
 };
 
 class IntroScreen : public Screen {

@@ -362,6 +362,7 @@ void StoryScreen::initText() {
   text.clear();
   if (s) {
     for (auto& d : s->story[0]) text += d.text;
+    headVisible = (int)stripColorCodes(text).size();
     if (page != 1) text += "\n^ffffff^A few choice words of\nPeggle Wisdom^oldclr^\n\n";
     else text += "\n";
     for (auto& d : s->story[page]) text += d.text;
@@ -385,6 +386,10 @@ void StoryScreen::update() {
   }
   if (boxFade != 0 && ++boxFade == 20) boxFade = 0;
   if (wait != 0) { wait--; return; }
+  if (!dreamy && app.game == Game::Nights && stage != 10 && headVisible > 0 && typed >= headVisible) {
+    dreamy = true;
+    app.playSample("STAGE_DREAMY_IN");
+  }
   if (typed < totalVisible) {
     typed++;
     app.playSample("TYPING");
@@ -408,6 +413,7 @@ void StoryScreen::update() {
 }
 void StoryScreen::finish() {
   if (reveal) { app.showMainMenu(); return; }
+  if (app.game == Game::Nights) app.playSample("STAGE_DREAMY_OUT");
   app.showBoard(true, true);
 }
 void StoryScreen::onButton(int) { finish(); }

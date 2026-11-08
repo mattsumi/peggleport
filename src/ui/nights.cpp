@@ -154,12 +154,28 @@ ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
     bContinue->visible = false;
   }
   a.playMusic("music/progress.ogg");
-  if (m == 4) a.playSample("AWARD");
+  if (newest >= 0 || m == 4) a.playSample("DRUMROLL");
+  if (m == 4) {
+    drumEnd = 350;
+    if (a.audio)
+      if (const Sample* s = a.audio->sample("DRUMROLL"))
+        if (s->rate > 0) drumEnd = (int)((double)s->pcm.size() / 2 / s->rate * 100.0);
+  }
 }
 
 void ProgressScreen::update() {
   Panel::update();
   t++;
+  if (mode == 4) {
+    if (t == drumEnd + 2) app.playSample("TROPHY_WIN_INTRO");
+    else if (t == drumEnd + 270) app.playSample("AWARD");
+    else if (t == drumEnd + 305) app.playSample("APPLAUSE");
+    if (closing > 0 && ++closing == 21) {
+      app.playSample("APPLAUSE_LONG");
+      app.showCreditsScreen();
+      return;
+    }
+  }
   if (newest >= 0 && t == 41) app.playSample("TROPHY_PHOTO_IN");
   if (newest >= 0 && !bContinue->visible && t > 140) {
     bContinue->visible = true;
@@ -230,7 +246,10 @@ void ProgressScreen::drawLayer(Gfx& g) {
 }
 
 void ProgressScreen::finish() {
-  if (mode == 4) { app.showCreditsScreen(); return; }
+  if (mode == 4) {
+    if (closing == 0) closing = 1;
+    return;
+  }
   if (mode == 1) { app.showStoryScreen(false, false); return; }
   if (mode == 2) { app.showMainMenu(); return; }
   app.showAdventureScreen();
@@ -306,6 +325,10 @@ CreditsScreen::CreditsScreen(App& a) : Screen(a) {
 
 void CreditsScreen::update() {
   Panel::update();
+  if (total == 80) app.playSample("TROPHY_CURTAINS");
+  else if (total == 332) app.playSample("CREDITS_SPOTLIGHT_ON");
+  else if (total == 410) app.playSample("FANFARE");
+  total++;
   t++;
   if (page < pages.size() && t > pages[page].hold) {
     page++;

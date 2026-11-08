@@ -375,13 +375,17 @@ void MainMenu::updateBubbles() {
 }
 
 void MainMenu::onButtonEnter(int id) {
-  static const int idMap[] = {0, 1, 3, 2};
-  (void)idMap;
+  if (isNights && secretDone) return;
   if (id == kSecret[hoverSeq]) hoverSeq++;
-  else hoverSeq = 0;
+  else if (!isNights || (id >= 0 && id <= 4)) hoverSeq = 0;
   if (hoverSeq >= 15) {
     hoverSeq = 0;
-    app.showStoryScreen(true, true);
+    if (isNights) {
+      secretDone = true;
+      app.playSample("APPLAUSE_LONG");
+    } else {
+      app.showStoryScreen(true, true);
+    }
   }
 }
 
