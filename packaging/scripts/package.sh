@@ -83,8 +83,16 @@ case "$LABEL" in
     echo "$OUT/$NAME.zip"
     ;;
   macos)
-    rm -f "$OUT/$NAME.zip"
+    rm -f "$OUT/$NAME.zip" "$OUT/$NAME.dmg"
     zip -qry "$OUT/$NAME.zip" "$NAME"
     echo "$OUT/$NAME.zip"
+    DISK=$(mktemp -d)/PegglePort
+    mkdir -p "$DISK"
+    cp -R "$STAGE/PegglePort.app" "$DISK/"
+    ln -s /Applications "$DISK/Applications"
+    cp "$STAGE/README.md" "$STAGE/FAQ.md" "$DISK/"
+    [ -f "$STAGE/LICENSE" ] && cp "$STAGE/LICENSE" "$DISK/"
+    hdiutil create -quiet -volname PegglePort -srcfolder "$DISK" -ov -format UDZO "$OUT/$NAME.dmg"
+    echo "$OUT/$NAME.dmg"
     ;;
 esac

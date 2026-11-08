@@ -18,7 +18,7 @@ PegglePort is a fan project. It has nothing to do with PopCap Games or Electroni
 
 ## Getting started
 
-1. Download the archive for your system from the Releases page and unpack it anywhere.
+1. Download the archive for your system from the Releases page and unpack it anywhere. On macOS you can also open the disk image and drag PegglePort to Applications.
 2. Start `peggleport.exe` (Windows), `PegglePort.app` (macOS) or `peggleport` (Linux).
 3. The first window asks where Peggle Deluxe and Peggle Nights are installed. It finds Steam, Origin, EA app and PopCap installs by itself. If it misses yours, press **Locate...** and pick the folder that contains `main.pak`, or drag the folder onto the window.
 4. Press **Play**.
