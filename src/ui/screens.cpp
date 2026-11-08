@@ -40,6 +40,11 @@ LoadingScreen::LoadingScreen(App& a) : Screen(a) {
   fastBoot = a.cfg.fastBoot;
   if (fastBoot) updateCount = 400;
   a.gfx.img("IMAGE_LOAD_POPCAP");
+  if (a.game == Game::Nights) {
+    fairies = std::make_unique<LoadingFairies>(a.crtRand());
+    a.gfx.img("IMAGE_LOAD_FLY0");
+    a.gfx.img("IMAGE_LOAD_FLY1");
+  }
 }
 
 void LoadingScreen::spawnParticles(float, float, int) {
@@ -132,6 +137,10 @@ void LoadingScreen::update() {
     sunAngle += 0.2f;
     doneCnt++;
   }
+  if (fairies) {
+    if (cnt == 201) fairies->restartScene();
+    fairies->update(cnt >= 201, mouseX, mouseY);
+  }
   if (adventureStartDelay > 0 && --adventureStartDelay == 0) app.startAdventureGame();
 }
 
@@ -217,6 +226,20 @@ void LoadingScreen::drawOverlay(Gfx& g) {
       if (Tex* pc = g.img("IMAGE_LOAD_POPCAP")) g.draw(pc, (800 - pc->lw()) / 2, (600 - pc->lh()) / 2, Mode(alpha / 255.0f));
     }
   }
+  if (fairies) drawFairies(g);
+}
+
+void LoadingScreen::drawFairies(Gfx& g) {
+  Tex* cels[2] = {g.img("IMAGE_LOAD_FLY0"), g.img("IMAGE_LOAD_FLY1")};
+  int size = cels[0] && cels[0]->valid() ? (int)cels[0]->lw() : 33;
+  std::vector<LoadingFairies::Sprite> sprites;
+  std::vector<LoadingFairies::Dot> dots;
+  fairies->layout(size, sprites, dots);
+  for (const auto& s : sprites) {
+    Tex* t = cels[s.cel & 1];
+    if (t && t->valid()) g.draw(t, (float)s.x, (float)s.y, Mode(s.alpha / 255.0f));
+  }
+  for (const auto& d : dots) g.fill((float)d.x, (float)d.y, (float)d.w, (float)d.h, d.rgb, d.alpha / 255.0f, true);
 }
 
 bool LoadingScreen::input(const Input& in) {
@@ -224,7 +247,16 @@ bool LoadingScreen::input(const Input& in) {
     onButton(0);
     return true;
   }
-  return Panel::input(in);
+  if (in.type == Input::MouseMove || in.type == Input::MouseDown || in.type == Input::MouseUp) {
+    mouseX = (int)in.x;
+    mouseY = (int)in.y;
+  }
+  bool used = Panel::input(in);
+  if (fairies && !used && in.type == Input::MouseDown && mouseVisible) {
+    int popped = fairies->click(mouseX, mouseY);
+    for (int i = 0; i < popped; i++) app.playSample("FAIRY_POP");
+  }
+  return used;
 }
 
 void LoadingScreen::onButton(int id) {
