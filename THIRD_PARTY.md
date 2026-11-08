@@ -1,7 +1,8 @@
 # Third-party software
 
-PegglePort links the libraries below. The versions are the ones `CMakeLists.txt` fetches with `FetchContent` (pinned git tags, built as static
-libraries). Each project keeps its licence text in its own source tree, which CMake puts under `<build>/_deps/<name>-src/`.
+PegglePort links the libraries below. The versions are the ones `CMakeLists.txt` fetches with `FetchContent` (pinned git tags or a pinned source archive, built as static
+libraries). Each project keeps its licence text in its own source tree, which CMake puts under `<build>/_deps/<name>-src/`. The downloads carry a copy of
+those texts in their `licenses` folder.
 
 Nothing from PopCap Games or Electronic Arts is in this repository or in the release archives. The game data (`main.pak`, `levelpacks/*.pak`,
 music and sound) is read from your own installation at run time.
@@ -17,6 +18,15 @@ music and sound) is read from your own installation at run time.
 | [Lua](https://github.com/lua/lua) | v5.4.8 | mod scripting (only the base, table, string, math, utf8 and coroutine libraries are compiled in) | MIT |
 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) | v3.6.7 | TLS for mods that use https (the trusted root certificates come from the operating system) | Apache-2.0 |
 | [stb_image](https://github.com/nothings/stb) | v2.30, vendored in `third_party/` | PNG, JPEG, TGA and GIF decoding | public domain or MIT |
+| [libopenmpt](https://lib.openmpt.org/) | 0.8.10, source archive from lib.openmpt.org (SHA-256 checked) | the `.mo3` music of the original games | BSD-3-Clause |
+| [minimp3](https://github.com/lieff/minimp3) | the copy inside the libopenmpt archive | the MP3 compressed samples that a `.mo3` file can hold | CC0 |
+| [stb_vorbis](https://github.com/nothings/stb) | v1.22, the copy inside the libopenmpt archive | the Ogg Vorbis compressed samples that a `.mo3` file can hold | public domain or MIT |
+| [miniz](https://github.com/richgel999/miniz) | the copy inside the libopenmpt archive | packed tracker files (`.mdz`, `.s3z`, `.xmz`, `.itz`) | MIT |
+
+libopenmpt reads the `.mo3` files of Peggle Deluxe and Peggle Nights itself. The Ogg Vorbis and MP3 samples inside them are decoded by stb_vorbis and
+minimp3 from the same archive, so no system library is needed. libopenmpt is Copyright (c) 2004-2026 the OpenMPT Project Developers and Contributors and
+Copyright (c) 1997-2003 Olivier Lapicque; its licence text, like the one of the other libraries, is in the `licenses` folder of the download. The source is used as
+downloaded, nothing of it is changed.
 
 Mbed TLS is offered under Apache-2.0 or GPL-2.0-or-later; PegglePort uses it under Apache-2.0. Its sample programs are switched off, like OpenJPEG's codec tools.
 
@@ -27,11 +37,7 @@ optional codec tools are switched off. Their notices are in the fetched source t
 
 | Component | Used for | Licence |
 |---|---|---|
-| [libopenmpt](https://lib.openmpt.org/) | the `.mo3` music of the original games | BSD-3-Clause (its own optional libraries have their own licences) |
 | Steamworks SDK | Steam presence and friend invites, only with `-DPP_STEAM=ON` | Valve's SDK licence, not redistributable |
-
-libopenmpt is picked up from the system at configure time. The release archives are built without it, so they play no music. Build from source
-with libopenmpt installed if you want the music.
 
 ## Written for this project
 

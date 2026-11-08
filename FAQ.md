@@ -79,7 +79,7 @@ That is usually the graphics driver, in a virtual machine or over remote desktop
 ## Sound and music
 
 **I hear sound effects but no music.**
-The music in the original games is stored as `.mo3` files, and playing those needs the libopenmpt library. The downloads on the Releases page are built without it, so they play no music. If you build PegglePort yourself and have libopenmpt installed (`brew install libopenmpt` or `apt-get install libopenmpt-dev`), the build picks it up and the music plays. The configure output says `libopenmpt: <path>` when it was found.
+The music is read from the `music` folder of your Peggle Deluxe or Peggle Nights install, next to `main.pak`, so that folder has to be there. Then look at **Music Volume** in Options: all the way to the left is off. The fanfare at an Extreme Fever has its own slider, **Fever Volume**. If the folder is there and the music is still missing, the log (F10) names the file the game could not play.
 
 **There is no sound at all.**
 The game keeps running when it cannot open an audio device. Check the output device of your system. On Linux you can force a driver with `SDL_AUDIODRIVER=pulseaudio`, `alsa` or `pipewire`. The log (F10) says why the device could not be opened.

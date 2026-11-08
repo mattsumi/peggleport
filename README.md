@@ -34,7 +34,7 @@ cmake -S . -B build -DPP_FETCH_DEPS=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ```
 
-`-DPP_FETCH_DEPS=ON` downloads and builds SDL3, OpenJPEG, Ogg and Vorbis. Without it the build uses the copies installed on your system. Lua is always downloaded. If libopenmpt is installed the game also plays its music.
+`-DPP_FETCH_DEPS=ON` downloads and builds SDL3, OpenJPEG, Ogg and Vorbis. Without it the build uses the copies installed on your system. Lua, Mbed TLS and libopenmpt are always downloaded. libopenmpt is built into the game, so the music of your Peggle installs plays without any extra library.
 
 On Linux install the SDL build dependencies first:
 

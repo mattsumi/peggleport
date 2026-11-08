@@ -38,7 +38,7 @@ jobs:
           cmake -S . -B build "${args[@]}"
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 4
 
       - name: Name the archive
         id: pkg

@@ -227,6 +227,7 @@ uint32_t App::rand() {
 void App::applySettings() {
   if (audio) {
     audio->setVolumes(settings.muted ? 0 : settings.sfx, settings.muted ? 0 : settings.music);
+    audio->setFeverVolume(settings.muted ? 0 : settings.fever);
   }
   if (showCursorHook) showCursorHook(settings.customCursors);
 }
@@ -422,9 +423,9 @@ void App::showLoadingScreen() {
 
 void App::showMainMenu() {
   duelSes = DuelSession{};
-  if (audio) audio->stopMusic();
   killDialog(D_Options);
   if (cur_ && std::string(cur_->name()) == "mainmenu") return;
+  playMusic("fadeout");
   Dir leave = Right;
   if (cur_ && std::string(cur_->name()) == "loading") leave = Left;
   Screen* old = cur_.get();
@@ -581,6 +582,7 @@ void App::doConfirmRestartAdventureDialog() {
 
 void App::tick() {
   updates_++;
+  if (audio) audio->tickMusic();
   serviceModApply();
   updateMovers();
   for (auto& d : dialogs_) d->update();
