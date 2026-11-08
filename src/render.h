@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include <map>
+#include <memory>
 #include <utility>
 #include <string>
 #include <vector>
@@ -37,6 +38,8 @@ struct Hud {
   float alpha = 1.0f;
   int stageNo = -1, levelNo = -1;
 };
+
+struct EmitFx;
 
 class Renderer {
   friend struct ModOverlayAccess;
@@ -160,6 +163,9 @@ class Renderer {
   void fxSpookyBall(float x, float y);
   void fxFeverTally(const Board& b);
   void fxDrawEffects(const Board& b, int layer);
+  void emitAdvance(const Board& b, int ticks, bool fresh);
+  void emitDraw(const Board& b, int layer, size_t at);
+  std::shared_ptr<EmitFx> emit_;
   void fxDrawTexts(const Board& b, int layer);
   FxText& fxText(const std::string& s, float x, float y, int font = -1);
   FxEffect& fxAdd(int type, float x, float y, int prio, bool front = false);

@@ -190,7 +190,7 @@ target_compile_definitions(pp_ui PUBLIC PP_UI_HAVE_FONT)
 target_link_libraries(pp_ui PUBLIC pp_core pp_audio pp_mods SDL3::SDL3)
 
 add_executable(peggleport WIN32
-  src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp
+  src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
 

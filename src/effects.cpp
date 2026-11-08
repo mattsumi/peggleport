@@ -902,6 +902,7 @@ void Renderer::advance(const Board& b) {
   fx_.lastFrame = b.frames;
   fx_.lastTick = b.tick;
   fx_.frame = b.frames;
+  emitAdvance(b, ticks, fresh);
   for (int t = 0; t < ticks; t++) {
     if (chCountBlink_) chCountBlink_--;
     if (chPowerBlink_) chPowerBlink_--;
