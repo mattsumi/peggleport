@@ -354,6 +354,116 @@ bool hitBox(const Geo& g, float x0, float y0, float x1, float y1) {
   return !(g.x1 < x0 || g.x0 > x1 || g.y1 < y0 || g.y0 > y1);
 }
 
+bool polyHasClosing(const Node& n) {
+  auto v = n.val("vertices");
+  if (!v || v->verts.size() < 4) return false;
+  size_t k = v->verts.size();
+  return v->verts[0] == v->verts[k - 2] && v->verts[1] == v->verts[k - 1];
+}
+std::vector<V2> polyCorners(const Node& n) {
+  std::vector<V2> out;
+  auto v = n.val("vertices");
+  if (!v) return out;
+  size_t k = v->verts.size() / 2;
+  if (polyHasClosing(n)) k--;
+  for (size_t i = 0; i < k; i++) out.push_back({v->verts[2 * i], v->verts[2 * i + 1]});
+  return out;
+}
+bool polySetCorners(Node& n, const std::vector<V2>& corners) {
+  auto it = n.fields.find("vertices");
+  if (it == n.fields.end() || corners.empty()) return false;
+  bool closing = polyHasClosing(n);
+  std::vector<float> v;
+  for (auto& c : corners) {
+    v.push_back(c.x);
+    v.push_back(c.y);
+  }
+  if (closing) {
+    v.push_back(corners[0].x);
+    v.push_back(corners[0].y);
+  }
+  it->second.verts = std::move(v);
+  return true;
+}
+V2 polyWorldToLocal(const Level& L, const Node& n, V2 world) {
+  Geo g = geometry(L, n);
+  return rot2(world - g.c, g.rot);
+}
+V2 polyCornerWorld(const Level& L, const Node& n, int i) {
+  Geo g = geometry(L, n);
+  if (i < 0 || (size_t)i >= g.pts.size()) return {};
+  return g.pts[(size_t)i];
+}
+
+static float cross2(V2 a, V2 b, V2 c) { return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x); }
+static bool segsCross(V2 a, V2 b, V2 c, V2 d) {
+  float d1 = cross2(a, b, c), d2 = cross2(a, b, d), d3 = cross2(c, d, a), d4 = cross2(c, d, b);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+struct ShapeQuality {
+  bool few = false, tiny = false, close = false, cross = false;
+};
+static ShapeQuality shapeQuality(const std::vector<V2>& c) {
+  ShapeQuality q;
+  size_t n = c.size();
+  q.few = n < 3;
+  double area = 0;
+  for (size_t i = 0; i < n; i++) {
+    const V2 &a = c[i], &b = c[(i + 1) % n];
+    area += (double)a.x * b.y - (double)b.x * a.y;
+  }
+  q.tiny = std::fabs(area) * 0.5 < 1.0;
+  for (size_t i = 0; i < n && !q.close; i++)
+    for (size_t j = i + 1; j < n; j++)
+      if ((c[i] - c[j]).len2() < 0.25f) { q.close = true; break; }
+  for (size_t i = 0; i < n && !q.cross; i++)
+    for (size_t j = i + 2; j < n; j++) {
+      if (i == 0 && j == n - 1) continue;
+      if (segsCross(c[i], c[(i + 1) % n], c[j], c[(j + 1) % n])) { q.cross = true; break; }
+    }
+  return q;
+}
+bool polyShapeOk(const std::vector<V2>& before, const std::vector<V2>& after) {
+  if (after.size() < 3 && after.size() < before.size()) return false;
+  ShapeQuality b = shapeQuality(before), a = shapeQuality(after);
+  return !((a.few && !b.few) || (a.tiny && !b.tiny) || (a.close && !b.close) || (a.cross && !b.cross));
+}
+int hitCorner(const Level& L, const Node& n, V2 p, float tol) {
+  if (n.type != 3) return -1;
+  Geo g = geometry(L, n);
+  size_t k = polyCorners(n).size();
+  int best = -1;
+  float bestD = tol * tol;
+  for (size_t i = 0; i < k && i < g.pts.size(); i++) {
+    float d = (g.pts[i] - p).len2();
+    if (d <= bestD) { bestD = d; best = (int)i; }
+  }
+  return best;
+}
+int hitEdge(const Level& L, const Node& n, V2 p, float tol, V2* at) {
+  if (n.type != 3) return -1;
+  Geo g = geometry(L, n);
+  size_t k = polyCorners(n).size();
+  if (k < 2 || g.pts.size() < k) return -1;
+  int best = -1;
+  float bestD = tol;
+  for (size_t i = 0; i < k; i++) {
+    V2 a = g.pts[i], b = g.pts[(i + 1) % k];
+    float d = distToSegment(p, a, b);
+    if (d <= bestD) {
+      bestD = d;
+      best = (int)i;
+      if (at) {
+        V2 ab = b - a;
+        float l2 = ab.len2();
+        float t = l2 > 1e-9f ? std::clamp((p - a).dot(ab) / l2, 0.0f, 1.0f) : 0.0f;
+        *at = a + ab * t;
+      }
+    }
+  }
+  return best;
+}
+
 static void addF(Node& n, const char* k, float d) {
   if (n.has(k)) n.setF(k, n.f(k) + d);
 }

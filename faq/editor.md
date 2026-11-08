@@ -24,7 +24,10 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | P / L / O / X | Polygon (click points, close with a click on the first point, Enter or a double click), line (drag), hole, hole exit (select a hole, then click where the ball should come out) |
 | Click, Shift-click, drag a box | Select, add to the selection, box select. Alt-drag copies |
 | Drag | Move the selection. The round handle above it rotates (15 degree steps while Snap is on) |
-| Arrow keys (Shift = one grid step) | Nudge |
+| Drag a corner | With one polygon selected, its corners show as small squares. Drag one to move only that corner. It snaps to the grid like everything else |
+| Double-click an edge | Adds a corner on that edge of the selected polygon |
+| Delete or Backspace on a chosen corner | Removes the corner. A polygon keeps at least 3 |
+| Arrow keys (Shift = one grid step) | Nudge. With a corner chosen it nudges just that corner |
 | Delete or Backspace | Delete |
 | Ctrl/Cmd + Z, Shift+Z, Y | Undo, redo. Every operation is one step, a drag is one step |
 | Ctrl/Cmd + C, X, V, D, A | Copy, cut, paste, duplicate, select all |
@@ -37,7 +40,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | E | Random orange preview: shows the pegs the game would pick with a seed. Press again for another seed |
 | T or F5 | Test play |
 | F6 | Run the checks |
-| Esc | Cancel what you are doing, leave the tool, clear the selection |
+| Esc | Cancel what you are doing, leave the tool, drop the chosen corner, clear the selection |
 | Right click | Cancel. With nothing to cancel it returns to Select |
 
 The `:` key opens a one line command box for typed commands, which some people prefer for exact placement. Everything it does is also available with the mouse.
@@ -48,7 +51,7 @@ The `:` key opens a one line command box for typed commands, which some people p
 * **Mod peg types**: select a peg and type a name into the **Custom type** field of the Object tab, for example `ice` or `mymod:ice`. **To mod** saves it as a `peg` line in the level's `.ini`, and the game gives the peg that type when the mod that defines it is on. The editor still draws the peg as a normal one, and opening a level with `peg` lines keeps them. The modding guide has the details.
 * **Round and bumper**: any radius. A bumper has no peg properties.
 * **Bricks** have all the brick settings of the game (type, subdivisions, radius or length, sweep, end angles, thickness, rotation) and can also be a peg.
-* **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. **Lines** are single walls. **Holes** have a score, an out delay and a size.
+* **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. Select one and every corner gets a handle: drag a handle to move that corner, double-click an edge to add a corner, and press Delete on a chosen corner to remove it. The **Corners** part of the Object tab does the same with buttons and exact numbers (Corner X and Corner Y). A corner will not move onto another one or across an edge, and the polygon always keeps at least 3 corners. Every change is one undo step. **Lines** are single walls. **Holes** have a score, an out delay and a size.
 * **Movers**: pick a type in the Mover tab. All 15 types are there with radius, period, time offset, two pauses, phase, path rotation, rotation and reverse. When you add a mover the object stays where it is.
 * The level files use the classic 650 by 560 coordinates. On a wide board the game centres the level, so the playfield reaches past 0 and 650 on both sides. The editor draws exactly that.
 
@@ -92,4 +95,3 @@ The Gen tab makes a grid (columns, rows, spacing, origin), a circle, a spiral or
 * Peggle Nights emitters and bare physics objects are kept in the file but neither drawn nor editable.
 * Movers that move another mover's anchor are kept but not editable. Several objects sharing one mover path can only be made through an imported JSON file.
 * You cannot draw level art.
-* After a polygon is placed you can move and rotate it as a whole, but not edit single corners.

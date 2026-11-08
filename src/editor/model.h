@@ -56,6 +56,15 @@ float distToSegment(V2 p, V2 a, V2 b);
 bool pointInPoly(const std::vector<V2>& pts, V2 p);
 float distToGeo(const Geo& g, V2 p);
 
+bool polyHasClosing(const Node& n);
+std::vector<V2> polyCorners(const Node& n);
+bool polyShapeOk(const std::vector<V2>& before, const std::vector<V2>& after);
+V2 polyWorldToLocal(const Level& L, const Node& n, V2 world);
+bool polySetCorners(Node& n, const std::vector<V2>& corners);
+int hitCorner(const Level& L, const Node& n, V2 p, float tol);
+int hitEdge(const Level& L, const Node& n, V2 p, float tol, V2* at);
+V2 polyCornerWorld(const Level& L, const Node& n, int i);
+
 void translateNode(Node& n, float dx, float dy, std::set<const Node*>* done = nullptr);
 void rotateNode(const Level& L, Node& n, V2 pivot, float radians, std::set<const Node*>* done = nullptr);
 void mirrorNode(const Level& L, Node& n, bool flipX, float axis, std::set<const Node*>* done = nullptr);
