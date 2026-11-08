@@ -1,5 +1,6 @@
 #include <SDL3/SDL.h>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 #include <memory>
 #include <vector>
