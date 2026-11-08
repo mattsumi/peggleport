@@ -15,7 +15,7 @@
 
 namespace pp::ed {
 
-enum class Tool { Select, Pan, PegBlue, PegOrange, PegGreen, PegPurple, PegRound, Bumper, BrickStraight, BrickCurved, Poly, Line, Hole, HoleExit, Emitter };
+enum class Tool { Select, Pan, PegBlue, PegOrange, PegGreen, PegPurple, PegRound, Bumper, BrickStraight, BrickCurved, Poly, Line, Hole, HoleExit, Emitter, Follow };
 const char* toolName(Tool t);
 bool toolFromName(const std::string& s, Tool& t);
 
@@ -90,6 +90,12 @@ class Editor {
   bool setProp(const std::string& key, const std::string& text);
   bool setMoverProp(const std::string& key, const std::string& text);
   bool addMover(int type);
+  NodeP driverOf(const NodeP& follower) const;
+  std::vector<NodeP> followersOf(const NodeP& driver) const;
+  bool followObject(const NodeP& driver);
+  bool stopFollowing();
+  void keepFollowers();
+  std::string describe(const NodeP& n) const;
   bool setHoleExit(V2 p);
   void removeMover();
 
@@ -151,6 +157,7 @@ class Editor {
     std::vector<Val> eb, ea;
     std::vector<NodeP> touched;
     std::vector<NodeSnap> sb, sa;
+    std::map<const Node*, V2> subPose;
   };
   std::vector<Step> undo_, redo_;
   Step cur_;

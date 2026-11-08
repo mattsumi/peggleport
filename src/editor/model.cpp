@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 
 namespace pp::ed {
 
@@ -51,6 +52,25 @@ Node* moverOf(const Level& L, const Node& n) {
   if (!v) return nullptr;
   if (v->n) return v->n.get();
   return const_cast<Node*>(L.resolve(*v));
+}
+Node* subOf(const Level& L, const Node& mover) {
+  auto v = mover.val("sub");
+  if (!v) return nullptr;
+  if (v->n) return v->n.get();
+  return const_cast<Node*>(L.resolve(*v));
+}
+std::vector<NodeP> allMovers(const Level& L) {
+  std::vector<NodeP> out;
+  std::set<const Node*> seen;
+  std::function<void(const Node&)> visit = [&](const Node& o) {
+    if (auto v = o.val("mover"); v && v->n && seen.insert(v->n.get()).second) out.push_back(v->n);
+    if (auto e = o.val("entry"); e && e->n) visit(*e->n);
+  };
+  for (auto& e : L.entries)
+    if (e.n) visit(*e.n);
+  for (size_t i = 0; i < out.size(); i++)
+    if (auto sv = out[i]->val("sub"); sv && sv->n && seen.insert(sv->n.get()).second) out.push_back(sv->n);
+  return out;
 }
 Node* pegOf(const Node& n) {
   auto v = n.val("peg");
@@ -262,7 +282,7 @@ NodeP cloneNode(const NodeP& n, std::map<const Node*, NodeP>* remap) {
       auto it = remap->find(v.n.get());
       if (it != remap->end()) {
         v.n = it->second;
-      } else if (kv.first == "mover" || kv.first == "sub") {
+      } else if (kv.first == "mover") {
         v.k = VK::Ptr;
         v.n = cloneNode(v.n, remap);
       }
@@ -279,9 +299,7 @@ static V2 rot2(V2 d, float a) {
   float c = std::cos(a), s = std::sin(a);
   return {c * d.x - s * d.y, s * d.x + c * d.y};
 }
-static bool buildMover(const Level& L, const Node& n, Mover& m) {
-  const Node* mn = moverOf(L, n);
-  if (!mn) return false;
+static void moverFromNode(const Node* mn, Mover& m) {
   m = Mover();
   m.type = (int)mn->i("move_type");
   m.ax = mn->f("anchor_x");
@@ -300,7 +318,19 @@ static bool buildMover(const Level& L, const Node& n, Mover& m) {
   m.phase2 = (int)mn->i("phase2");
   m.postDelay = mn->f("post_delay_phase");
   m.single = true;
+}
+static bool buildMover(const Level& L, const Node& n, Mover& m) {
+  const Node* mn = moverOf(L, n);
+  if (!mn) return false;
+  moverFromNode(mn, m);
   return true;
+}
+V2 moverPose(const Level&, const Node& mover, int tick) {
+  Mover m;
+  moverFromNode(&mover, m);
+  float x = mover.f("anchor_x"), y = mover.f("anchor_y"), r = 0;
+  m.calc(tick, x, y, r);
+  return {x, y};
 }
 static void bounds(Geo& g) {
   if (g.pts.empty()) return;
@@ -320,6 +350,12 @@ Geo geometry(const Level& L, const Node& n, int tick) {
   if (hm && n.type != 2) {
     float x = pos.x, y = pos.y, r = baseRot;
     mv.calc(tick, x, y, r);
+    if (const Node* mn = moverOf(L, n))
+      if (const Node* sm = subOf(L, *mn); sm && sm != mn) {
+        V2 a = moverPose(L, *sm, tick);
+        x += a.x - mn->f("sub_x");
+        y += a.y - mn->f("sub_y");
+      }
     pos = {x, y};
     if (mv.rotating()) rot = r;
   }
@@ -889,6 +925,8 @@ const std::vector<PropDef>& moverProps() {
   v.push_back(PF("max_angle", "Max angle (rad)", 0, -7, 7, 0.05, false, "Mover"));
   v.push_back(PF("move_rotation", "Path rot (rad)", 0, -7, 7, 0.05, false, "Mover"));
   v.push_back(PF("rotation", "Rotation (rad)", 0, -7, 7, 0.05, false, "Mover"));
+  v.push_back(PF("sub_x", "Follow start X", 0, -2000, 3000, 1, true, "Follow"));
+  v.push_back(PF("sub_y", "Follow start Y", 0, -2000, 3000, 1, true, "Follow"));
   return v;
 }
 

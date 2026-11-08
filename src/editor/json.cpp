@@ -290,13 +290,8 @@ struct Writer {
           kv.emplace_back(k, a);
           break;
         }
-        case VK::Ptr: kv.emplace_back(k, ptr(v, k == "mover" || k == "sub" ? CMover : CObj)); break;
-        case VK::Ref: {
-          J o = J::obj();
-          o.set("$ref", J::num(v.n && ids.count(v.n.get()) ? ids[v.n.get()] : v.ref));
-          kv.emplace_back(k, o);
-          break;
-        }
+        case VK::Ptr:
+        case VK::Ref: kv.emplace_back(k, ptr(v, k == "mover" || k == "sub" ? CMover : CObj)); break;
         case VK::Child: kv.emplace_back(k, node(*v.n, k == "peg" ? CPeg : CStruct)); break;
         case VK::Null: break;
       }
@@ -308,11 +303,17 @@ struct Writer {
     o.o = std::move(kv);
     return o;
   }
+  std::set<const Node*> defined;
   J ptr(const Val& v, Ctx ctx) {
-    if (v.k == VK::Null || !v.n) return J();
-    if (v.k == VK::Ref) {
+    if (v.k == VK::Null) return J();
+    if (!v.n) {
       J o = J::obj();
-      o.set("$ref", J::num(v.n && ids.count(v.n.get()) ? ids[v.n.get()] : v.ref));
+      o.set("$ref", J::num(v.ref));
+      return o;
+    }
+    if (!defined.insert(v.n.get()).second) {
+      J o = J::obj();
+      o.set("$ref", J::num(ids[v.n.get()]));
       return o;
     }
     int id = ids.count(v.n.get()) ? ids[v.n.get()] : (ids[v.n.get()] = next++);

@@ -26,6 +26,9 @@ void eraseField(Node& n, const std::string& key);
 bool isObjectType(int type);
 const char* typeName(int type);
 Node* moverOf(const Level& L, const Node& n);
+Node* subOf(const Level& L, const Node& mover);
+V2 moverPose(const Level& L, const Node& mover, int tick);
+std::vector<NodeP> allMovers(const Level& L);
 Node* pegOf(const Node& n);
 int pegTypeOf(const Node& n);
 

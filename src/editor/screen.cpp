@@ -137,6 +137,7 @@ class EditorScreen : public Screen {
   void tabGen(float x, float y0, float w);
   void tabChecks(float x, float y0, float w);
   void drawEmitter(const Node& n, const Geo& g);
+  void outlineGeo(const Geo& g, uint32_t col, float a);
   void circleC(V2 c, float r, uint32_t col, float a, bool fill = false);
   void poly(const std::vector<V2>& pts, bool closed, uint32_t col, float a, bool fill = false);
   void ellipseC(float x0, float y0, float x1, float y1, uint32_t col, float a);
@@ -338,6 +339,18 @@ void EditorScreen::drawEmitter(const Node& n, const Geo& g) {
   std::string name = img.empty() ? "emitter" : img.substr(img.find_last_of("/\\") == std::string::npos ? 0 : img.find_last_of("/\\") + 1);
   T(c.x + r + 6, c.y - fh_ * 0.5f, name, col);
 }
+void EditorScreen::outlineGeo(const Geo& g, uint32_t col, float a) {
+  switch (g.kind) {
+    case Geo::Circle: circleC(g.c, g.r + 3 / zoom_, col, a); break;
+    case Geo::Hole:
+      if (g.circular) ellipseC(g.x0 - 3, g.y0 - 3, g.x1 + 3, g.y1 + 3, col, a);
+      else poly(g.pts, true, col, a);
+      break;
+    case Geo::Emitter: poly({V2(g.x0, g.y0), V2(g.x1, g.y0), V2(g.x1, g.y1), V2(g.x0, g.y1)}, true, col, a); break;
+    case Geo::Line: poly(g.pts, false, col, a); break;
+    default: poly(g.pts, true, col, a); break;
+  }
+}
 void EditorScreen::ellipseC(float x0, float y0, float x1, float y1, uint32_t col, float a) {
   if (!dr_) return;
   V2 c0 = toCanvas(V2(x0, y0)), c1 = toCanvas(V2(x1, y1));
@@ -530,11 +543,26 @@ void EditorScreen::drawOverlay2() {
       else if (g.kind == Geo::Emitter && g.circular) ellipseC(g.pts[0].x - 2, g.pts[0].y - 2, g.pts[2].x + 2, g.pts[2].y + 2, c, 1.0f);
       else { poly(g.pts, g.kind != Geo::Line, c, 1.0f); }
       if (Node* m = moverOf(*ed.level, *n)) {
-        int period = std::max(2, (int)m->i("time", 200)), step = std::max(1, period / 90);
+        int period = 2, depth = 0;
+        for (const Node* c = m; c && depth < 8; c = subOf(*ed.level, *c), depth++) period = std::max(period, (int)c->i("time", 200));
+        period = std::min(period, 6000);
+        int step = std::max(1, period / 90);
         std::vector<V2> path;
         for (int t = 0; t <= period; t += step) path.push_back(geometry(*ed.level, *n, t).c);
         poly(path, false, 0xff9040, 0.85f);
         circleC(V2(m->f("anchor_x"), m->f("anchor_y")), 3 / zoom_, 0xff9040, 1.0f, true);
+      }
+      if (NodeP drv = ed.driverOf(n)) {
+        Geo dg = geometry(*ed.level, *drv);
+        outlineGeo(dg, 0xc080ff, 0.9f);
+        V2 a = toCanvas(g.c), b = toCanvas(dg.c);
+        g_->line(a.x, a.y, b.x, b.y, 0xc080ff, 0.8f);
+      }
+      for (auto& f : ed.followersOf(n)) {
+        Geo fg = geometry(*ed.level, *f);
+        V2 a = toCanvas(g.c), b = toCanvas(fg.c);
+        g_->line(a.x, a.y, b.x, b.y, 0xc080ff, 0.45f);
+        circleC(fg.c, 3 / zoom_, 0xc080ff, 0.9f, true);
       }
     }
   }
@@ -586,11 +614,15 @@ void EditorScreen::drawOverlay2() {
     for (auto& p : pp) circleC(p, 3 / zoom_, kGold, 1.0f, true);
   }
   Tool t = ed.tool;
+  if (t == Tool::Follow) T(cv_.x + 10, cv_.y + 8, "Click the object that the selection should follow. Esc cancels.", kGold);
   if (cv_.contains(app.mouseX, app.mouseY) && !openDlg_ && !prompt_.on) {
     V2 p = ed.snapPt(ed.hover);
     if (t == Tool::PegBlue || t == Tool::PegOrange || t == Tool::PegGreen || t == Tool::PegPurple) circleC(p, 10, pegColor(t == Tool::PegBlue ? 1 : t == Tool::PegOrange ? 2 : t == Tool::PegGreen ? 4 : 3), 0.5f, true);
     else if (t == Tool::PegRound || t == Tool::Bumper) circleC(p, ed.roundRadius, t == Tool::Bumper ? 0xcccccc : 0x3d8bff, 0.5f, true);
     else if (t == Tool::Hole) ellipseC(p.x - 20, p.y - 20, p.x + 20, p.y + 20, 0x66ff88, 0.8f);
+    else if (t == Tool::Follow) {
+      if (NodeP h = ed.hitObject(ed.hover)) outlineGeo(geometry(*ed.level, *h), 0xc080ff, 1.0f);
+    }
     else if (t == Tool::Emitter) poly({V2(p.x - 60, p.y - 30), V2(p.x + 60, p.y - 30), V2(p.x + 60, p.y + 30), V2(p.x - 60, p.y + 30)}, true, 0xffb040, 0.6f);
     else if (t == Tool::Line || t == Tool::Poly || t == Tool::HoleExit) circleC(p, 3 / zoom_, kGold, 1.0f, true);
     if (ed.lineActive()) poly({ed.boxA(), ed.boxB()}, false, kGold, 1.0f);
@@ -687,6 +719,8 @@ void EditorScreen::drawPalette() {
   tool("Hole exit (X)", Tool::HoleExit);
   head("Effects");
   tool("Emitter (N)", Tool::Emitter, 0xffb040);
+  head("Motion");
+  tool("Follow object (J)", Tool::Follow, 0xc080ff);
   head("Arrange");
   float hw = (w - 4) / 2;
   button({x, y, hw, h}, "Flip H", [&] { ed.mirrorSelection(true); }, false, true);
@@ -873,11 +907,14 @@ void EditorScreen::tabMover(float x, float y0, float w) {
       button({x, y, w, 20}, kMoverTypeNames[t], [this, t] { if (!ed.addMover(t)) say("this object cannot take a mover"); else say(std::string("mover: ") + kMoverTypeNames[t]); dirtyLayout(); });
       y += 23;
     }
+    y += 6;
+    button({x, y, w, 22}, "Only follow another object (J)", [this] { ed.tool = Tool::Follow; say("click the object that the selection should follow"); });
     return;
   }
   T(x, y, std::string("Mover: ") + kMoverTypeNames[std::min(15, std::abs((int)m->i("move_type")))], kGold);
   y += fh_ + 4;
   for (auto& d : moverProps()) {
+    if (!std::strcmp(d.group, "Follow")) continue;
     std::string val = propText(*ed.level, *m, d), key = d.key;
     PropDef def = d;
     bool numeric = d.kind == PK::Float || d.kind == PK::Int;
@@ -904,6 +941,43 @@ void EditorScreen::tabMover(float x, float y0, float w) {
   y += 6;
   button({x, y, w, 22}, "Remove mover", [this] { ed.removeMover(); dirtyLayout(); });
   y += 28;
+  T(x, y, "- Follows another object", kLine + 0x303030);
+  y += fh_ + 2;
+  if (m->val("sub")) {
+    NodeP drv = ed.driverOf(n);
+    propRow(x, y, w, "Follows", drv ? ed.describe(drv) : "a mover nobody uses", [this, drv](int b) {
+      if (b != 1 || !drv) return;
+      ed.select({drv});
+      Geo dg = geometry(*ed.level, *drv);
+      centerOn(dg.c);
+    }, nullptr, false);
+    for (auto& d : moverProps()) {
+      if (std::strcmp(d.group, "Follow")) continue;
+      std::string val = propText(*ed.level, *m, d), key = d.key;
+      PropDef def = d;
+      NodeP mp = n->val("mover")->n;
+      auto stepVal = [this, mp, def, key](int dir) {
+        double st = def.step * (mods_.shift ? 10 : 1);
+        ed.setMoverProp(key, std::to_string(getNum(*ed.level, *mp, def) + dir * st));
+        dirtyLayout();
+      };
+      propRow(x, y, w, d.label, val, [this, key, val, def](int b) { if (b == 1) startPrompt(def.label, val, [this, key](const std::string& t) { ed.setMoverProp(key, t); dirtyLayout(); }); }, stepVal, true);
+    }
+    button({x, y, w, 22}, "Stop following", [this] { ed.stopFollowing(); say(ed.status); dirtyLayout(); });
+    y += 27;
+  } else {
+    T(x, y, "Not following anything.", kDim);
+    y += fh_ + 4;
+  }
+  button({x, y, w, 22}, "Follow an object (J)", [this] { ed.tool = Tool::Follow; say("click the object that the selection should follow"); });
+  y += 27;
+  if (size_t cnt = ed.followersOf(n).size()) {
+    T(x, y, "Followed by " + std::to_string(cnt) + " object" + (cnt == 1 ? "" : "s") + ".", kDim);
+    y += fh_ + 4;
+  }
+  T(x, y, "A follower moves along with the object", kDim);
+  T(x, y + 15, "it follows, on top of its own motion.", kDim);
+  y += 36;
   T(x, y, "Tip: press Animate in the toolbar to", kDim);
   T(x, y + 15, "watch the motion. The orange line is", kDim);
   T(x, y + 30, "the path of the selected object.", kDim);
@@ -1450,6 +1524,7 @@ void EditorScreen::keyDown(int key, int mod) {
     case SDLK_O: ed.tool = Tool::Hole; return;
     case SDLK_X: ed.tool = Tool::HoleExit; return;
     case SDLK_N: ed.tool = Tool::Emitter; return;
+    case SDLK_J: ed.tool = Tool::Follow; return;
     case SDLK_G: showGrid_ = !showGrid_; return;
     case SDLK_S: ed.snap = !ed.snap; say(ed.snap ? "snap on" : "snap off"); return;
     case SDLK_F: fitView(); return;
