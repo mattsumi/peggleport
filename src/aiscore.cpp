@@ -22,9 +22,6 @@ constexpr double kTwoPiD = 6.2831854820251465;
 constexpr double kHalfPiD = 1.5707963705062866;
 constexpr float kQuarterF = 4.71238899230957f;
 
-inline float cosF(float a) { double s, c; dm::sincos((double)a, s, c); return (float)c; }
-inline float sinF(float a) { double s, c; dm::sincos((double)a, s, c); return (float)s; }
-
 inline float f32(double v) { return (float)v; }
 
 }

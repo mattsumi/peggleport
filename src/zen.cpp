@@ -19,7 +19,7 @@ float Board::zenSearch() {
   ai.begin(*this, 10, [this] { return (uint32_t)rng.rand(); }, 1, clampAngle(lmAim));
   while (!ai.update(10000)) {
   }
-  const float best = ai.angle();
+  const float best = gun::normalizeAngle(ai.angle());
   zenNote = 0;
   zenPct = 0;
   const AIMgr::BallInfo& A = ai.aimed();
