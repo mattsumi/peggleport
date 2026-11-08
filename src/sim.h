@@ -154,7 +154,7 @@ struct Ball {
   int hatAge = 0;
   int hatUid = 0;
   float hx0 = 0, hy0 = 0, hx1 = 0, hy1 = 0;
-  int stuck = 0, age = 0, holeOut = 0, holeCooldown = 0;
+  int stuck = 0, age = 0, holeOut = 0, holeCooldown = 0, holeExit = -1;
   int slot = 0;
   int rimTick = 0, rimCount = 0;
   int rimMaxY = 0;

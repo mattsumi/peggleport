@@ -33,6 +33,14 @@ inline V2 dirOf(float a) {
   dm::sincos(a, s, c);
   return {(float)c, -(float)s};
 }
+inline V2 holeExitPoint(const Obj& e) {
+  switch (e.shape) {
+    case Shape::Poly:
+    case Shape::Brick: return {e.ppoly.cx, e.ppoly.cy};
+    case Shape::Line: return {e.pline.x1, e.pline.y1};
+    default: return e.pos;
+  }
+}
 
 }
 }

@@ -662,10 +662,11 @@ void Board::holeHit(Ball& b, int oi) {
     const Obj& e = objs[h.exitIdx];
     ev(Event::HoleIn, oi, (int)(&b - balls.data()));
     b.holeCooldown = 20;
-    if (h.outDelay < 1) b.pos = e.pos;
+    if (h.outDelay < 1) b.pos = b.prev = holeExitPoint(e);
     else {
       b.holeOut = h.outDelay;
-      b.holeTarget = e.pos;
+      b.holeExit = h.exitIdx;
+      b.holeTarget = holeExitPoint(e);
     }
     return;
   }

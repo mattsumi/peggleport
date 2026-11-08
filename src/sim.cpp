@@ -424,6 +424,7 @@ void Board::updateObj(Obj& o) {
 bool Board::updateBall(Ball& b) {
   b.age++;
   if (b.holeCooldown > 0) b.holeCooldown--;
+  if (b.holeOut > 0 && b.holeExit >= 0 && (size_t)b.holeExit < objs.size()) b.holeTarget = holeExitPoint(objs[(size_t)b.holeExit]);
   if (b.hat) hatUpdate(b);
   return phys::ballUpdate(b, grav_, physics.maxSpeed, physics.windOrDrag() ? &physics : nullptr);
 }
