@@ -379,8 +379,8 @@ void GameScreen::aiTurn() {
   aiWait_++;
   if (!ai_) ai_ = std::make_unique<AIMgr>();
   if (aiState_ == 0) {
-    if (aiWait_ >= 100) {
-      ai_->begin(b, aiSkill(), [this] { return (uint32_t)app.rand(); });
+    if (aiWait_ >= (b.shotIndex > 0 ? 150 : 100)) {
+      ai_->begin(b, aiSkill(), [&b] { return (uint32_t)b.rng.rand(); });
       aiState_ = 1;
       aiTick_ = 0;
     }
@@ -391,7 +391,22 @@ void GameScreen::aiTurn() {
     }
   } else {
     aiTick_++;
-    if (aiTick_ >= 20) b.lmAim = ai_->angle();
+    if (aiTick_ >= 20 && ai_->angle() != b.gunAngle) {
+      float want = ai_->angle(), cur = b.gunAngle;
+      if (want < 1.5707964f) want = want + 6.2831855f;
+      if (cur < 1.5707964f) cur = cur + 6.2831855f;
+      float rate = 0.1f * std::fabs(want - cur);
+      rate = rate < 0.02f ? 0.02f : rate > 0.4f ? 0.4f : rate;
+      if (want <= cur) {
+        cur = cur - rate;
+        if (cur <= want) cur = gun::normalizeAngle(want);
+      } else {
+        cur = rate + cur;
+        if (want <= cur) cur = gun::normalizeAngle(want);
+      }
+      gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, cur, true);
+      b.lmAim = cur;
+    }
     if (aiTick_ >= 100) {
       b.lmAim = ai_->angle();
       gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, b.lmAim, true);

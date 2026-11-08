@@ -25,7 +25,7 @@ float Board::zenSearch() {
   const AIMgr::BallInfo& A = ai.aimed();
   const AIMgr::BallInfo& B = ai.best();
   if (A.valid) {
-    if (!B.valid || A.left == 0 || B.score <= A.score) {
+    if (!B.valid || A.left == 0 || (B.score <= A.score && (B.left != 0 || cfg.clearLevel))) {
       zenNote = 1;
     } else if (A.sum < B.sum && A.sum != 0) {
       int pct = B.sum * 100 / A.sum - 100;

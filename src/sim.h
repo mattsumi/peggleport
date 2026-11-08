@@ -222,7 +222,11 @@ struct LevelResult {
   int percentCleared() const { return pegsTotal ? pegsCleared * 100 / pegsTotal : 0; }
 };
 
+class AIMgr;
+
 class Board {
+  friend class AIMgr;
+
  public:
   bool load(std::shared_ptr<const Level> base, std::shared_ptr<const Level> lv, const BoardConfig& cfg, std::string* err);
   void step();
