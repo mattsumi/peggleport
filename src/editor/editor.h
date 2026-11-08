@@ -46,6 +46,16 @@ class Editor {
   std::string emitterImage;
   void setVfs(const Vfs* v);
   bool imageExists(const std::string& path) const;
+
+  enum class ArtSlot { Background, Object, Emitter };
+  struct ArtItem {
+    std::string value, source, file;
+  };
+  std::vector<ArtItem> artChoices(ArtSlot slot, const std::filesystem::path& modDir) const;
+  std::string artPath(ArtSlot slot, const std::string& value) const;
+  bool artExists(ArtSlot slot, const std::string& value) const { return !artPath(slot, value).empty(); }
+  bool setArt(ArtSlot slot, const std::string& value);
+  int copyArtToMod(const std::filesystem::path& modDir) const;
   std::string customType(const NodeP& n) const;
   void setCustomType(const std::string& key);
 

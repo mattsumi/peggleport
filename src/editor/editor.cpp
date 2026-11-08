@@ -1,4 +1,7 @@
 #include "editor/editor.h"
+#include "content.h"
+#include "log.h"
+#include "vfs.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -92,6 +95,129 @@ bool Editor::imageExists(const std::string& path) const {
   for (const char* ext : {".jp2", ".jpg", ".png", ".gif", ".tga", ".j2k"})
     if (vfs->exists(path + ext)) return true;
   return false;
+}
+
+static const char* const kArtExt[] = {".tga", ".jpg", ".png", ".gif", ".j2k", ".jp2"};
+static bool isArtExt(std::string e) {
+  for (auto& c : e) c = (char)std::tolower((unsigned char)c);
+  for (const char* x : kArtExt)
+    if (e == x) return true;
+  return false;
+}
+static std::string lowerS(std::string s) {
+  for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+  return s;
+}
+static std::string slashes(std::string s) {
+  for (auto& c : s)
+    if (c == '\\') c = '/';
+  return s;
+}
+static std::vector<std::string> artPrefixes(Editor::ArtSlot s) {
+  if (s == Editor::ArtSlot::Background) return {"levels/"};
+  return {"", "images/levels/", "images/game/", "levels/"};
+}
+std::string Editor::artPath(ArtSlot slot, const std::string& value) const {
+  if (!vfs || value.empty()) return "";
+  for (auto& pre : artPrefixes(slot))
+    if (imageExists(pre + value)) return pre + value;
+  return "";
+}
+std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& modDir) const {
+  std::vector<ArtItem> out;
+  std::set<std::string> seen;
+  std::map<std::string, std::string> levelCase;
+  if (vfs)
+    for (auto& s : listStageLevels(*vfs)) levelCase[normKey(s.name)] = s.name;
+  auto add = [&](const std::string& key, const fs::path* real, const std::string& src) {
+    size_t dot = key.rfind('.');
+    if (dot == std::string::npos || !isArtExt(key.substr(dot))) return;
+    std::string stem = key.substr(0, dot), value, last = real ? real->stem().string() : std::string();
+    if (slot == ArtSlot::Background) {
+      if (stem.rfind("LEVELS\\", 0) != 0 || stem.find('\\', 7) != std::string::npos) return;
+      std::string nm = stem.substr(7);
+      if (nm.empty() || nm[0] == '_') return;
+      auto lc = levelCase.find(nm);
+      value = !last.empty() ? last : lc != levelCase.end() ? lc->second : lowerS(nm);
+    } else {
+      std::string pre;
+      if (stem.rfind("IMAGES\\LEVELS\\", 0) == 0) { stem = stem.substr(14); pre = slot == ArtSlot::Emitter ? "images/levels/" : ""; }
+      else if (stem.rfind("IMAGES\\GAME\\", 0) == 0) { stem = stem.substr(12); pre = "images/game/"; }
+      else if (stem.rfind("IMAGES\\", 0) == 0) { stem = stem.substr(7); pre = "images/"; }
+      else return;
+      if (stem.empty()) return;
+      size_t sl = stem.rfind('\\');
+      std::string dir = sl == std::string::npos ? std::string() : slashes(lowerS(stem.substr(0, sl + 1)));
+      std::string leaf = !last.empty() ? last : lowerS(sl == std::string::npos ? stem : stem.substr(sl + 1));
+      value = pre + dir + leaf;
+    }
+    if (!seen.insert(normKey(value)).second) return;
+    out.push_back({value, src, real ? real->string() : std::string()});
+  };
+  if (vfs)
+    for (auto& L : vfs->layers()) {
+      std::string src = L.isMod ? L.label : "game";
+      for (auto& [k, p] : L.files) add(k, &p, src);
+      for (auto& [k, _] : L.pakIndex) add(k, nullptr, src);
+    }
+  std::error_code ec;
+  if (!modDir.empty() && fs::is_directory(modDir, ec))
+    for (const char* sub : {"levels", "images"})
+      for (fs::recursive_directory_iterator it(modDir / sub, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec)) {
+          fs::path rel = fs::relative(it->path(), modDir, ec);
+          fs::path real = it->path();
+          add(normKey(rel.generic_string()), &real, "mod folder " + modDir.filename().string());
+        }
+  std::sort(out.begin(), out.end(), [](const ArtItem& a, const ArtItem& b) { return lowerS(a.value) < lowerS(b.value); });
+  return out;
+}
+bool Editor::setArt(ArtSlot slot, const std::string& value) {
+  if (slot == ArtSlot::Background) {
+    setMeta("background", value);
+    status = value.empty() ? "level art: the level's own picture" : "level art: " + value;
+    return true;
+  }
+  const char* key = slot == ArtSlot::Emitter ? "emitter_image" : "image";
+  if (sel.empty()) { status = "select an object first"; return false; }
+  bool ok = setProp(key, value);
+  status = ok ? (value.empty() ? "picture removed" : "picture: " + value) : "the selected objects have no picture setting";
+  return ok;
+}
+int Editor::copyArtToMod(const fs::path& modDir) const {
+  if (!vfs) return 0;
+  struct Ref { ArtSlot slot; std::string value; };
+  std::vector<Ref> refs;
+  refs.push_back({ArtSlot::Background, meta.background.empty() ? meta.name : meta.background});
+  for (auto& n : objects()) {
+    if (n->type == 9) { if (!n->str("emitter_image").empty()) refs.push_back({ArtSlot::Emitter, n->str("emitter_image")}); }
+    else if (!n->str("image").empty()) refs.push_back({ArtSlot::Object, n->str("image")});
+  }
+  int copied = 0;
+  std::set<std::string> done;
+  std::error_code ec;
+  for (auto& r : refs) {
+    std::string base = artPath(r.slot, r.value);
+    if (base.empty()) continue;
+    for (const char* ext : kArtExt) {
+      std::string key = normKey(base + ext);
+      if (!done.insert(key).second) continue;
+      for (auto& L : vfs->layers()) {
+        auto f = L.files.find(key);
+        if (f == L.files.end() && !L.pakIndex.count(key)) continue;
+        if (L.isMod && L.kind == Layer::Dir && f != L.files.end() && L.root != modDir) {
+          fs::path rel = fs::relative(f->second, L.root, ec);
+          fs::path dst = modDir / rel;
+          if (!ec && !fs::exists(dst, ec)) {
+            fs::create_directories(dst.parent_path(), ec);
+            if (fs::copy_file(f->second, dst, ec)) copied++;
+          }
+        }
+        break;
+      }
+    }
+  }
+  return copied;
 }
 
 void Editor::resetHistory() {
@@ -293,6 +419,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
   }
   spit(lv / (meta.name + ".ini"), ini.str());
+  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + modDir.string());
   std::vector<std::pair<std::string, std::string>> levels;
   {
     std::vector<uint8_t> bytes;
@@ -1254,13 +1381,24 @@ std::vector<Issue> Editor::validate() {
     }
     if (W > 650 && (g.x0 < 0 || g.x1 > 650) && !bg) wide++;
   }
+  if (vfs) {
+    std::string bg = meta.background.empty() ? meta.name : meta.background;
+    if (!artExists(ArtSlot::Background, bg)) {
+      if (!meta.background.empty() && meta.background != meta.name) add(Issue::Warn, "level art '" + meta.background + "' was not found in the game or mod files");
+      else add(Issue::Info, "the level has no picture (levels/" + bg + " is missing), it plays without art");
+    }
+    for (auto& n : objs) {
+      std::string img = n->type == 9 ? std::string() : n->str("image");
+      if (!img.empty() && !artExists(ArtSlot::Object, img)) add(Issue::Warn, std::string(typeName(n->type)) + " picture '" + img + "' was not found in the game or mod files", n);
+    }
+  }
   int emitters = 0;
   for (auto& n : objs) {
     if (n->type != 9) continue;
     emitters++;
     std::string img = n->str("emitter_image");
     if (img.empty()) add(Issue::Warn, "emitter has no image", n);
-    else if (vfs && !imageExists(img)) add(Issue::Warn, "emitter image '" + img + "' was not found in the game or mod files", n);
+    else if (vfs && !artExists(ArtSlot::Emitter, img)) add(Issue::Warn, "emitter image '" + img + "' was not found in the game or mod files", n);
     if (n->i("width") < 1 || n->i("height") < 1) add(Issue::Warn, "emitter area is empty", n);
   }
   if (emitters) add(Issue::Info, std::to_string(emitters) + " emitter(s): particle effects of Peggle Nights");

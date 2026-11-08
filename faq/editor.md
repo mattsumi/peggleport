@@ -11,7 +11,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | Top bar | New, Open (a level browser with a filter), Save, To mod, Export and Import (JSON), Undo, Redo, Grid, Snap, Fit, Animate, Oranges, Check, Test play, Exit |
 | Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole), effects (emitter) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
 | Canvas | The board, zoomed and panned. The playfield outline is white. On a wide board the original 650 pixel region is marked with a dashed gold guide |
-| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art, board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
+| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art of the level (pick a picture), board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
 | Bottom bar | Cursor position, zoom, grid, selection, saved or modified, and the last message |
 
 ## Keys and mouse
@@ -71,7 +71,7 @@ Properties the editor has no controls for are kept untouched, so editing one peg
   * a `mod.ini` when the folder has none, and a 200 by 177 thumbnail in `levels/cached_thumbnails/` for the Quick Play tile.
 * New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.
 * Level names may use letters, digits, `_` and `-`. A name that starts with `_` is treated as a base layout without walls and a bucket, and the checker tells you about it.
-* A new level uses the background art of an existing one (the editor does not draw art). Choose it in the Level tab.
+* The art of a level is its own picture in the game or mod files (`levels/<level name>`, a .jpg, .png or .jp2, 646 x 543 for the classic board, 800 x 600 for a full screen picture). The editor does not paint pictures, it picks them: see Level art below. A new level uses the art you choose in the Level tab. Pictures that come from another mod are copied into your mod folder when you save, so the mod does not break when the other one is switched off. Pictures of the game itself are only named, never copied, and nothing is ever written into the game folders.
 * To play it: tick the mod in **Options, then Mods**. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
 
 **Export and Import** write and read `exports/<Level>.json` in your save folder: a readable file of the whole level. Numbers keep their exact value, so exporting and importing changes nothing.
@@ -90,6 +90,16 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 
 Markers on the canvas show the objects a message is about.
 
+## Level art
+
+The editor can show and pick three kinds of pictures. Each one has the same chooser: a list of every picture in the game and in your mod folder with a big preview of the one under the mouse, a filter box (just type), and a button to type a name by hand.
+
+* **Art of level** in the Level tab is the picture behind the board. Click the line to open the chooser. "The level's own picture" means the file called like the level. The board shows your choice at once. The level is saved with a `background` line in its .ini when it is not the level's own picture.
+* **Image** in the Object tab is a picture drawn on an object (a bumper, a brick, a polygon). Select the objects first. Your choice is one undo step like any other change, and Image dx, Image dy, Image rot, Tile image and Mirror image next to it move and turn the picture.
+* **Image** of an emitter is the picture of its particles, chosen the same way.
+
+Pictures you made yourself go into your mod folder first: `levels/` for level art, `images/levels/` for object and emitter pictures (.png, .jpg or .tga work). The chooser lists them as "mod folder". Picking one adds your mod folder to the running game so the picture shows on the board straight away, and the Checks tab warns about a picture that is picked but not found.
+
 ## Generators and arranging
 
 The Gen tab makes a grid (columns, rows, spacing, origin), a circle, a spiral or a sine row of blue or orange pegs, as one undo step. Arrange can flip, rotate, align (left, centre, right, top, middle, bottom) and spread objects evenly.
@@ -98,4 +108,4 @@ The Gen tab makes a grid (columns, rows, spacing, origin), a circle, a spiral or
 
 * Bare physics objects (no shipped level has one) are kept in the file but neither drawn nor editable.
 * Several objects sharing one mover path can only be made through an imported JSON file. Following covers the usual reason for wanting that.
-* You cannot draw level art.
+* You cannot paint level art in the editor. Make the picture in your own program, put it into your mod folder and pick it.
