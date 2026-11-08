@@ -59,6 +59,7 @@ UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "",
   rename = patchButton(100, "Rename", "IMAGE_DLG_BUTTON3", 0, 0);
   del = patchButton(101, "Delete", "IMAGE_DLG_BUTTON3", 0, 0);
   create = patchButton(102, "Create New User", "IMAGE_DLG_BUTTON3", 0, 0);
+  importBtn = patchButton(103, "Import Player", "IMAGE_DLG_BUTTON3", 0, 0);
   if (a.curProfile) {
     list->lines.push_back(a.curProfile->name);
     list->select = 0;
@@ -71,7 +72,7 @@ UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "",
   };
 }
 
-float UserDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + 0xff; }
+float UserDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + 0xff + buttonH + 5; }
 
 void UserDialog::layout() {
   float left = insL, top = contentTop(app.gfx);
@@ -88,6 +89,9 @@ void UserDialog::layout() {
   create->x = rename->x;
   create->y = rename->y - 5 - create->h;
   create->w = del->x + del->w - create->x;
+  importBtn->x = create->x;
+  importBtn->y = create->y - 5 - importBtn->h;
+  importBtn->w = create->w;
 }
 
 void UserDialog::drawLayer(Gfx& g) {
@@ -112,6 +116,7 @@ void UserDialog::onButton(int id) {
     case 100: if (!n.empty()) app.doRenameUserDialog(n); break;
     case 101: if (!n.empty()) app.doConfirmDeleteUserDialog(n); break;
     case 102: app.doCreateUserDialog(); break;
+    case 103: app.doImportProfileDialog(); break;
     default: Dialog::onButton(id);
   }
 }
@@ -161,7 +166,10 @@ NewUserDialog::NewUserDialog(App& a, bool isRename, bool cert, bool canCancel)
     edit->font = "PLAIN2BIG";
     edit->paper = true;
     edit->ink = 0x606060;
-    if (!canCancel) noBtn->visible = false;
+    if (!canCancel) {
+      noBtn->visible = false;
+      importBtn = patchButton(103, "Import Player", "IMAGE_DLG_BUTTON3", 0, 0);
+    }
     yesBtn->visible = false;
     okBtn = embeddedButton(1000, "IMAGE_MM_CERTIFICATEOK", 0xd2, 0x107);
     okBtn->additiveDown = true;
@@ -195,6 +203,11 @@ void NewUserDialog::layout() {
     noBtn->x = 0x136;
     noBtn->y = 0x16d;
     noBtn->w = 0x96;
+    if (importBtn) {
+      importBtn->x = 0x136;
+      importBtn->y = 0x16d;
+      importBtn->w = 0x96;
+    }
   } else {
     layoutButtons();
     edit->x = 0x30;
@@ -213,7 +226,7 @@ void NewUserDialog::drawLayer(Gfx& g) {
   Tex* c = g.img("IMAGE_MM_CERTIFICATE");
   if (c) g.draw(c, 0, 0);
   g.drawString("PLAIN", 0x87 - g.textWidth("PLAIN", dateText) / 2, 0x186, dateText, 0x808080);
-  if (noBtn->visible) g.fill(0x133, 0x164, 0x88, 0x32, 0xd6cfc0);
+  if (noBtn->visible || importBtn) g.fill(0x133, 0x164, 0x88, 0x32, 0xd6cfc0);
   if (stamp > 0) {
     Tex* st = g.img("IMAGE_MM_APPROVEDSTAMP");
     if (st) {
@@ -239,6 +252,7 @@ void NewUserDialog::update() {
 
 void NewUserDialog::doApproved() {
   if (okBtn) okBtn->enabled = false;
+  if (importBtn) importBtn->enabled = false;
   noBtn->enabled = false;
   stamp = 1;
   app.playSample("STAMP");
@@ -246,6 +260,10 @@ void NewUserDialog::doApproved() {
 
 void NewUserDialog::onButton(int id) {
   if (stamp) return;
+  if (id == 103) {
+    app.doImportProfileDialog();
+    return;
+  }
   if (id == 1000 || id == ID_YES) app.dialogButton(dialogId, ID_YES);
   else app.dialogButton(dialogId, ID_NO);
 }

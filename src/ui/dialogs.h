@@ -28,7 +28,7 @@ class UserDialog : public Dialog {
  public:
   explicit UserDialog(App& a);
   ListBox* list;
-  Button *rename, *del, *create;
+  Button *rename, *del, *create, *importBtn;
   void layout();
   float preferredHeight(float width) override;
   void drawLayer(Gfx& g) override;
@@ -45,6 +45,7 @@ class NewUserDialog : public Dialog {
   NewUserDialog(App& a, bool isRename, bool certificate, bool canCancel);
   EditBox* edit;
   Button* okBtn = nullptr;
+  Button* importBtn = nullptr;
   bool certificate;
   std::string dateText;
   int stamp = 0;
