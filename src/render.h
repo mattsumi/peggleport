@@ -48,7 +48,7 @@ class Renderer {
   void fxElectro(float x0, float y0, float x1, float y1, int life = 30);
   void fxTimeBomb(float x, float y);
   void fxSpaceBlast(float x, float y);
-  void fxBubbles(float x, float y);
+  void fxBubble(float x, float y, int rise, int cel, int age);
   void masterBadge();
   void setVisualOptions(const VisualOptions& v) { vis_ = v; }
   const VisualOptions& visualOptions() const { return vis_; }
@@ -104,7 +104,7 @@ class Renderer {
   int texQ_ = 0;
   float texS_ = 1;
   void fxPegSparks(const Obj& o, float cx, float cy);
-  void sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a = 255, bool add = false, Uint32 tint = 0xffffff);
+  void sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a = 255, bool add = false, Uint32 tint = 0xffffff, bool flip = false);
   void quad(Tex* t, SDL_FRect src, float x, float y, float w, float h);
   enum class Pass { Shadow, Main, Light };
   void observe(const Board& b);

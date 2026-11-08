@@ -440,14 +440,14 @@ void Renderer::putCelCentered(Tex* t, int cel, float cx, float cy, Paint p) {
   put(t, {(cel % t->cols) * t->cw(), (cel / t->cols) * t->ch(), t->cw(), t->ch()}, cx - t->cw() / 2, cy - t->ch() / 2, p);
 }
 
-void Renderer::sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a, bool add, Uint32 tint) {
+void Renderer::sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a, bool add, Uint32 tint, bool flip) {
   if (!t) return;
   SDL_FRect dst{px(cx - w / 2), py(cy - h / 2), w * s_, h * s_};
   SDL_SetTextureAlphaMod(t->t, a);
   SDL_SetTextureColorMod(t->t, (tint >> 16) & 255, (tint >> 8) & 255, tint & 255);
   SDL_SetTextureBlendMode(t->t, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
   if (bloomOn_ && add) bloom_.push_back({t->t, src, dst, -rotRad * RAD2DEG, {dst.w * 0.5f, dst.h * 0.5f}, true, (uint8_t)(tint >> 16), (uint8_t)(tint >> 8), (uint8_t)tint, a});
-  SDL_RenderTextureRotated(r_, t->t, &src, &dst, -rotRad * RAD2DEG, nullptr, SDL_FLIP_NONE);
+  SDL_RenderTextureRotated(r_, t->t, &src, &dst, -rotRad * RAD2DEG, nullptr, flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
   SDL_SetTextureAlphaMod(t->t, 255);
   SDL_SetTextureColorMod(t->t, 255, 255, 255);
   SDL_SetTextureBlendMode(t->t, SDL_BLENDMODE_BLEND);
@@ -741,7 +741,7 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
   if (auto t = objImage(o.image)) {
     V2 off = rot({o.imgDx, o.imgDy}, o.rot);
     float lw = t->lw(), lh = t->lh();
-    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y, lw, lh, o.rot, a);
+    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y, lw, lh, o.rot, a, false, 0xffffff, o.mirror);
   }
   if (feverSlot && lightImg && o.flash > 0) {
     float hx = BX + o.pos.x, hy = BY + o.pos.y;

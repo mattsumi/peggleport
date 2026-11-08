@@ -359,18 +359,13 @@ void Renderer::fxZenPowerup(float x, float y) {
   }
 }
 
-void Renderer::fxBubbles(float x, float y) {
-  FxState& S = fx_;
-  static const float rise[6] = {0.67f, 0.83f, 1.0f, 1.07f, 0.76f, 0.93f};
-  int n = 2 + S.rand(3);
-  for (int i = 0; i < n; i++) {
-    FxEffect& e = fxAdd(9, x + (float)S.rand(21) - 10.0f, y + (float)S.rand(21) - 10.0f, 0);
-    e.vy = -rise[S.rand(6)];
-    e.i30 = S.rand(4);
-    if (e.i30 == 3) e.i30 = S.rand(4);
-    e.life = 0;
-    e.age = -S.rand(20);
-  }
+void Renderer::fxBubble(float x, float y, int rise, int cel, int age) {
+  static const float riseSpeed[6] = {0.67f, 0.83f, 1.0f, 1.07f, 0.76f, 0.93f};
+  FxEffect& e = fxAdd(9, x, y, 0);
+  e.vy = -riseSpeed[std::clamp(rise, 0, 5)];
+  e.i30 = cel;
+  e.life = 0;
+  e.age = -age;
 }
 
 void Renderer::fxElectro(float x0, float y0, float x1, float y1, int life) {
@@ -742,6 +737,12 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
     }
     case Event::TimeBomb:
       fxTimeBomb((float)e.a, (float)e.b);
+      break;
+    case Event::Toggle:
+      S.sound(e.a ? "FLIP" : "BUBBLES", 0, 1, 30);
+      break;
+    case Event::Bubble:
+      fxBubble((float)e.a, (float)e.b, e.c & 15, (e.c >> 4) & 15, e.c >> 8);
       break;
     default:
       break;

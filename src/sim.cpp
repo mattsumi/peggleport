@@ -104,6 +104,8 @@ bool Board::makeObj(const Level& L, const Node& n, Obj& o) {
   o.imgDy = n.f("image_dy");
   o.sound = (int)n.i("sound");
   o.subId = (int)n.i("sub_id");
+  o.logic = n.str("logic");
+  o.toggle = o.logic == "movetoggle" && (o.shape == Shape::Poly || o.shape == Shape::Brick);
   if (auto pv = n.val("peg"); pv && pv->n) {
     o.pegType = (int)pv->n->i("type");
     o.canBeOrange = pv->n->flag("variable");
@@ -387,6 +389,7 @@ void Board::updateObj(Obj& o) {
     if (o.fadeOut) o.visible = o.fadeT != 0;
   }
   if (o.moveCount != 0 && --o.moveCount == 0) o.canMove = false;
+  if (o.toggle) polyFlip(o);
 }
 
 bool Board::updateBall(Ball& b) {
@@ -532,6 +535,8 @@ void Board::stepBalls() {
   flush();
   for (int bi = 0; bi < (int)balls.size(); bi++)
     if (live[(size_t)bi] && !done[(size_t)bi]) phys::ballTranslate(balls[(size_t)bi], balls[(size_t)bi].vel.x, balls[(size_t)bi].vel.y);
+  for (auto& nt : notes_)
+    if (!nt.hat && balls[(size_t)nt.ball].alive && objs[(size_t)nt.obj].toggle) polyNotify(objs[(size_t)nt.obj]);
   for (auto& nt : notes_) {
     curBall_ = nt.ball;
     Ball& b = balls[nt.ball];
@@ -728,6 +733,7 @@ uint64_t Board::hash() const {
   for (auto& o : objs) {
     h = mix(h, o.gone); h = mix(h, o.lit); h = mix(h, o.pegType); h = mix(h, o.popTimer); h = mix(h, o.mtick);
     h = mix(h, o.pos.x); h = mix(h, o.pos.y); h = mix(h, o.rot); h = mix(h, o.collidable);
+    if (o.toggle) h = mix(h, o.mirror);
     if (o.moveCount) { h = mix(h, o.moveCount); h = mix(h, o.canMove); }
     if (o.custom) { h = mix(h, o.custom); h = mix(h, o.hits); h = mix(h, o.hitTick); h = mix(h, o.radius); }
     if (o.mv.linked) { h = mix(h, o.mv.ax); h = mix(h, o.mv.ay); h = mix(h, o.mv.lastX); h = mix(h, o.mv.lastY); h = mix(h, o.mv.outX); h = mix(h, o.mv.outY); }

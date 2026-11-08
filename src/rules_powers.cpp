@@ -196,4 +196,55 @@ void Board::collideHat(const Ball& owner, int bi, const std::vector<int>& cand) 
   for (size_t i = n0; i < notes_.size(); i++) notes_[i].hat = true;
 }
 
+void Board::polyNotify(Obj& o) {
+  if (!o.toggle || o.canMove || !o.hasMover) return;
+  const Mover& m = o.mv;
+  const int period = m.pause1 > 0 ? m.time + m.pause2 + m.pause1 : m.time;
+  if (period <= 0) return;
+  const int cur = o.mtick % period;
+  float frac;
+  if (cur < 10) {
+    if (o.mirror) {
+      o.mirror = false;
+      o.imgDx = o.imgDx * -1.0f;
+    }
+    frac = 0.5f;
+  } else {
+    if (!o.mirror) {
+      o.mirror = true;
+      o.imgDx = o.imgDx * -1.0f;
+    }
+    frac = 0.0f;
+  }
+  const int n = phaseImpl(m, o.mtick, frac);
+  if (n > 0) {
+    o.canMove = true;
+    o.moveCount = n;
+  }
+  addBubbles(o, 0);
+}
+
+void Board::polyFlip(Obj& o) {
+  if (!o.toggle || o.moveCount != 40) return;
+  o.mirror = !o.mirror;
+  o.imgDx = o.imgDx * -1.0f;
+  addBubbles(o, 1);
+}
+
+void Board::addBubbles(const Obj& o, int kind) {
+  ev(Event::Toggle, kind);
+  const int x = (int)(o.mirror ? o.x1 : o.x0);
+  const int y = (int)o.pos.y;
+  int n = 2 + (int)(rng.rand() % 3u);
+  for (; n > 0; n--) {
+    const int ox = (int)(rng.rand() % 21u) - 10;
+    const int oy = (int)(rng.rand() % 21u) - 10;
+    const int rise = (int)(rng.rand() % 6u);
+    int cel = (int)(rng.rand() & 3u);
+    if (cel == 3) cel = (int)(rng.rand() & 3u);
+    const int age = -((int)rng.rand()) % 20;
+    ev(Event::Bubble, x + ox, y + oy, rise | (cel << 4) | ((-age) << 8));
+  }
+}
+
 }

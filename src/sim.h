@@ -61,6 +61,8 @@ struct Obj {
   int custom = 0, hits = 0, hitTick = -1000000;
   float radius0 = 0;
   bool canBeOrange = false, lit = false;
+  std::string logic;
+  bool toggle = false, mirror = false;
   int zoneMode = 0;
   int litAge = 0, popTimer = 0, flash = 0;
   bool hasMover = false, moving = false;
@@ -96,7 +98,9 @@ struct Event {
               FlipperMove,
               Zen,
               Hint,
-              TimeBomb   } type;
+              TimeBomb,
+              Toggle,
+              Bubble   } type;
   int a = 0, b = 0;
   int c = 0;
 };
@@ -253,6 +257,9 @@ class Board {
   int spinCode_ = 0;
   void hatInit(Ball& b, bool atOrigin = false);
   int hatBorn_ = 0;
+  void polyNotify(Obj& o);
+  void polyFlip(Obj& o);
+  void addBubbles(const Obj& o, int kind);
   void hatUpdate(Ball& b);
   static void setPolyActive(Obj& o, bool on);
   void clickInShot();
