@@ -139,6 +139,11 @@ int LoadingFairies::click(int x, int y) {
 }
 
 void LoadingFairies::layout(int imageSize, std::vector<Sprite>& sprites, std::vector<Dot>& dots) {
+  layoutSprites(imageSize, sprites);
+  layoutDots(dots);
+}
+
+void LoadingFairies::layoutSprites(int imageSize, std::vector<Sprite>& sprites) {
   float half = (float)(imageSize / 2);
   for (const Fairy& f : fairies_) {
     Sprite s;
@@ -150,6 +155,9 @@ void LoadingFairies::layout(int imageSize, std::vector<Sprite>& sprites, std::ve
     s.x = (int)fl((double)px - (double)half);
     sprites.push_back(s);
   }
+}
+
+void LoadingFairies::layoutDots(std::vector<Dot>& dots) {
   for (const Spark& p : sparks_) {
     Dot d;
     int b = (int)(rng_.next() % 32);

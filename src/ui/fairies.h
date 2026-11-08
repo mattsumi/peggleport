@@ -32,6 +32,8 @@ class LoadingFairies {
   void update(bool night, int mouseX, int mouseY);
   int click(int x, int y);
   void layout(int imageSize, std::vector<Sprite>& sprites, std::vector<Dot>& dots);
+  void layoutSprites(int imageSize, std::vector<Sprite>& sprites);
+  void layoutDots(std::vector<Dot>& dots);
 
   float glow() const { return glow_; }
   const std::vector<Fairy>& fairies() const { return fairies_; }
