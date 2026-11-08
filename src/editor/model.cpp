@@ -299,38 +299,121 @@ static V2 rot2(V2 d, float a) {
   float c = std::cos(a), s = std::sin(a);
   return {c * d.x - s * d.y, s * d.x + c * d.y};
 }
-static void moverFromNode(const Node* mn, Mover& m) {
-  m = Mover();
-  m.type = (int)mn->i("move_type");
-  m.ax = mn->f("anchor_x");
-  m.ay = mn->f("anchor_y");
-  m.time = (int)mn->i("time", 200);
-  m.offset = (int)mn->i("offset");
-  m.rx = (float)mn->i("radius");
-  m.ry = (float)mn->i("radius2");
-  m.phase = mn->f("phase");
-  m.moveRot = mn->f("move_rotation");
-  m.maxAngle = mn->f("max_angle");
-  m.rotation = mn->f("rotation");
-  m.pause1 = (int)mn->i("pause1");
-  m.pause2 = (int)mn->i("pause2");
-  m.phase1 = (int)mn->i("phase1");
-  m.phase2 = (int)mn->i("phase2");
-  m.postDelay = mn->f("post_delay_phase");
-  m.single = true;
-}
 static bool buildMover(const Level& L, const Node& n, Mover& m) {
   const Node* mn = moverOf(L, n);
   if (!mn) return false;
-  moverFromNode(mn, m);
+  m = Mover::fromNode(*mn, true);
   return true;
 }
-V2 moverPose(const Level&, const Node& mover, int tick) {
-  Mover m;
-  moverFromNode(&mover, m);
-  float x = mover.f("anchor_x"), y = mover.f("anchor_y"), r = 0;
-  m.calc(tick, x, y, r);
-  return {x, y};
+V2 moverRest(const Node& mover) {
+  Mover m = Mover::fromNode(mover, true);
+  return {m.outX, m.outY};
+}
+void syncRest(Node& mover) {
+  Mover m = Mover::fromNode(mover, true);
+  float x = m.ax, y = m.ay, r = m.rotation;
+  m.calc(0, x, y, r);
+  putNum(mover, "obj_x", Prim::F32, x);
+  putNum(mover, "obj_y", Prim::F32, y);
+}
+namespace {
+struct Chain {
+  std::vector<Mover> mv;
+  std::vector<int> mtick, rank;
+  std::vector<char> canMove;
+  std::vector<float> rot;
+  std::vector<int> run;
+  uint64_t sig = 1469598103934665603ull;
+};
+struct Track {
+  Chain c;
+  std::vector<V2> pos;
+  std::vector<float> rot;
+};
+constexpr int kTrackTicks = 12000;
+void sigMix(uint64_t& h, const void* p, size_t n) {
+  const uint8_t* b = (const uint8_t*)p;
+  for (size_t i = 0; i < n; i++) {
+    h ^= b[i];
+    h *= 1099511628211ull;
+  }
+}
+bool buildChain(const Level& L, const Node& n, Chain& c) {
+  const Node* mn = moverOf(L, n);
+  if (!mn || !subOf(L, *mn)) return false;
+  std::vector<const Node*> nodes;
+  for (const Node* m = mn; m && nodes.size() < 8; m = subOf(L, *m)) {
+    if (std::find(nodes.begin(), nodes.end(), m) != nodes.end()) break;
+    nodes.push_back(m);
+  }
+  std::vector<int> owner(nodes.size(), -1);
+  std::vector<char> can(nodes.size(), 1);
+  int k = 0;
+  for (auto& e : L.entries) {
+    const Node* o = L.resolve(e);
+    if (o)
+      if (const Node* om = moverOf(L, *o))
+        for (size_t i = 0; i < nodes.size(); i++)
+          if (nodes[i] == om && owner[i] < 0) {
+            owner[i] = k;
+            can[i] = o->flag("can_move") ? 1 : 0;
+          }
+    k++;
+  }
+  if (owner[0] < 0) {
+    owner[0] = k;
+    can[0] = n.flag("can_move") ? 1 : 0;
+  }
+  for (size_t i = 0; i < nodes.size(); i++) {
+    Mover m = Mover::fromNode(*nodes[i], true);
+    m.sub = i + 1 < nodes.size() ? (int)i + 1 : -1;
+    float x = m.ax, y = m.ay, r = m.rotation;
+    m.calc(0, x, y, r);
+    c.rot.push_back(r);
+    c.mv.push_back(m);
+    c.mtick.push_back(0);
+    c.rank.push_back(owner[i]);
+    c.canMove.push_back(can[i]);
+    const int iv[] = {m.type, m.time, m.offset, m.pause1, m.pause2, m.phase1, m.phase2, m.sub, owner[i], can[i]};
+    const float fv[] = {m.ax, m.ay, m.rx, m.ry, m.phase, m.moveRot, m.maxAngle, m.rotation, m.postDelay, m.lastX, m.lastY, m.outX, m.outY};
+    sigMix(c.sig, iv, sizeof iv);
+    sigMix(c.sig, fv, sizeof fv);
+    if (owner[i] >= 0) c.run.push_back((int)i);
+  }
+  std::stable_sort(c.run.begin(), c.run.end(), [&](int a, int b) { return c.rank[(size_t)a] < c.rank[(size_t)b]; });
+  return true;
+}
+void chainTick(Chain& c) {
+  for (int j : c.run) {
+    Mover& m = c.mv[(size_t)j];
+    const bool can = c.canMove[(size_t)j] != 0;
+    if (!can && m.sub == -1) continue;
+    if (can) c.mtick[(size_t)j]++;
+    float x = m.outX, y = m.outY;
+    m.step(c.mtick[(size_t)j], 0.0f, x, y, c.rot[(size_t)j], m.sub >= 0 ? &c.mv[(size_t)m.sub] : nullptr);
+  }
+}
+bool followPose(const Level& L, const Node& n, int tick, V2& pos, float& rot) {
+  Chain c;
+  if (!buildChain(L, n, c)) return false;
+  static std::map<const Node*, Track> cache;
+  if (cache.size() > 512) cache.clear();
+  Track& t = cache[moverOf(L, n)];
+  if (t.pos.empty() || t.c.sig != c.sig) {
+    t.c = std::move(c);
+    t.pos.assign(1, V2(t.c.mv[0].outX, t.c.mv[0].outY));
+    t.rot.assign(1, t.c.rot[0]);
+  }
+  tick = std::clamp(tick, 0, kTrackTicks);
+  while ((int)t.pos.size() <= tick) {
+    chainTick(t.c);
+    t.pos.push_back(V2(t.c.mv[0].outX, t.c.mv[0].outY));
+    t.rot.push_back(t.c.rot[0]);
+  }
+  pos = t.pos[(size_t)tick];
+  rot = t.rot[(size_t)tick];
+  return true;
+}
 }
 static void bounds(Geo& g) {
   if (g.pts.empty()) return;
@@ -349,13 +432,15 @@ Geo geometry(const Level& L, const Node& n, int tick) {
   float baseRot = n.f("poly_rotation"), rot = baseRot;
   if (hm && n.type != 2) {
     float x = pos.x, y = pos.y, r = baseRot;
-    mv.calc(tick, x, y, r);
-    if (const Node* mn = moverOf(L, n))
-      if (const Node* sm = subOf(L, *mn); sm && sm != mn) {
-        V2 a = moverPose(L, *sm, tick);
-        x += a.x - mn->f("sub_x");
-        y += a.y - mn->f("sub_y");
-      }
+    V2 fp;
+    float fr = 0;
+    if (followPose(L, n, tick, fp, fr)) {
+      x = fp.x;
+      y = fp.y;
+      r = fr;
+    } else {
+      mv.calc(tick, x, y, r);
+    }
     pos = {x, y};
     if (mv.rotating()) rot = r;
   }

@@ -471,7 +471,7 @@ void Editor::begin(const std::string& label, const std::vector<NodeP>& touch) {
   for (auto& m : allMovers(*level))
     if (Node* sm = subOf(*level, *m); sm && sm != m.get()) {
       if (std::find(cur_.touched.begin(), cur_.touched.end(), m) == cur_.touched.end()) cur_.touched.push_back(m);
-      cur_.subPose[m.get()] = moverPose(*level, *sm, 0);
+      cur_.subPose[m.get()] = moverRest(*sm);
     }
   for (auto& n : cur_.touched) cur_.sb.push_back(snapNode(n));
   open_ = true;
@@ -482,7 +482,7 @@ void Editor::keepFollowers() {
     auto it = cur_.subPose.find(m.get());
     Node* sm = it == cur_.subPose.end() ? nullptr : subOf(*level, *m);
     if (!sm) continue;
-    V2 now = moverPose(*level, *sm, 0), was = it->second;
+    V2 now = moverRest(*sm), was = it->second;
     if (now.x == was.x && now.y == was.y) continue;
     putNum(*m, "sub_x", Prim::F32, m->f("sub_x") + (now.x - was.x));
     putNum(*m, "sub_y", Prim::F32, m->f("sub_y") + (now.y - was.y));
@@ -795,7 +795,10 @@ bool Editor::setMoverProp(const std::string& key, const std::string& text) {
     for (auto& d : moverProps())
       if (key == d.key) {
         if (!std::strncmp(d.key, "sub_", 4) && !m->val("sub")) break;
-        any |= setPropText(*level, *m, d, text);
+        if (setPropText(*level, *m, d, text)) {
+          any = true;
+          if (std::strncmp(d.key, "sub_", 4)) syncRest(*m);
+        }
         break;
       }
   if (any) commit(); else abort();
@@ -855,7 +858,7 @@ bool Editor::followObject(const NodeP& driver) {
   }
   if (who.empty()) { status = "these objects cannot follow anything"; return false; }
   begin("Follow object", who);
-  V2 start = moverPose(*level, *dm, 0);
+  V2 start = moverRest(*dm);
   for (auto& n : who) {
     if (!n->val("mover")) attachMover(*level, *n, 0);
     Node* fm = moverOf(*level, *n);
