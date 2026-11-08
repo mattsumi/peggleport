@@ -35,7 +35,11 @@ Tick **Open the last game directly next time**. To get back to the folder window
 No. Each game has its own profiles, high scores, settings and mods folder, the same way the originals do.
 
 **Can I use my existing profiles?**
-Peggle Deluxe profiles and high scores use the original file format, so you can copy your old profile files into the folder below. Peggle Nights profiles are kept in a PegglePort format, so Nights profiles from the original game do not carry over.
+Yes. In the game, click **If this is not you, click here.** on the main menu and then **Import Player**. If you are starting for the first time, **Import Player** is on the certificate where you would type your name. A file chooser opens: choose the `userdata` folder of your original Peggle Deluxe or Peggle Nights, or one player file such as `user1.dat`. PegglePort lists the players it finds with their progress. Pick one and press **Import**.
+
+You get a new player with your adventure progress, challenge trophies, cleared levels (and aced levels in Nights), adventure scores, the Masters you picked and the settings that are kept in the profile. The scores you put on the high score lists are added to the lists. If a player with the same name already exists, the imported one gets a number after its name. Nothing is ever overwritten and the original files are only read. If a file cannot be read, the window says so in plain words.
+
+The original games keep their saves in `C:\ProgramData\PopCap Games\Peggle\userdata` (Deluxe) and `C:\ProgramData\PopCap Games\PeggleNights\userdata` (Nights) on Windows, or in a `userdata` folder next to the game's `.exe` on older Windows. If you run the originals through Wine, CrossOver or Proton, it is the same path inside the Wine folder (`drive_c/ProgramData/PopCap Games/...`), and the file chooser starts there when I find it. A player from the other game is added to that game's list, so start that game in PegglePort to find the player there.
 
 ## Where are my saves?
 
