@@ -220,8 +220,17 @@ void Board::addLevel(const Level& L, bool fromBase) {
     nodeOf.push_back(n);
     return (int)objs.size() - 1;
   };
+  std::vector<const Node*> emitNodes;
+  const size_t emitFirst = emitters.size();
   for (auto& e : L.entries)
-    if (auto n = L.resolve(e)) build(n);
+    if (auto n = L.resolve(e)) {
+      if (n->type == 9) {
+        emitters.push_back(makeEmit(L, *n, fromBase));
+        emitNodes.push_back(n);
+      } else {
+        build(n);
+      }
+    }
   for (size_t i = 0; i < nodeOf.size(); i++) {
     Obj& o = objs[first + i];
     if (o.shape != Shape::Hole) continue;
@@ -231,7 +240,7 @@ void Board::addLevel(const Level& L, bool fromBase) {
         objs[first + i].exitIdx = ex;
       }
   }
-  linkFollowers(L, nodeOf, first);
+  linkFollowers(L, nodeOf, first, emitNodes, emitFirst);
 }
 
 void Board::widen() {
@@ -277,6 +286,22 @@ void Board::widen() {
   for (auto& f : freeMovers_) {
     f.ax += dw * 0.5f;
     f.outX += dw * 0.5f;
+  }
+  for (auto& e : emitters) {
+    if (e.fromBase) continue;
+    if (e.mv.linked) {
+      e.mv.ax += dw * 0.5f;
+      e.mv.outX += dw * 0.5f;
+      if (e.mv.sub != -1) e.mv.lastX += dw * 0.5f;
+      e.pos = {e.mv.outX, e.mv.outY};
+    } else if (e.hasMover) {
+      e.mv.ax += dw * 0.5f;
+      float x = e.pos.x, y = e.pos.y, r = 0.0f;
+      e.mv.calc(e.mtick, x, y, r);
+      e.pos = {x, y};
+    } else {
+      e.pos.x += dw * 0.5f;
+    }
   }
 }
 
@@ -633,7 +658,12 @@ void Board::stepCore() {
   shotLogic();
   tick++;
   gunLogic();
-  for (auto& o : objs) updateObj(o);
+  size_t ei = 0;
+  for (size_t i = 0; i < objs.size(); i++) {
+    while (ei < emitters.size() && emitters[ei].before <= i) updateEmit(emitters[ei++]);
+    updateObj(objs[i]);
+  }
+  while (ei < emitters.size()) updateEmit(emitters[ei++]);
   gun::update(gunState, gunAngle, gunTarget);
   if (phase == Phase::Shot || phase == Phase::Popping) stepBalls();
   if (bannerTimer > 0) bannerTimer--;

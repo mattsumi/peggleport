@@ -86,6 +86,15 @@ struct Obj {
   float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
 };
 
+struct Emit {
+  const Node* node = nullptr;
+  bool fromBase = false, canMove = false, hasMover = false;
+  Mover mv;
+  int mtick = 0;
+  size_t before = 0;
+  V2 pos;
+};
+
 struct Rod {
   struct Spark {
     float ang;
@@ -248,6 +257,7 @@ class Board {
   BoardConfig cfg;
   int W = 650;
   std::vector<Obj> objs;
+  std::vector<Emit> emitters;
   std::vector<Ball> balls;
   Phase phase = Phase::Aim;
   int tick = 0, cur = 0, players = 1;
@@ -406,6 +416,8 @@ class Board {
   void noteContact(Ball& b, Obj& o);
   const Mover* subMover(const Mover& m) const;
   void drawCalc(const Obj& o, float frac, float& x, float& y, float& r) const;
+  void drawCalc(const Mover& mv, int mtick, float frac, float& x, float& y, float& r) const;
+  void emitDrawPos(const Emit& e, float frac, float& x, float& y) const;
 
  private:
   struct Note { int ball, obj; bool hat = false; };
@@ -442,7 +454,10 @@ class Board {
   void rebuild(Obj& o);
   void updateObj(Obj& o);
   void moverStep(Obj& o, float& x, float& y, float& r);
-  void linkFollowers(const Level& L, const std::vector<const Node*>& nodeOf, size_t first);
+  void moverStep(Mover& m, int mtick, float& x, float& y, float& r);
+  void updateEmit(Emit& e);
+  Emit makeEmit(const Level& L, const Node& n, bool fromBase);
+  void linkFollowers(const Level& L, const std::vector<const Node*>& nodeOf, size_t first, const std::vector<const Node*>& emitNodeOf, size_t emitFirst);
   std::vector<Mover> freeMovers_;
   bool updateBall(Ball& b);
   std::vector<int> gather(const Ball& b) const;
