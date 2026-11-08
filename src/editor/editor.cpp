@@ -24,7 +24,7 @@ namespace pp::ed {
 static const struct { const char* name; Tool t; } kTools[] = {
     {"select", Tool::Select}, {"pan", Tool::Pan}, {"blue", Tool::PegBlue}, {"orange", Tool::PegOrange}, {"green", Tool::PegGreen},
     {"purple", Tool::PegPurple}, {"round", Tool::PegRound}, {"bumper", Tool::Bumper}, {"brick_straight", Tool::BrickStraight},
-    {"brick_curved", Tool::BrickCurved}, {"poly", Tool::Poly}, {"line", Tool::Line}, {"hole", Tool::Hole}, {"hole_exit", Tool::HoleExit}, {"emitter", Tool::Emitter}};
+    {"brick_curved", Tool::BrickCurved}, {"poly", Tool::Poly}, {"line", Tool::Line}, {"hole", Tool::Hole}, {"hole_exit", Tool::HoleExit}, {"emitter", Tool::Emitter}, {"follow", Tool::Follow}};
 const char* toolName(Tool t) {
   for (auto& e : kTools)
     if (e.t == t) return e.name;
@@ -341,11 +341,30 @@ void Editor::begin(const std::string& label, const std::vector<NodeP>& touch) {
   cur_.touched = touch;
   for (auto& n : touch)
     if (auto v = n->val("mover"); v && v->n && std::find(cur_.touched.begin(), cur_.touched.end(), v->n) == cur_.touched.end()) cur_.touched.push_back(v->n);
+  for (auto& m : allMovers(*level))
+    if (Node* sm = subOf(*level, *m); sm && sm != m.get()) {
+      if (std::find(cur_.touched.begin(), cur_.touched.end(), m) == cur_.touched.end()) cur_.touched.push_back(m);
+      cur_.subPose[m.get()] = moverPose(*level, *sm, 0);
+    }
   for (auto& n : cur_.touched) cur_.sb.push_back(snapNode(n));
   open_ = true;
 }
+void Editor::keepFollowers() {
+  if (!open_) return;
+  for (auto& m : allMovers(*level)) {
+    auto it = cur_.subPose.find(m.get());
+    Node* sm = it == cur_.subPose.end() ? nullptr : subOf(*level, *m);
+    if (!sm) continue;
+    V2 now = moverPose(*level, *sm, 0), was = it->second;
+    if (now.x == was.x && now.y == was.y) continue;
+    putNum(*m, "sub_x", Prim::F32, m->f("sub_x") + (now.x - was.x));
+    putNum(*m, "sub_y", Prim::F32, m->f("sub_y") + (now.y - was.y));
+    it->second = now;
+  }
+}
 void Editor::commit() {
   if (!open_) return;
+  keepFollowers();
   cur_.ea = level->entries;
   for (auto& n : cur_.touched) cur_.sa.push_back(snapNode(n));
   undo_.push_back(std::move(cur_));
@@ -525,22 +544,51 @@ void Editor::mirrorSelection(bool horizontal) {
   for (auto& n : v) mirrorNode(*level, *n, horizontal, axis, &done);
   commit();
 }
-static std::vector<NodeP> cloneAll(const std::vector<NodeP>& src) {
+static std::vector<NodeP> cloneAll(const Level& L, const std::vector<NodeP>& src) {
   std::map<const Node*, NodeP> remap;
   std::vector<NodeP> out;
   for (auto& n : src) out.push_back(cloneNode(n, &remap));
+  std::set<const Node*> inSet, outside;
+  for (auto& n : src) inSet.insert(n.get());
+  for (auto& o : L.entries)
+    if (o.n && !inSet.count(o.n.get()))
+      if (const Node* m = moverOf(L, *o.n)) outside.insert(m);
+  for (size_t i = 0; i < src.size(); i++) {
+    const Node* mo = moverOf(L, *src[i]);
+    Node* mc = moverOf(L, *out[i]);
+    for (int depth = 0; mo && mc && depth < 8; depth++) {
+      auto sv = mo->val("sub");
+      if (!sv) break;
+      const Node* so = subOf(L, *mo);
+      auto it = so ? remap.find(so) : remap.end();
+      Val link;
+      link.k = VK::Ref;
+      if (so && outside.count(so)) {
+        link.n = sv->n;
+        mc->fields["sub"] = link;
+        break;
+      }
+      if (it != remap.end()) {
+        link.n = it->second;
+        mc->fields["sub"] = link;
+        break;
+      }
+      mo = so;
+      mc = subOf(L, *mc);
+    }
+  }
   return out;
 }
 void Editor::duplicateSelection(float dx, float dy) {
   if (sel.empty()) return;
-  auto c = cloneAll(sel);
+  auto c = cloneAll(*level, sel);
   std::set<const Node*> done;
   for (auto& n : c) translateNode(*n, dx, dy, &done);
   addNodes(c, "Duplicate");
 }
 void Editor::copySelection() {
   if (sel.empty()) return;
-  clip_ = cloneAll(sel);
+  clip_ = cloneAll(*level, sel);
   float x0, y0, x1, y1;
   selBounds(x0, y0, x1, y1);
   clipOrigin_ = V2((x0 + x1) * 0.5f, (y0 + y1) * 0.5f);
@@ -553,7 +601,7 @@ void Editor::cutSelection() {
 }
 void Editor::paste(V2 at, bool useAt) {
   if (clip_.empty()) { status = "nothing to paste"; return; }
-  auto c = cloneAll(clip_);
+  auto c = cloneAll(*level, clip_);
   V2 d = useAt ? snapPt(at) - clipOrigin_ : V2(grid > 1 ? grid : 10, grid > 1 ? grid : 10);
   if (useAt && snap) d = snapPt(clipOrigin_ + d) - clipOrigin_;
   std::set<const Node*> done;
@@ -618,7 +666,11 @@ bool Editor::setMoverProp(const std::string& key, const std::string& text) {
   begin("Set mover " + key, movers);
   for (auto& m : movers)
     for (auto& d : moverProps())
-      if (key == d.key) { any |= setPropText(*level, *m, d, text); break; }
+      if (key == d.key) {
+        if (!std::strncmp(d.key, "sub_", 4) && !m->val("sub")) break;
+        any |= setPropText(*level, *m, d, text);
+        break;
+      }
   if (any) commit(); else abort();
   return any;
 }
@@ -629,6 +681,84 @@ bool Editor::addMover(int type) {
   for (auto& n : sel) any |= attachMover(*level, *n, type);
   if (any) commit(); else abort();
   return any;
+}
+NodeP Editor::driverOf(const NodeP& follower) const {
+  Node* m = moverOf(*level, *follower);
+  Node* s = m ? subOf(*level, *m) : nullptr;
+  if (!s) return nullptr;
+  for (auto& o : objects())
+    if (o != follower && moverOf(*level, *o) == s) return o;
+  return nullptr;
+}
+std::vector<NodeP> Editor::followersOf(const NodeP& driver) const {
+  std::vector<NodeP> out;
+  Node* dm = moverOf(*level, *driver);
+  if (!dm) return out;
+  for (auto& o : objects()) {
+    Node* m = moverOf(*level, *o);
+    if (m && o != driver && subOf(*level, *m) == dm) out.push_back(o);
+  }
+  return out;
+}
+std::string Editor::describe(const NodeP& n) const {
+  V2 p = nodePos(*level, *n);
+  const char* t = typeName(n->type);
+  if (n->type == 5 && pegOf(*n)) t = "peg";
+  else if (n->type == 5) t = "round object";
+  char b[96];
+  std::snprintf(b, sizeof b, "%s at %.0f, %.0f", t, p.x, p.y);
+  return b;
+}
+bool Editor::followObject(const NodeP& driver) {
+  if (sel.empty()) { status = "select the objects that should follow first"; return false; }
+  Node* dm = moverOf(*level, *driver);
+  if (!dm) { status = "that object has no mover, so there is nothing to follow"; return false; }
+  const Val* dv = driver->val("mover");
+  NodeP dmp = dv ? dv->n : nullptr;
+  if (!dmp) { status = "that object cannot be followed"; return false; }
+  if (dm->val("sub")) { status = "that object follows another one itself, pick the one it follows"; return false; }
+  std::vector<NodeP> who;
+  for (auto& n : sel) {
+    if (!isObjectType(n->type) || n->type == 2) continue;
+    if (n == driver) { status = "an object cannot follow itself"; return false; }
+    Node* fm = moverOf(*level, *n);
+    if (fm == dm) { status = "those objects share one mover already"; return false; }
+    if (fm && !followersOf(n).empty()) { status = "other objects follow " + describe(n) + ", so it cannot follow anything"; return false; }
+    who.push_back(n);
+  }
+  if (who.empty()) { status = "these objects cannot follow anything"; return false; }
+  begin("Follow object", who);
+  V2 start = moverPose(*level, *dm, 0);
+  for (auto& n : who) {
+    if (!n->val("mover")) attachMover(*level, *n, 0);
+    Node* fm = moverOf(*level, *n);
+    if (!fm) continue;
+    Val link;
+    link.k = VK::Ref;
+    link.n = dmp;
+    fm->fields["sub"] = link;
+    putNum(*fm, "sub_x", Prim::F32, start.x);
+    putNum(*fm, "sub_y", Prim::F32, start.y);
+  }
+  commit();
+  status = "now following " + describe(driver);
+  return true;
+}
+bool Editor::stopFollowing() {
+  std::vector<NodeP> who;
+  for (auto& n : sel)
+    if (Node* m = moverOf(*level, *n); m && m->val("sub")) who.push_back(n);
+  if (who.empty()) { status = "nothing to stop"; return false; }
+  begin("Stop following", who);
+  for (auto& n : who) {
+    Node* m = moverOf(*level, *n);
+    m->fields.erase("sub");
+    m->fields.erase("sub_x");
+    m->fields.erase("sub_y");
+  }
+  commit();
+  status = "stopped following";
+  return true;
 }
 bool Editor::setHoleExit(V2 p) {
   std::vector<NodeP> holes;
@@ -855,7 +985,7 @@ void Editor::mouseDown(V2 p, int button, Mods m, int clicks) {
           sel = {hit};
         }
         if (m.alt) {
-          auto c = cloneAll(sel);
+          auto c = cloneAll(*level, sel);
           addNodes(c, "Duplicate");
           hit = c.empty() ? hit : c.front();
         }
@@ -875,6 +1005,13 @@ void Editor::mouseDown(V2 p, int button, Mods m, int clicks) {
       break;
     }
     case Tool::HoleExit: setHoleExit(snapPt(p)); break;
+    case Tool::Follow: {
+      NodeP hit = hitObject(p);
+      if (!hit) status = "click the object to follow";
+      else followObject(hit);
+      tool = Tool::Select;
+      break;
+    }
     case Tool::Line:
       g_ = G();
       g_.kind = G::Line;
@@ -901,6 +1038,7 @@ void Editor::mouseMove(V2 p, Mods m) {
         for (auto& n : sel) translateNode(*n, step.x, step.y, &done);
         g_.appliedD = d;
         g_.moved = true;
+        keepFollowers();
         changed();
       }
       break;
@@ -1181,7 +1319,13 @@ std::vector<Issue> Editor::validate() {
     int t = std::abs((int)m->i("move_type"));
     if (t == 10 || t > 15) add(Issue::Warn, "mover type " + std::to_string(t) + " does nothing", n);
     if (t != 0 && m->i("time", 200) < 1) add(Issue::Warn, "mover period is below 1 tick", n);
-    if ((t >= 1 && t <= 7 && t != 6 && t != 7) && m->i("radius") == 0 && m->i("radius2") == 0) add(Issue::Info, "mover with radius 0 does not move", n);
+    if ((t >= 1 && t <= 7 && t != 6 && t != 7) && m->i("radius") == 0 && m->i("radius2") == 0 && !m->val("sub")) add(Issue::Info, "mover with radius 0 does not move", n);
+    if (Node* s = subOf(*level, *m)) {
+      bool owned = false;
+      for (auto& o : objs)
+        if (o != n && moverOf(*level, *o) == s) owned = true;
+      if (!owned) add(Issue::Warn, "follows a mover that no object uses, so it never moves", n);
+    }
   }
   if (level->version > 0x42) add(Issue::Info, "file version " + std::to_string(level->version) + ": loads in Peggle Nights only (Deluxe refuses versions above 66)");
   int skipped = 0;
@@ -1314,6 +1458,12 @@ std::string Editor::exec(const std::string& line, bool* okOut) {
   else if (c == "distribute") { distribute(w.size() < 2 || w[1] != "v"); msg = "distributed"; }
   else if (c == "set") { if (w.size() > 2) { ok = setProp(w[1], rest); msg = ok ? "set " + w[1] : "cannot set " + w[1]; } else { ok = false; msg = "usage: set KEY VALUE"; } }
   else if (c == "mset") { if (w.size() > 2) { ok = setMoverProp(w[1], rest); msg = ok ? "mover " + w[1] + " set" : "no mover or unknown key"; } else { ok = false; msg = "usage: mset KEY VALUE"; } }
+  else if (c == "follow") {
+    if (n.size() < 2) { ok = false; msg = "usage: follow x y"; }
+    else if (NodeP h = hitObject(V2(n[0], n[1]))) { ok = followObject(h); msg = status; }
+    else { ok = false; msg = "no object there"; }
+  }
+  else if (c == "unfollow") { ok = stopFollowing(); msg = status; }
   else if (c == "mover") {
     if (w.size() > 1 && w[1] == "remove") { removeMover(); msg = "mover removed"; }
     else if (w.size() > 2 && w[1] == "add") { ok = addMover(std::atoi(w[2].c_str())); msg = ok ? "mover added" : "no object can take a mover"; }
