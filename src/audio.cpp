@@ -312,21 +312,22 @@ void Audio::tick() {
       i++;
     }
   }
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    for (auto& f : fading_) f->fade -= 0.01f;
-    fading_.erase(std::remove_if(fading_.begin(), fading_.end(), [](const std::unique_ptr<Music>& f) { return f->fade <= 0.0f; }), fading_.end());
-#ifdef PP_HAVE_OPENMPT
-    if (pendOrder_ >= 0 && music_ && music_->mod) {
-      if (openmpt_module_get_current_row(music_->mod) / 16 != pendRow_) {
-        openmpt_module_set_position_order_row(music_->mod, pendOrder_, 0);
-        pendOrder_ = -1;
-      }
-    }
-#endif
-  }
   if (duckHold_ > 0 && --duckHold_ == 0) duckRate_ = 0.01f;
   duck_ = std::clamp(duck_ + duckRate_, 0.4f, 1.0f);
+}
+
+void Audio::tickMusic() {
+  std::lock_guard<std::mutex> lk(mu_);
+  for (auto& f : fading_) f->fade -= 0.01f;
+  fading_.erase(std::remove_if(fading_.begin(), fading_.end(), [](const std::unique_ptr<Music>& f) { return f->fade <= 0.0f; }), fading_.end());
+#ifdef PP_HAVE_OPENMPT
+  if (pendOrder_ >= 0 && music_ && music_->mod) {
+    if (openmpt_module_get_current_row(music_->mod) / 16 != pendRow_) {
+      openmpt_module_set_position_order_row(music_->mod, pendOrder_, 0);
+      pendOrder_ = -1;
+    }
+  }
+#endif
 }
 
 void Audio::fadeMusic(int frames) {

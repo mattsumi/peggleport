@@ -581,6 +581,7 @@ void App::doConfirmRestartAdventureDialog() {
 
 void App::tick() {
   updates_++;
+  if (audio) audio->tickMusic();
   serviceModApply();
   updateMovers();
   for (auto& d : dialogs_) d->update();
