@@ -177,6 +177,14 @@ struct AIMgr::Run {
     cands.push_back(c);
     w.balls.push_back(b);
     owner.push_back((int)cands.size() - 1);
+    Ball& nb = w.balls.back();
+    nb.uid = ++w.ballUid_;
+    phys::ballSyncBounds(nb);
+    w.sapAdd(Board::SAP_BALL + nb.uid);
+    for (auto it = w.sapPairs_.begin(); it != w.sapPairs_.end();) {
+      if ((*it)[1] == 2 && ((*it)[0] == nb.uid || (*it)[2] == nb.uid)) it = w.sapPairs_.erase(it);
+      else ++it;
+    }
   }
   void stepFrame();
   void jumpMovers(int n);
@@ -502,6 +510,7 @@ void AIMgr::Run::stepFrame() {
     } else if (c.state == 1) {
       c.state = 2;
       dead[bi] = 1;
+      w.sapRemove(Board::SAP_BALL + w.balls[bi].uid);
     }
   }
   const auto notes = w.notes_;
@@ -535,6 +544,11 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
   r.w.noModHooks = true;
   r.w.events.clear();
   r.w.balls.clear();
+  r.w.sapX_.clear();
+  r.w.sapY_.clear();
+  r.w.sapPairs_.clear();
+  r.w.sapIn_.clear();
+  r.w.sapAll_ = true;
   r.mode = mode;
   r.skill = skill;
   r.cur = b.cur;
@@ -570,6 +584,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
   int ahead = 0;
   if (mode == 0) ahead = r.target / 10 - 1 + 100 + 1;
   if (ahead > 0) r.jumpMovers(ahead);
+  r.w.sapSync();
 
   std::vector<float> angles;
   int aimedAt = -1;
@@ -631,6 +646,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
     r.w.balls.push_back(ball);
     r.owner.push_back(i);
   }
+  r.w.sapSync();
   r.aimedIdx = aimedAt;
   thinking_ = true;
   if (r.target == 0 || n == 0) finish();

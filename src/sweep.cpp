@@ -119,7 +119,7 @@ void Board::sapSync() {
   sapIn_.resize(objs.size(), 0);
   for (size_t i = 0; i < objs.size(); i++) {
     Obj& o = objs[i];
-    const bool want = o.shape != Shape::None && o.collidable && !o.gone;
+    const bool want = o.shape != Shape::None && (o.collidable || sapAll_) && !o.gone;
     if (want && !sapIn_[i]) { sapAdd((int)i); sapIn_[i] = 1; }
     else if (!want && sapIn_[i]) { sapRemove((int)i); sapIn_[i] = 0; }
   }

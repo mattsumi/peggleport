@@ -443,6 +443,7 @@ class Board {
   void sapInsert(int first, int second) { sapPairs_.insert(sapKey(first, second)); }
   void sapErase(int first, int second) { sapPairs_.erase(sapKey(first, second)); }
   std::vector<char> sapIn_;
+  bool sapAll_ = false;
   int ballUid_ = 0;
   const float* sapBox(int id) const;
   bool sapOverlap(int a, int b) const;
