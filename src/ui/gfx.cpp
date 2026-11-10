@@ -485,7 +485,7 @@ std::vector<std::string> Gfx::wrap(const std::string& font, float width, const s
       }
     }
   };
-  auto addWord = [&](const std::string& w) {
+  auto place = [&](const std::string& w) {
     float ww = wordWidth(w), sp = fp_->width(font, " ");
     if (curW > 0 && curW + sp + ww > width) {
       flush();
@@ -494,6 +494,24 @@ std::vector<std::string> Gfx::wrap(const std::string& font, float width, const s
     cur += w;
     curW += ww;
     trackColor(w);
+  };
+  auto addWord = [&](const std::string& whole) {
+    std::string w = whole;
+    while (w.size() > 1 && w.find('^') == std::string::npos && wordWidth(w) > width) {
+      size_t cut = 0, slash = 0;
+      for (size_t k = 1; k < w.size(); k++) {
+        if (((unsigned char)w[k] & 0xc0) == 0x80) continue;
+        if (fp_->width(font, w.substr(0, k)) > width) break;
+        cut = k;
+        if (w[k - 1] == '/') slash = k;
+      }
+      if (slash) cut = slash;
+      if (!cut) break;
+      place(w.substr(0, cut));
+      flush();
+      w.erase(0, cut);
+    }
+    place(w);
   };
   while (i <= s.size()) {
     if (i == s.size() || s[i] == ' ' || s[i] == '\n') {
