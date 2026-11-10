@@ -669,6 +669,7 @@ void AIMgr::finish() {
   const int n = (int)r.cands.size();
   int best = -1, bestScore = 0;
   bool bestB = false, bestC = false, bestE = false;
+  std::vector<int> loose;
   for (int i = 0; i < n; i++) {
     Run::Cand& c = r.cands[(size_t)i];
     if (c.clone) continue;
@@ -715,6 +716,7 @@ void AIMgr::finish() {
       if (skill < 0 && B) c.score *= 10;
     }
     if (r.duel && c.hits == 0) c.score = 0;
+    if (B && !A && skill < 0 && c.score > 500) loose.push_back(i);
     if (bestScore < c.score) {
       bestB = B; bestC = C; bestE = E;
       bestScore = c.score;
@@ -722,6 +724,7 @@ void AIMgr::finish() {
     }
   }
   bestScore_ = bestScore;
+  if (!loose.empty() && skill < 0 && (int)(rnd_() % 100u) < 100) best = loose[(size_t)(rnd_() % (uint32_t)loose.size())];
   if (r.aimedIdx >= 0) {
     const auto& a = r.cands[(size_t)r.aimedIdx];
     aimInfo_ = {true, a.left, a.score, a.sum};
