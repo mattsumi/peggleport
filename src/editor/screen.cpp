@@ -1728,7 +1728,7 @@ void EditorScreen::keyDown(int key, int mod) {
     case SDLK_A: animate_ = !animate_; builtRev_ = -1; return;
     case SDLK_E: ed.previewOranges = !ed.previewOranges; if (ed.previewOranges) ed.previewSeed++; ed.revision++; say(ed.previewOranges ? "random orange preview" : "stored colours"); return;
     case SDLK_M: ed.mirrorSelection(!shift); return;
-    case SDLK_R: ed.rotateSelection(shift ? -15 : 15); return;
+    case SDLK_R: ed.rotateSelection(shift ? -15.0f : 15.0f); return;
     case SDLK_D: ed.duplicateSelection(20, 20); return;
     case SDLK_T:
     case SDLK_F5: startPlay(); return;

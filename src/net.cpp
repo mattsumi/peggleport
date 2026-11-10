@@ -149,7 +149,7 @@ static sock_t connectTo(const std::string& h, int port, std::string* err) {
 static bool sendAllBlocking(sock_t s, const std::string& d) {
   size_t off = 0;
   for (int spins = 0; off < d.size() && spins < 100000; spins++) {
-    auto n = ::send(s, d.data() + off, d.size() - off, MSG_NOSIGNAL);
+    auto n = ::send(s, d.data() + off, (socklen_arg)(d.size() - off), MSG_NOSIGNAL);
     if (n > 0) off += (size_t)n;
     else if (!(n < 0 && wouldBlock())) return false;
   }
@@ -469,7 +469,7 @@ void Session::flush(Peer& p) {
   }
   if (p.link) p.link->poll();
   while (!p.tcpClosed && !p.out.empty()) {
-    auto n = ::send(p.s, (const char*)p.out.data(), p.out.size(), MSG_NOSIGNAL);
+    auto n = ::send(p.s, (const char*)p.out.data(), (socklen_arg)p.out.size(), MSG_NOSIGNAL);
     if (n > 0) p.out.erase(p.out.begin(), p.out.begin() + n);
     else {
       if (n < 0 && !wouldBlock()) { p.tcpClosed = true; if (!p.link || !(p.sentSwitch || p.gotSwitch)) p.dead = true; }
@@ -571,7 +571,7 @@ void Session::refreshRoster() {
   roster_ = r;
   W w;
   w.u8((uint8_t)r.size());
-  for (auto& st : r) w.u8(st.connected | (st.ready << 1)).str(st.name);
+  for (auto& st : r) w.u8((uint8_t)((st.connected ? 1 : 0) | (st.ready ? 2 : 0))).str(st.name);
   broadcast(ROSTER, w.b);
 }
 

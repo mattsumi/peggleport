@@ -194,12 +194,12 @@ void LoadingScreen::drawLayer(Gfx& g) {
     if (logoFrames >= rise) logoY = finalY;
   }
   Tex* logo = g.img("IMAGE_LOAD_LOGO");
-  if (logo && logoFrames < 50) g.draw(logo, logoX, (int)logoY);
+  if (logo && logoFrames < 50) g.draw(logo, logoX, (float)(int)logoY);
   if (Tex* hill = g.img("IMAGE_LOAD_HILL")) g.draw(hill, 0, 0x11d);
   if (Tex* sh = g.img("IMAGE_LOAD_SHADOW")) g.draw(sh, 162, 50 + 290, Mode(120 * visualProgress * visualProgress / 255.0f, 0x101010));
   if (Tex* ov = g.img("IMAGE_LOAD_OVERLAY")) g.draw(ov, 201, 420);
   if (logo) {
-    if (logoFrames >= 50 && logoFrames < 70) g.draw(logo, logoX, (int)logoY);
+    if (logoFrames >= 50 && logoFrames < 70) g.draw(logo, logoX, (float)(int)logoY);
     else if (logoFrames >= 70) {
       float fy = finalY;
       if (logoBounce > 0 && logoBounce < 10) fy += 8 - 1.5f * logoBounce;

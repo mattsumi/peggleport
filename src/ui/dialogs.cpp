@@ -329,7 +329,7 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   help->visible = true;
   if (fg && (a.gameMode == GameMode::Demo)) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
-  extraH = 0xdc + (fg ? 0 : 0x3c);
+  extraH = (float)(0xdc + (fg ? 0 : 0x3c));
   if (editor->visible) extraH += 0x20;
   if (mainMenu->visible) extraH += 0x20;
   if (help->visible) extraH += 0x20;

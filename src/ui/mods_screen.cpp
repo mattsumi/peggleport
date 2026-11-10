@@ -120,7 +120,7 @@ void ModsScreen::rebuild() {
     int i = page_ * kPage + r;
     if (i >= n) break;
     ModInfo& mi = *mm->mods()[(size_t)i];
-    float y = kTop + r * kRowH;
+    float y = (float)(kTop + r * kRowH);
     auto c = std::make_unique<Checkbox>();
     c->id = 1000 + i;
     c->image = g.img("IMAGE_DLG_BUTTON2");
@@ -257,7 +257,7 @@ void ModsScreen::drawLayer(Gfx& g) {
       size_t i = (size_t)(page_ * kPage + r);
       if (i >= mm->mods().size()) break;
       ModInfo& mi = *mm->mods()[i];
-      float y = kTop + r * kRowH;
+      float y = (float)(kTop + r * kRowH);
       g.fill(28, y - 8, 744, kRowH - 6, 0xffffff, 0.06f);
       std::string who = (mi.m.author.empty() ? "" : "by " + mi.m.author + "   ") + mi.m.description;
       g.drawString("PLAIN2", 40, y + 38, fit(g, "PLAIN2", who, 480), 0xdddddd);

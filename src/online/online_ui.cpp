@@ -553,7 +553,7 @@ class OnlineScreen : public Screen {
       g.drawString("PLAIN", 52, 160, "Code    Game        Seats   Level                Room", 0xaaaaff, 1);
       for (int i = 0; i < (int)rooms_.size() && i < 10; i++) {
         const RoomRow& r = rooms_[i];
-        float y = 166 + i * 26;
+        float y = (float)(166 + i * 26);
         bool sel = codeEdit_->value == r.code;
         if (sel) g.fill(44, y, 492, 24, 0xffd605, 0.25f);
         uint32_t col = r.haveLevel && r.joined < r.players ? 0xffffff : 0x888888;
@@ -576,7 +576,7 @@ class OnlineScreen : public Screen {
   void drawStatus(Gfx& g, float x, float y) {
     uint32_t col = statusKind_ == 1 ? 0xff8080 : statusKind_ == 2 ? 0x90ff90 : 0xffe070;
     bool report = held_ && !room_ && !create_;
-    float bx = report ? 236 : x, bw = report ? 524 : 720, yy = report ? 470 : y;
+    float bx = report ? 236 : x, bw = report ? 524.0f : 720.0f, yy = report ? 470 : y;
     for (size_t p = 0; p <= status_.size();) {
       size_t e = status_.find('\n', p);
       std::string line = status_.substr(p, e == std::string::npos ? std::string::npos : e - p);
@@ -619,7 +619,7 @@ class OnlineScreen : public Screen {
     g.drawString("PLAIN", 400, 222, what, 0xffe070, 1, Align::Center);
     const auto& roster = sess_->roster();
     for (int i = 0; i < mi.players; i++) {
-      float y = 252 + i * 34;
+      float y = (float)(252 + i * 34);
       g.fill(120, y, 560, 28, 0xffffff, 0.08f);
       bool known = i < (int)roster.size() && roster[i].connected;
       std::string nm = known ? roster[i].name : "(open seat)";

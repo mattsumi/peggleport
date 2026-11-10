@@ -83,7 +83,7 @@ void Button::draw(Gfx& g) {
     }
     case Kind::Patch: {
       float ch = image->lh() / 3;
-      float row = pressed ? 2 : 0;
+      float row = pressed ? 2.0f : 0.0f;
       if (!pressed && overAlpha > 0) {
         if (overAlpha < 1) g.drawBoxSrc(image, 0, 0, image->lw(), ch, 0, 0, w, h, full);
         g.drawBoxSrc(image, 0, ch, image->lw(), ch, 0, 0, w, h, Mode(alpha * overAlpha));

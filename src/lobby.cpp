@@ -332,7 +332,7 @@ void LobbyServer::poll() {
     if (c.s == BAD_SOCK) continue;
     if (c.out.size() > limits.maxOutBuf) drop(c);
     while (!c.out.empty()) {
-      auto n = ::send(c.s, c.out.data(), c.out.size(), MSG_NOSIGNAL);
+      auto n = ::send(c.s, c.out.data(), (socklen_arg)c.out.size(), MSG_NOSIGNAL);
       if (n > 0) c.out.erase(0, (size_t)n);
       else {
         if (n < 0 && !wouldBlock()) drop(c);

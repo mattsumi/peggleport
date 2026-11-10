@@ -298,7 +298,7 @@ void Renderer::drawOrbFront(const Board& b, int dw) {
 
 void Renderer::drawOrangeMeter(const Board& b, int dw) {
   int hits = std::clamp(25 - b.orangeLeft, 0, 25);
-  float X = 737 + dw;
+  float X = (float)(737 + dw);
   Tex* mid = img("IMAGE_INT_FEVERMETER");
   Tex* top = img("IMAGE_INT_FEVERMETERTOP");
   Tex* bot = img("IMAGE_INT_FEVERMETERBOTTOM");

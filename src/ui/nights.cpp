@@ -317,7 +317,7 @@ void ProgressScreen::drawLayer(Gfx& g) {
       const int* f = kFrames[kMasterFrame[hovered]];
       float bw = 220, th = g.wrappedHeight("PLAIN2", bw - 40, txt, 18), bh = th + 40;
       float bx = std::clamp(f[0] + f[2] / 2.0f - bw / 2, 8.0f, 792.0f - bw), by = std::max(8.0f, f[1] - bh - 14);
-      if (by + bh > f[1] - 4 && by < f[1] + f[3]) by = f[1] + f[3] + 14;
+      if (by + bh > f[1] - 4 && by < f[1] + f[3]) by = (float)(f[1] + f[3] + 14);
       drawSpeechBox(g, bx, by, bw, bh, 0.95f);
       g.drawWrapped("PLAIN2", {bx + 20, by + 20, bw - 40, th}, txt, 0x303030, 1.0f, Align::Center, 18);
     }

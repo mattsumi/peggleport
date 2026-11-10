@@ -478,7 +478,7 @@ void StoryScreen::drawLayer(Gfx& g) {
   float fade = boxes == 0 ? 0.0f : (boxFade > 0 ? boxFade / 20.0f : 1.0f);
   if (boxes > 0) {
     float tx = 20 + pw + aX, ty = 20 + aY, tw = 800 - tx - 50;
-    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, (done || !first ? 180 : 180) + 20, Mode(0.5f * fade, 0x000000));
+    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, (float)((done || !first ? 180 : 180) + 20), Mode(0.5f * fade, 0x000000));
     if (portrait) {
       g.draw(portrait, aX, aY + 4, Mode(fade));
       if (Tex* bf = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(bf, aX - 8, aY + 4 - 8, pw + 16, ph + 16, Mode(fade));
@@ -510,7 +510,7 @@ void StoryScreen::drawLayer(Gfx& g) {
     Tex* sel = g.img("IMAGE_DLG_SELECTORFRAME");
     const int unlocked = app.curProfile->maxStage;
     for (int i = 0; i < 11; i++) {
-      float cx = 53 + 64 * i, cy = 342 + 14;
+      float cx = (float)(53 + 64 * i), cy = 342 + 14;
       bool open = i <= unlocked && i < 10;
       if (i < 10) {
         if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, i, 0);
@@ -723,7 +723,7 @@ void HelpScreen::drawLayer(Gfx& g) {
     }
     int n = 0;
     for (int k = 0; k < 3; k++) if (hp.row[r][k][0]) n++;
-    float off = n <= 1 ? 16 : n == 2 ? 8 : 0;
+    float off = n <= 1 ? 16.0f : n == 2 ? 8.0f : 0.0f;
     for (int k = 0; k < 3; k++)
       if (hp.row[r][k][0]) g.drawString("PLAIN2", 170, y + 23 + off + 18.0f * k, hp.row[r][k], 0xffffff);
   }

@@ -391,25 +391,25 @@ void Gfx::drawBoxSrc(Tex* t, float sx, float sy, float sw, float sh, float x, fl
       return;
     }
   }
-  drawSrc(t, sx, sy, cw, ch, x, y, m);
-  drawSrc(t, sx + cw + cmw, sy, cw, ch, x + w - cw, y, m);
-  drawSrc(t, sx, sy + ch + cmh, cw, ch, x, y + h - ch, m);
-  drawSrc(t, sx + cw + cmw, sy + ch + cmh, cw, ch, x + w - cw, y + h - ch, m);
+  drawSrc(t, sx, sy, (float)cw, (float)ch, x, y, m);
+  drawSrc(t, sx + cw + cmw, sy, (float)cw, (float)ch, x + w - cw, y, m);
+  drawSrc(t, sx, sy + ch + cmh, (float)cw, (float)ch, x, y + h - ch, m);
+  drawSrc(t, sx + cw + cmw, sy + ch + cmh, (float)cw, (float)ch, x + w - cw, y + h - ch, m);
   pushClip(x + cw, y, w - cw * 2, h);
   for (int c = 0; c < (int)((w - cw * 2 + cmw - 1) / cmw); c++) {
-    drawSrc(t, sx + cw, sy, cmw, ch, x + cw + c * cmw, y, m);
-    drawSrc(t, sx + cw, sy + ch + cmh, cmw, ch, x + cw + c * cmw, y + h - ch, m);
+    drawSrc(t, sx + cw, sy, (float)cmw, (float)ch, x + cw + c * cmw, y, m);
+    drawSrc(t, sx + cw, sy + ch + cmh, (float)cmw, (float)ch, x + cw + c * cmw, y + h - ch, m);
   }
   popClip();
   pushClip(x, y + ch, w, h - ch * 2);
   for (int rr = 0; rr < (int)((h - ch * 2 + cmh - 1) / cmh); rr++) {
-    drawSrc(t, sx, sy + ch, cw, cmh, x, y + ch + rr * cmh, m);
-    drawSrc(t, sx + cw + cmw, sy + ch, cw, cmh, x + w - cw, y + ch + rr * cmh, m);
+    drawSrc(t, sx, sy + ch, (float)cw, (float)cmh, x, y + ch + rr * cmh, m);
+    drawSrc(t, sx + cw + cmw, sy + ch, (float)cw, (float)cmh, x + w - cw, y + ch + rr * cmh, m);
   }
   popClip();
   pushClip(x + cw, y + ch, w - cw * 2, h - ch * 2);
   for (int c = 0; c < (int)((w - cw * 2 + cmw - 1) / cmw); c++)
-    for (int rr = 0; rr < (int)((h - ch * 2 + cmh - 1) / cmh); rr++) drawSrc(t, sx + cw, sy + ch, cmw, cmh, x + cw + c * cmw, y + ch + rr * cmh, m);
+    for (int rr = 0; rr < (int)((h - ch * 2 + cmh - 1) / cmh); rr++) drawSrc(t, sx + cw, sy + ch, (float)cmw, (float)cmh, x + cw + c * cmw, y + ch + rr * cmh, m);
   popClip();
 }
 

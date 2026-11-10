@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 using sock_t = SOCKET;
+using socklen_arg = int;
 inline void closeSock(sock_t s) { closesocket(s); }
 inline void nonBlock(sock_t s) { u_long m = 1; ioctlsocket(s, FIONBIO, &m); }
 inline bool wouldBlock() { return WSAGetLastError() == WSAEWOULDBLOCK; }
@@ -20,6 +21,7 @@ inline bool wouldBlock() { return WSAGetLastError() == WSAEWOULDBLOCK; }
 #include <sys/socket.h>
 #include <unistd.h>
 using sock_t = int;
+using socklen_arg = size_t;
 inline void closeSock(sock_t s) { close(s); }
 inline void nonBlock(sock_t s) { fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK); }
 inline bool wouldBlock() { return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS; }
