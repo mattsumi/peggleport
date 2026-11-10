@@ -325,7 +325,7 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   else if (adv) newLevel->label = "Restart Level";
   mainMenu->visible = fg;
   newLevel->visible = fg;
-  newChallenge->visible = !fg && chal;
+  newChallenge->visible = fg && chal;
   help->visible = true;
   if (fg && (a.gameMode == GameMode::Demo)) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
