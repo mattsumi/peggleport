@@ -104,6 +104,7 @@ Session::~Session() {
 static void tune(sock_t s) { tuneSock(s); }
 
 static sock_t connectTo(const std::string& h, int port, std::string* err) {
+  netStartup();
   addrinfo hints{}, *res = nullptr;
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
