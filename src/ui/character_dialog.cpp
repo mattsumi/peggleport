@@ -71,7 +71,7 @@ CharacterDialog::CharacterDialog(App& a) : Dialog(a, D_Character, true, "Two Pla
   layoutBoxes();
 }
 
-float CharacterDialog::preferredHeight(float) { return 562; }
+float CharacterDialog::preferredHeight(float) { return app.game == Game::Nights ? 590.0f : 572.0f; }
 
 void CharacterDialog::layoutBoxes() {
   float x = kW / 2 - 92, y = 399;
