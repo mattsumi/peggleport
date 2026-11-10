@@ -132,7 +132,7 @@ class OnlineScreen : public Screen {
       e->font = e->widthFont = "PLAIN";
       e->maxChars = maxChars;
       e->maxWidth = w - 30;
-      e->x = x; e->y = y; e->w = w; e->h = 28;
+      e->x = x; e->y = y - 4; e->w = w; e->h = 36;
       return add(std::move(e));
     };
     lobbyEdit_ = edit(E_Lobby, 150, 82, 390, 64);
