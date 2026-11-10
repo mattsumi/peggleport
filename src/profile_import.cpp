@@ -548,23 +548,27 @@ std::vector<fs::path> originalSaveFolders(Game g) {
     return v ? v : "";
   };
   auto tail = [&](const fs::path& root) { return root / "PopCap Games" / product / "userdata"; };
+  auto shared = [&](const fs::path& root) {
+    cand.push_back(tail(root));
+    cand.push_back(root / "Steam" / product / "userdata");
+  };
 #ifdef _WIN32
   for (const char* v : {"ProgramData", "ALLUSERSPROFILE", "PUBLIC"})
-    if (auto e = env(v); !e.empty()) cand.push_back(tail(fs::path(e)));
-  cand.push_back(tail(fs::path("C:/ProgramData")));
+    if (auto e = env(v); !e.empty()) shared(fs::path(e));
+  shared(fs::path("C:/ProgramData"));
   if (auto e = env("APPDATA"); !e.empty()) cand.push_back(tail(fs::path(e)));
 #else
   std::string home = env("HOME");
   if (!home.empty()) {
     fs::path h(home);
-    auto prefixTail = [&](const fs::path& drive) { return tail(drive / "ProgramData"); };
-    cand.push_back(prefixTail(h / ".wine" / "drive_c"));
+    auto prefix = [&](const fs::path& drive) { shared(drive / "ProgramData"); };
+    prefix(h / ".wine" / "drive_c");
     std::vector<fs::path> steam = {h / ".steam" / "steam", h / ".local" / "share" / "Steam", h / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam",
                                    h / "Library" / "Application Support" / "Steam"};
-    for (auto& s : steam) cand.push_back(prefixTail(s / "steamapps" / "compatdata" / steamId / "pfx" / "drive_c"));
+    for (auto& s : steam) prefix(s / "steamapps" / "compatdata" / steamId / "pfx" / "drive_c");
     std::error_code ec;
     fs::path bottles = h / "Library" / "Application Support" / "CrossOver" / "Bottles";
-    for (fs::directory_iterator it(bottles, ec), end; !ec && it != end; it.increment(ec)) cand.push_back(prefixTail(it->path() / "drive_c"));
+    for (fs::directory_iterator it(bottles, ec), end; !ec && it != end; it.increment(ec)) prefix(it->path() / "drive_c");
     cand.push_back(h / "Library" / "Application Support" / "PopCap Games" / product / "userdata");
   }
 #endif
