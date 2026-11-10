@@ -109,11 +109,13 @@ sock_t dial(const std::string& host, int port, std::string* err) {
     nonBlock(s);
     int r = connect(s, ai->ai_addr, (int)ai->ai_addrlen);
     if (r != 0 && !wouldBlock()) { closeSock(s); continue; }
-    fd_set w;
+    fd_set w, x;
     FD_ZERO(&w);
+    FD_ZERO(&x);
     FD_SET(s, &w);
+    FD_SET(s, &x);
     timeval tv{kTimeoutMs / 1000, (kTimeoutMs % 1000) * 1000};
-    if (select((int)s + 1, nullptr, &w, nullptr, &tv) > 0) {
+    if (select((int)s + 1, nullptr, &w, &x, &tv) > 0 && FD_ISSET(s, &w)) {
       int e = 0;
       socklen_t l = sizeof e;
       getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&e, &l);
