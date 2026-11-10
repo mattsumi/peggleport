@@ -403,7 +403,7 @@ void AIMgr::Run::notifyBall(int ci, int oi) {
     if (nights && m > limit) {
       v = 0;
     } else {
-      if (m == 1 && c.left == 1 && o.pegType == 2) v = nights ? (int)((double)v * 1.5) : 1;
+      if (m == 1 && c.left == 1 && o.pegType == 2) v = (int)((double)v * 1.5);
       v = (int)((double)(10 * v) / (2.0 + (double)m * 1.0));
       if (c.left < 3) v = (int)((double)(10 * v) / (2.0 + (double)(c.left + m) * 1.0));
       if (m == 1 && o.pegType == 2 && duel) v = v * 4;
