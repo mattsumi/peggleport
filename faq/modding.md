@@ -423,7 +423,7 @@ The operating system locks the helper down before your library is even loaded, s
 
 The `permissions` line of the manifest does not change any of this. A native plugin never gets the network or file access. If your plugin needs to remember something during a level, keep it with `state_set`, which is rolled back together with the board.
 
-The lock-down uses what each system offers: a sandbox profile on macOS, Landlock and a seccomp filter on Linux (Landlock needs kernel 5.13 or newer), a restricted token, low integrity level and a job object on Windows. When the helper starts it checks which limits are really in force and reports them to the game, and the game never shows more than that.
+The lock-down uses what each system offers: a sandbox profile on macOS, Landlock and a seccomp filter on Linux (Landlock needs kernel 5.13 or newer), a restricted token, the lowest integrity level and a job object on Windows. When the helper starts it checks which limits are really in force and reports them to the game, and the game never shows more than that.
 
 ### What the player sees
 
