@@ -172,6 +172,7 @@ bool GameScreen::startLevel(const std::string& name) {
   done_ = endShown_ = false;
   overTicks = 0;
   pauseCount_ = pauseFade_ = 0;
+  focusPaused_ = false;
   rightDown_ = keyUp_ = keyDown_ = false;
   pushMouse();
   app.playMusic("level");
@@ -428,6 +429,7 @@ void GameScreen::pause(bool on) {
   } else if (pauseCount_ > 0) {
     pauseCount_--;
     if (pauseCount_ == 0) {
+      focusPaused_ = false;
       keyUp_ = keyDown_ = rightDown_ = false;
       pushMouse();
     }
@@ -435,7 +437,9 @@ void GameScreen::pause(bool on) {
 }
 
 void GameScreen::lostFocus() {
-  if (ready_ && !done_) pause(true);
+  if (!ready_ || done_ || focusPaused_) return;
+  focusPaused_ = true;
+  pause(true);
 }
 
 int GameScreen::stepsThisTick() const {

@@ -127,6 +127,7 @@ class GameScreen : public Screen {
   int boardResets_ = 0;
   int stageDialogDelay_ = 0;
   bool tipPaused_ = false;
+  bool focusPaused_ = false;
   void showStageDialog();
   void aiTurn();
   std::string cornerText() const;
