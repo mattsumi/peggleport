@@ -101,7 +101,7 @@ void findUrls(const std::string& file, int line, std::string_view text, ScanRepo
     size_t b = p + 3;
     while (b < text.size() && !std::isspace((unsigned char)text[b]) && text[b] != '"' && text[b] != '\'' && text[b] != ')' && text[b] != '<' && text[b] != '\0' && std::isprint((unsigned char)text[b])) b++;
     std::string scheme = lowerS(std::string(text.substr(a, p - a)));
-    if (!scheme.empty() && b > p + 3 && scheme != "file" && scheme.size() <= 10) add(r, Finding::Url, file, line, "URL " + std::string(text.substr(a, std::min<size_t>(b - a, 100))));
+    if (!scheme.empty() && b > p + 3 && scheme != "file" && scheme.size() <= 10) add(r, Finding::Url, file, line, "URL " + std::string(text.substr(a, std::min<size_t>(b - a, 100))) + (b - a > 100 ? "..." : ""));
     p += 3;
   }
 }
@@ -122,7 +122,7 @@ void scanLuaSource(const std::string& file, std::string_view srcIn, ScanReport& 
       while (q < low.size() && low[q] == ' ') q++;
       if (q < low.size() && (low[q] == '.' || low[q] == '[' || low[q] == ':' || low[q] == '=' || low[q] == ',' || low[q] == ')' || low[q] == '\0')) {
         if (q < low.size() && low[q] == '=' && q + 1 < low.size() && low[q + 1] == '=') continue;
-        add(r, Finding::NetApi, file, line, "use of the `net` API: " + std::string(L.substr(p, std::min<size_t>(40, L.size() - p))));
+        add(r, Finding::NetApi, file, line, "use of the `net` API: " + std::string(L.substr(p, std::min<size_t>(40, L.size() - p))) + (L.size() - p > 40 ? "..." : ""));
         break;
       }
     }
