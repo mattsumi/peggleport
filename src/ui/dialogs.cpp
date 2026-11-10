@@ -329,7 +329,7 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   help->visible = true;
   if (fg && (a.gameMode == GameMode::Demo)) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
-  extraH = (float)(0xdc + (fg ? 0 : 0x3c));
+  extraH = (float)(0xdc + (fg ? 0x24 : 0x3c));
   if (editor->visible) extraH += 0x20;
   if (mainMenu->visible) extraH += 0x20;
   if (help->visible) extraH += 0x20;
@@ -366,16 +366,16 @@ void OptionsDialog::layout() {
     if (editor->visible) { editor->x = help->x; editor->w = bw; editor->y = help->y - bh; }
     if (gamesBtn->visible) { gamesBtn->x = help->x + bw; gamesBtn->w = bw; gamesBtn->y = help->y - bh; }
   } else {
-    mainMenu->x = yesBtn->x; mainMenu->w = yesBtn->w; mainMenu->y = yesBtn->y + yesBtn->h + 2;
+    mainMenu->x = left; mainMenu->w = W; mainMenu->y = h - insB - bh - 0x1e - bh;
     if (app.gameMode == GameMode::Challenge) {
-      newLevel->x = mainMenu->x; newLevel->w = mainMenu->w; newLevel->y = mainMenu->y + bh;
-      help->x = mainMenu->x; help->w = bw; help->y = newLevel->y + bh;
+      newLevel->x = mainMenu->x; newLevel->w = mainMenu->w; newLevel->y = mainMenu->y - bh;
+      help->x = mainMenu->x; help->w = bw; help->y = newLevel->y - bh;
       newChallenge->x = help->x + help->w; newChallenge->w = bw; newChallenge->y = help->y;
     } else if (newLevel->visible) {
-      help->x = mainMenu->x; help->w = bw; help->y = mainMenu->y + bh;
+      help->x = mainMenu->x; help->w = bw; help->y = mainMenu->y - bh;
       newLevel->x = help->x + help->w; newLevel->w = bw; newLevel->y = help->y;
     } else {
-      help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y + bh;
+      help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y - bh;
     }
   }
   for (Button* b : {help, mainMenu, newLevel, newChallenge, modsBtn, editor, gamesBtn}) b->h = bh;
