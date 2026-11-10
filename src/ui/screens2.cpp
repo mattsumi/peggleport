@@ -478,7 +478,8 @@ void StoryScreen::drawLayer(Gfx& g) {
   float fade = boxes == 0 ? 0.0f : (boxFade > 0 ? boxFade / 20.0f : 1.0f);
   if (boxes > 0) {
     float tx = 20 + pw + aX, ty = 20 + aY, tw = 800 - tx - 50;
-    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, (float)((done || !first ? 180 : 180) + 20), Mode(0.5f * fade, 0x000000));
+    const float textH = std::max(180.0f, g.wrappedHeight("STAGE", tw, firstVisible(text, totalVisible)));
+    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, textH + 20, Mode(0.5f * fade, 0x000000));
     if (portrait) {
       g.draw(portrait, aX, aY + 4, Mode(fade));
       if (Tex* bf = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(bf, aX - 8, aY + 4 - 8, pw + 16, ph + 16, Mode(fade));
