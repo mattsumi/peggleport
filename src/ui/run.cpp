@@ -270,6 +270,7 @@ RunResult runApp(const RunOptions& o, Vfs& vfs, std::string& error) {
     return RunResult::Failed;
   }
   SDL_SetRenderVSync(ren, 1);
+  SDL_StartTextInput(win);
   if (SDL_Surface* icon = makeWindowIcon(game)) { SDL_SetWindowIcon(win, icon); SDL_DestroySurface(icon); }
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);
   RunResult result = playWindow(vfs, game, win, ren);
