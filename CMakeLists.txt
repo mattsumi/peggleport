@@ -8,6 +8,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 option(PP_FETCH_DEPS "Download and build SDL3, OpenJPEG, Ogg and Vorbis instead of using system copies" OFF)
 
 add_library(pp_flags INTERFACE)
