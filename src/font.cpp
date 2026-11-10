@@ -612,6 +612,11 @@ std::shared_ptr<Font> Font::load(const Vfs& vfs, const std::string& path, std::s
     if (err) *err = data->error;
     return nullptr;
   }
+  const uint8_t back = (uint8_t)'\\';
+  bool drawn = false;
+  for (auto& L : data->layers)
+    if (L.ch[back].width != 0 || L.ch[back].rw != 0) drawn = true;
+  if (!drawn && data->charMap[back] == back) data->charMap[back] = data->charMap[(uint8_t)'/'];
   auto f = std::make_shared<Font>();
   f->data_ = data;
   f->pointSize_ = data->defaultPointSize;
