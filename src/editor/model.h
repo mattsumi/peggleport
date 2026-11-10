@@ -26,6 +26,10 @@ void eraseField(Node& n, const std::string& key);
 bool isObjectType(int type);
 const char* typeName(int type);
 Node* moverOf(const Level& L, const Node& n);
+Node* subOf(const Level& L, const Node& mover);
+V2 moverRest(const Node& mover);
+void syncRest(Node& mover);
+std::vector<NodeP> allMovers(const Level& L);
 Node* pegOf(const Node& n);
 int pegTypeOf(const Node& n);
 
@@ -34,13 +38,14 @@ NodeP newLine(float x1, float y1, float x2, float y2, bool visible = false);
 NodeP newPoly(float x, float y, const std::vector<V2>& localOpen);
 NodeP newBrick(float x, float y, const BrickParams& bp, int pegType = 1);
 NodeP newHole(float x, float y, int w, int h, bool circular, int score = 0);
+NodeP newEmitter(float x, float y, const std::string& image);
 NodeP newMover(int type, float anchorX, float anchorY);
 BrickParams brickParamsOf(const Node& n);
 void syncBrickCache(Node& n);
 NodeP cloneNode(const NodeP& n, std::map<const Node*, NodeP>* remap = nullptr);
 
 struct Geo {
-  enum Kind { None, Circle, Line, Poly, Hole } kind = None;
+  enum Kind { None, Circle, Line, Poly, Hole, Emitter } kind = None;
   V2 c;
   float r = 0, rot = 0;
   bool circular = false;
@@ -55,6 +60,15 @@ bool hitBox(const Geo& g, float x0, float y0, float x1, float y1);
 float distToSegment(V2 p, V2 a, V2 b);
 bool pointInPoly(const std::vector<V2>& pts, V2 p);
 float distToGeo(const Geo& g, V2 p);
+
+bool polyHasClosing(const Node& n);
+std::vector<V2> polyCorners(const Node& n);
+bool polyShapeOk(const std::vector<V2>& before, const std::vector<V2>& after);
+V2 polyWorldToLocal(const Level& L, const Node& n, V2 world);
+bool polySetCorners(Node& n, const std::vector<V2>& corners);
+int hitCorner(const Level& L, const Node& n, V2 p, float tol);
+int hitEdge(const Level& L, const Node& n, V2 p, float tol, V2* at);
+V2 polyCornerWorld(const Level& L, const Node& n, int i);
 
 void translateNode(Node& n, float dx, float dy, std::set<const Node*>* done = nullptr);
 void rotateNode(const Level& L, Node& n, V2 pivot, float radians, std::set<const Node*>* done = nullptr);
@@ -74,6 +88,7 @@ struct PropDef {
   const char* enums;
   int enumBase;
   const char* group;
+  bool vf = false;
 };
 const std::vector<PropDef>& propsFor(const Node& n);
 const std::vector<PropDef>& moverProps();

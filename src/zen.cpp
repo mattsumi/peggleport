@@ -19,13 +19,13 @@ float Board::zenSearch() {
   ai.begin(*this, 10, [this] { return (uint32_t)rng.rand(); }, 1, clampAngle(lmAim));
   while (!ai.update(10000)) {
   }
-  const float best = ai.angle();
+  const float best = gun::normalizeAngle(ai.angle());
   zenNote = 0;
   zenPct = 0;
   const AIMgr::BallInfo& A = ai.aimed();
   const AIMgr::BallInfo& B = ai.best();
   if (A.valid) {
-    if (!B.valid || A.left == 0 || B.score <= A.score) {
+    if (!B.valid || A.left == 0 || (B.score <= A.score && (B.left != 0 || cfg.clearLevel))) {
       zenNote = 1;
     } else if (A.sum < B.sum && A.sum != 0) {
       int pct = B.sum * 100 / A.sum - 100;

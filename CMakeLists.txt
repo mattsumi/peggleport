@@ -63,6 +63,7 @@ add_library(pp_core STATIC
   src/zen.cpp
   src/aiscore.cpp
   src/mover.cpp
+  src/follow.cpp
   src/match.cpp
   src/net.cpp
   src/lobby.cpp
@@ -180,7 +181,7 @@ target_link_libraries(pp_editor_core PUBLIC pp_core)
 add_library(pp_ui STATIC
   src/profile.cpp src/profile_import.cpp
   src/ui/res.cpp src/ui/text.cpp src/ui/text_font.cpp src/ui/gfx.cpp src/ui/widgets.cpp src/ui/dialog.cpp src/ui/dialogs.cpp
-  src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/launcher.cpp src/ui/nights.cpp
+  src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/launcher.cpp src/ui/nights.cpp src/ui/sparkle.cpp src/ui/fireworks.cpp src/ui/fairies.cpp src/ui/nights_loading.cpp src/ui/storywin.cpp
   src/ui/character_dialog.cpp src/ui/slot_dialog.cpp src/ui/replay.cpp src/ui/replay_ui.cpp src/ui/import_dialog.cpp src/ui/hooks.cpp src/ui/visuals_dialog.cpp
   src/ui/mods_screen.cpp src/ui/mod_apply.cpp src/ui/consent_dialog.cpp src/ui/log_view.cpp
   src/online/online_ui.cpp src/online/online_match.cpp)
@@ -189,7 +190,7 @@ target_compile_definitions(pp_ui PUBLIC PP_UI_HAVE_FONT)
 target_link_libraries(pp_ui PUBLIC pp_core pp_audio pp_mods SDL3::SDL3)
 
 add_executable(peggleport WIN32
-  src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp
+  src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
 

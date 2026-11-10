@@ -3,6 +3,9 @@
 #include <vector>
 #include <string>
 #include "ui/app.h"
+#include "ui/sparkle.h"
+#include "ui/fireworks.h"
+#include "ui/nights_loading.h"
 
 namespace pp::ui {
 
@@ -25,6 +28,12 @@ class LoadingScreen : public Screen {
   std::vector<std::string> resList;
   int startedFrom = 0;
   Button* playBtn = nullptr;
+  std::unique_ptr<NightsLoading> nights;
+  std::vector<NightsCmd> cmds;
+  int mouseX = 0, mouseY = 0;
+  void updateNights();
+  void updateDeluxe(int cnt, float loadTime);
+  void renderNights(Gfx& g);
   void doBallBounce();
   void updateBall();
   void spawnParticles(float x, float y, int n);
@@ -48,13 +57,24 @@ class MainMenu : public Screen {
   static int mantelAt(App& app, float mx, float my);
   static const DecalInfo* decalAt(App& app, float mx, float my, int* stageOut);
   void drawNights(Gfx& g);
+  struct Sparkle {
+    std::string name;
+    SparkleField field;
+    float fade;
+    bool live;
+  };
+  std::vector<Sparkle> sparkles;
+  float fadeOf(const std::string& name) const;
+  void buildSparkles();
+  void updateSparkles();
+  void drawSparkles(Gfx& g);
   Button *bAdv, *bSolo, *bDuel, *bChal, *bReplay, *bOptions, *bDemo, *bQuit, *bLink, *bUpsell;
   void setBubble(int which, int delay);
   void placeButtons();
   void updateBubbles();
   int advStage = 0, advLevel = 0, bubbleCount = 0;
   int bubble = 0, bubbleOld = 0, bubbleFade = 0, bubbleDwell = 0, trophyTier = 0, hoverSeq = 0, mouseMoveDelay = 0, sunTick = 0, bubbleDimmed = 0;
-  bool mouseMoved = false, randomPick = false, cry = false;
+  bool mouseMoved = false, randomPick = false, cry = false, secretDone = false;
   int trophyAnim = 0, trophyAnimMax = 0;
   bool isNights = false;
 };
@@ -111,9 +131,17 @@ class StoryScreen : public Screen {
   Button* bContinue = nullptr;
   int page = 1;
   int typed = 0, wait = 0, start = 20, boxFade = 0, boxes = 0, shownChars = 0;
-  bool done = false;
+  bool done = false, dreamy = false;
   std::string text;
-  int totalVisible = 0;
+  int totalVisible = 0, headVisible = 0;
+  bool win = false;
+  int tier = 0;
+  Button* bLink = nullptr;
+  std::unique_ptr<StoryFireworks> fw;
+  void initWin();
+  void updateWin();
+  void drawWin(Gfx& g);
+  void drawFireworks(Gfx& g);
 };
 
 class HelpScreen : public Screen {
@@ -140,7 +168,7 @@ class TrophyScreen : public Screen {
   void keyDown(int key, int mod) override;
   void syncPage();
   void doPlay(int slot);
-  int page = 0, hovered = -1, hoverTicks = 0;
+  int page = 0, hovered = -1, hoverTicks = 0, badgeTicks = 0, applauseTicks = 0;
   Button* bSlot[5];
   Button *bBack, *bPrev, *bNext;
 };
@@ -155,7 +183,7 @@ class ProgressScreen : public Screen {
   void keyDown(int key, int mod) override;
   bool input(const Input& in) override;
   void finish();
-  int mode, t = 0, newest = -1, hovered = -1, prevHovered = -1;
+  int mode, t = 0, newest = -1, hovered = -1, prevHovered = -1, drumEnd = 0, closing = 0;
   Button* bContinue;
 };
 
@@ -172,7 +200,7 @@ class CreditsScreen : public Screen {
   struct Page { std::vector<Line> lines; int hold = 200, start = 0, trophy = 0, shown = -1; };
   std::vector<Page> pages;
   size_t page = 0;
-  int t = 0;
+  int t = 0, total = 0;
 };
 
 class IntroScreen : public Screen {

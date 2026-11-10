@@ -321,7 +321,11 @@ void App::endLevelButton(int id, int mode) {
   }
   bool win = m == EndLevelDialog::AdventureWin || m == EndLevelDialog::QuickWin || m == EndLevelDialog::ChallengeWin || m == EndLevelDialog::AdventureComplete;
   if (m == EndLevelDialog::AdventureComplete) {
-    if (game == Game::Nights) { showProgressScreen(4); return; }
+    if (game == Game::Nights) {
+      playSample("APPLAUSE_LONG");
+      showProgressScreen(4);
+      return;
+    }
     showMainMenu();
     tryShowNewTrophy();
     return;

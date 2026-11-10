@@ -39,6 +39,7 @@ struct StageInfo {
   std::string name, desc;
   std::vector<LevelInfo> levels;
   std::vector<StoryData> story[5];
+  std::vector<StoryData> credits[4];
   std::vector<DecalInfo> decals;
   bool pack = false;
   std::string packLabel;

@@ -522,7 +522,7 @@ bool ballUpdate(Ball& b, float gravity, float maxSpeed, const PhysicsParams* ext
   if (b.holeOut > 0) {
     b.stuck = 0;
     if (--b.holeOut != 0) return false;
-    b.pos = b.holeTarget;
+    b.pos = b.prev = b.holeTarget;
   }
   b.vel.y = b.vel.y + gravity;
   if (extra) {

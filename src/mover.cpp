@@ -220,6 +220,56 @@ void calcT(const Mover& m, int tick, float frac, float& X, float& Y, float& ROT)
 }
 }
 
+Mover Mover::fromNode(const Node& mn, bool single) {
+  Mover m;
+  m.type = (int)mn.i("move_type");
+  m.ax = mn.f("anchor_x");
+  m.ay = mn.f("anchor_y");
+  m.time = (int)mn.i("time", 200);
+  m.offset = (int)mn.i("offset");
+  m.rx = (float)mn.i("radius");
+  m.ry = (float)mn.i("radius2");
+  m.phase = mn.f("phase");
+  m.moveRot = mn.f("move_rotation");
+  m.maxAngle = mn.f("max_angle");
+  m.rotation = mn.f("rotation");
+  m.pause1 = (int)mn.i("pause1");
+  m.pause2 = (int)mn.i("pause2");
+  m.phase1 = (int)mn.i("phase1");
+  m.phase2 = (int)mn.i("phase2");
+  m.postDelay = mn.f("post_delay_phase");
+  m.single = single;
+  m.lastX = mn.f("sub_x");
+  m.lastY = mn.f("sub_y");
+  m.outX = mn.has("obj_x") ? mn.f("obj_x") : m.ax;
+  m.outY = mn.has("obj_y") ? mn.f("obj_y") : m.ay;
+  return m;
+}
+
+void Mover::translate(float dx, float dy) {
+  outX = dx + outX;
+  outY = dy + outY;
+  ax = dx + ax;
+  ay = dy + ay;
+}
+
+void Mover::follow(const Mover& s) {
+  const float dx = s.outX - lastX;
+  const float dy = s.outY - lastY;
+  translate(dx, dy);
+  lastX = s.outX;
+  lastY = s.outY;
+}
+
+void Mover::step(int tick, float frac, float& x, float& y, float& rot, const Mover* s) {
+  if (s) follow(*s);
+  x = outX;
+  y = outY;
+  calc(tick, frac, x, y, rot);
+  outX = x;
+  outY = y;
+}
+
 void Mover::calc(int tick, float& x, float& y, float& rot) const { calc(tick, 0.0f, x, y, rot); }
 
 void Mover::calc(int tick, float frac, float& x, float& y, float& rot) const {

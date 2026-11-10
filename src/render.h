@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include <map>
+#include <memory>
 #include <utility>
 #include <string>
 #include <vector>
@@ -38,6 +39,8 @@ struct Hud {
   int stageNo = -1, levelNo = -1;
 };
 
+struct EmitFx;
+
 class Renderer {
   friend struct ModOverlayAccess;
  public:
@@ -45,10 +48,9 @@ class Renderer {
   ~Renderer();
   void draw(const Board& b, const LevelBundle& lb, const Hud& hud);
   void fxZenPowerup(float x, float y);
-  void fxElectro(float x0, float y0, float x1, float y1, int life = 30);
   void fxTimeBomb(float x, float y);
   void fxSpaceBlast(float x, float y);
-  void fxBubbles(float x, float y);
+  void fxBubble(float x, float y, int rise, int cel, int age);
   void masterBadge();
   void setVisualOptions(const VisualOptions& v) { vis_ = v; }
   const VisualOptions& visualOptions() const { return vis_; }
@@ -104,7 +106,13 @@ class Renderer {
   int texQ_ = 0;
   float texS_ = 1;
   void fxPegSparks(const Obj& o, float cx, float cy);
-  void sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a = 255, bool add = false, Uint32 tint = 0xffffff);
+  void fxChainBolt(const Board& b, int from, int to, int delay, bool fire);
+  V2 strikeRod_{};
+  void drawRod(const Board& b);
+  void drawRodRings(const Board& b, Tex* ring);
+  void drawRodSparks(const Board& b);
+  void drawChainBolt(const Board& b, const FxEffect& e);
+  void sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a = 255, bool add = false, Uint32 tint = 0xffffff, bool flip = false);
   void quad(Tex* t, SDL_FRect src, float x, float y, float w, float h);
   enum class Pass { Shadow, Main, Light };
   void observe(const Board& b);
@@ -155,6 +163,9 @@ class Renderer {
   void fxSpookyBall(float x, float y);
   void fxFeverTally(const Board& b);
   void fxDrawEffects(const Board& b, int layer);
+  void emitAdvance(const Board& b, int ticks, bool fresh);
+  void emitDraw(const Board& b, int layer, size_t at);
+  std::shared_ptr<EmitFx> emit_;
   void fxDrawTexts(const Board& b, int layer);
   FxText& fxText(const std::string& s, float x, float y, int font = -1);
   FxEffect& fxAdd(int type, float x, float y, int prio, bool front = false);

@@ -11,8 +11,10 @@ namespace pp {
 
 const float* Board::sapBox(int id) const {
   if (id < SAP_BALL) return &objs[(size_t)id].x0;
-  for (const Ball& b : balls)
+  for (const Ball& b : balls) {
     if (b.uid == id - SAP_BALL) return &b.bx0;
+    if (b.hatUid == id - SAP_BALL) return &b.hx0;
+  }
   return nullptr;
 }
 
@@ -125,16 +127,21 @@ void Board::sapSync() {
   for (const SapEnd& e : sapX_) {
     if (e.id < SAP_BALL || !e.start) continue;
     bool present = false;
-    for (const Ball& b : balls) present |= b.uid == e.id - SAP_BALL;
+    for (const Ball& b : balls) present |= b.uid == e.id - SAP_BALL || b.hatUid == e.id - SAP_BALL;
     if (!present) gone.push_back(e.id);
   }
   for (int id : gone) sapRemove(id);
-  for (Ball& b : balls)
+  for (Ball& b : balls) {
     if (b.uid == 0) {
       b.uid = ++ballUid_;
       phys::ballSyncBounds(b);
       sapAdd(SAP_BALL + b.uid);
     }
+    if (b.hat && b.hatUid == 0) {
+      b.hatUid = ++ballUid_;
+      sapAdd(SAP_BALL + b.hatUid);
+    }
+  }
 }
 
 void Board::sapSort() {

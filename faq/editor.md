@@ -9,9 +9,9 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | Area | What is there |
 |---|---|
 | Top bar | New, Open (a level browser with a filter), Save, To mod, Export and Import (JSON), Undo, Redo, Grid, Snap, Fit, Animate, Oranges, Check, Test play, Exit |
-| Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
+| Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole), effects (emitter) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
 | Canvas | The board, zoomed and panned. The playfield outline is white. On a wide board the original 650 pixel region is marked with a dashed gold guide |
-| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art, board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
+| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art of the level (pick a picture), board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
 | Bottom bar | Cursor position, zoom, grid, selection, saved or modified, and the last message |
 
 ## Keys and mouse
@@ -22,9 +22,14 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | 1 2 3 4 5 6 | Blue, orange, green, purple, round peg, bumper |
 | B / K | Straight brick / curved brick |
 | P / L / O / X | Polygon (click points, close with a click on the first point, Enter or a double click), line (drag), hole, hole exit (select a hole, then click where the ball should come out) |
+| N | Emitter (click to place one) |
+| J | Follow object: with the objects that should follow selected, click the object they should follow |
 | Click, Shift-click, drag a box | Select, add to the selection, box select. Alt-drag copies |
 | Drag | Move the selection. The round handle above it rotates (15 degree steps while Snap is on) |
-| Arrow keys (Shift = one grid step) | Nudge |
+| Drag a corner | With one polygon selected, its corners show as small squares. Drag one to move only that corner. It snaps to the grid like everything else |
+| Double-click an edge | Adds a corner on that edge of the selected polygon |
+| Delete or Backspace on a chosen corner | Removes the corner. A polygon keeps at least 3 |
+| Arrow keys (Shift = one grid step) | Nudge. With a corner chosen it nudges just that corner |
 | Delete or Backspace | Delete |
 | Ctrl/Cmd + Z, Shift+Z, Y | Undo, redo. Every operation is one step, a drag is one step |
 | Ctrl/Cmd + C, X, V, D, A | Copy, cut, paste, duplicate, select all |
@@ -37,7 +42,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | E | Random orange preview: shows the pegs the game would pick with a seed. Press again for another seed |
 | T or F5 | Test play |
 | F6 | Run the checks |
-| Esc | Cancel what you are doing, leave the tool, clear the selection |
+| Esc | Cancel what you are doing, leave the tool, drop the chosen corner, clear the selection |
 | Right click | Cancel. With nothing to cancel it returns to Select |
 
 The `:` key opens a one line command box for typed commands, which some people prefer for exact placement. Everything it does is also available with the mouse.
@@ -48,7 +53,9 @@ The `:` key opens a one line command box for typed commands, which some people p
 * **Mod peg types**: select a peg and type a name into the **Custom type** field of the Object tab, for example `ice` or `mymod:ice`. **To mod** saves it as a `peg` line in the level's `.ini`, and the game gives the peg that type when the mod that defines it is on. The editor still draws the peg as a normal one, and opening a level with `peg` lines keeps them. The modding guide has the details.
 * **Round and bumper**: any radius. A bumper has no peg properties.
 * **Bricks** have all the brick settings of the game (type, subdivisions, radius or length, sweep, end angles, thickness, rotation) and can also be a peg.
-* **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. **Lines** are single walls. **Holes** have a score, an out delay and a size.
+* **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. Select one and every corner gets a handle: drag a handle to move that corner, double-click an edge to add a corner, and press Delete on a chosen corner to remove it. The **Corners** part of the Object tab does the same with buttons and exact numbers (Corner X and Corner Y). A corner will not move onto another one or across an edge, and the polygon always keeps at least 3 corners. Every change is one undo step. **Lines** are single walls. **Holes** have a score, an out delay and a size.
+* **Emitters** are the particle effects of Peggle Nights, like flames and sparks. Pick the Emitter tool (N) and click to place one. It shows as an orange frame, the area the particles come from, with a small square in the middle that holds the effect's picture. Click the square or the frame to select it and drag it to move it. The Object tab has all of its settings: the size and shape of the area, the picture, opacity, colour and size, how fast and how many particles, how long they live, speed, gravity and spin. An emitter can have a mover like any other object. The editor only shows where an emitter is and which picture it uses. The particles run when you play the level, and an emitter with a mover or a follower moves with it.
+* **Following** is how the original makes one object ride on another one's mover: a ring of pegs that turns, a peg that sits on a moving platform. Select the objects that should follow, press J (or "Follow an object" in the Mover tab) and click the object they should follow. That object needs a mover. The followers keep their place and move along with it, on top of any mover of their own. Objects update in the order they were placed, so a follower that was placed before the object it follows trails it by one tick (a hundredth of a second), the same as in the original game. A followed object is outlined in purple with a line to each follower, and the orange path of a follower includes the motion it gets from the object it follows. "Follow start X" and "Follow start Y" in the Mover tab are the spot the followed object counted as home when you linked them. You normally leave them alone, they follow the followed object when you move it. "Stop following" lets go again. Copying a follower keeps it following, copying both together makes a new pair. An object that already follows something cannot be followed itself, and an object that is followed cannot follow.
 * **Movers**: pick a type in the Mover tab. All 15 types are there with radius, period, time offset, two pauses, phase, path rotation, rotation and reverse. When you add a mover the object stays where it is.
 * The level files use the classic 650 by 560 coordinates. On a wide board the game centres the level, so the playfield reaches past 0 and 650 on both sides. The editor draws exactly that.
 
@@ -64,7 +71,7 @@ Properties the editor has no controls for are kept untouched, so editing one peg
   * a `mod.ini` when the folder has none, and a 200 by 177 thumbnail in `levels/cached_thumbnails/` for the Quick Play tile.
 * New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.
 * Level names may use letters, digits, `_` and `-`. A name that starts with `_` is treated as a base layout without walls and a bucket, and the checker tells you about it.
-* A new level uses the background art of an existing one (the editor does not draw art). Choose it in the Level tab.
+* The art of a level is its own picture in the game or mod files (`levels/<level name>`, a .jpg, .png or .jp2, 646 x 543 for the classic board, 800 x 600 for a full screen picture). The editor does not paint pictures, it picks them: see Level art below. A new level uses the art you choose in the Level tab. Pictures that come from another mod are copied into your mod folder when you save, so the mod does not break when the other one is switched off. Pictures of the game itself are only named, never copied, and nothing is ever written into the game folders.
 * To play it: tick the mod in **Options, then Mods**. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
 
 **Export and Import** write and read `exports/<Level>.json` in your save folder: a readable file of the whole level. Numbers keep their exact value, so exporting and importing changes nothing.
@@ -78,10 +85,20 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 **F6**, the Check button and every save run the checks.
 
 * **Errors**: no objects, no pegs, no peg that can turn orange, no bucket, an object completely outside the playfield, an invalid level name.
-* **Warnings**: fewer possible orange pegs than the orange target (the original rules want 25), pegs that overlap each other or a wall, polygon or line, pegs in the side walls or in the bucket zone, pegs that stick out of the playfield, duplicate object ids, movers that do nothing.
-* **Info**: peg counts, where the bucket comes from, objects outside the original 650 pixel region on a wide board, and entries the editor keeps but does not show.
+* **Warnings**: fewer possible orange pegs than the orange target (the original rules want 25), pegs that overlap each other or a wall, polygon or line, pegs in the side walls or in the bucket zone, pegs that stick out of the playfield, duplicate object ids, movers that do nothing, emitters without a picture or with a picture the game cannot find.
+* **Info**: peg counts, emitters, where the bucket comes from, objects outside the original 650 pixel region on a wide board, and entries the editor keeps but does not show.
 
 Markers on the canvas show the objects a message is about.
+
+## Level art
+
+The editor can show and pick three kinds of pictures. Each one has the same chooser: a list of every picture in the game and in your mod folder with a big preview of the one under the mouse, a filter box (just type), and a button to type a name by hand.
+
+* **Art of level** in the Level tab is the picture behind the board. Click the line to open the chooser. "The level's own picture" means the file called like the level. The board shows your choice at once. The level is saved with a `background` line in its .ini when it is not the level's own picture.
+* **Image** in the Object tab is a picture drawn on an object (a bumper, a brick, a polygon). Select the objects first. Your choice is one undo step like any other change, and Image dx, Image dy, Image rot, Tile image and Mirror image next to it move and turn the picture.
+* **Image** of an emitter is the picture of its particles, chosen the same way.
+
+Pictures you made yourself go into your mod folder first: `levels/` for level art, `images/levels/` for object and emitter pictures (.png, .jpg or .tga work). The chooser lists them as "mod folder". Picking one adds your mod folder to the running game so the picture shows on the board straight away, and the Checks tab warns about a picture that is picked but not found.
 
 ## Generators and arranging
 
@@ -89,7 +106,6 @@ The Gen tab makes a grid (columns, rows, spacing, origin), a circle, a spiral or
 
 ## What it cannot do yet
 
-* Peggle Nights emitters and bare physics objects are kept in the file but neither drawn nor editable.
-* Movers that move another mover's anchor are kept but not editable. Several objects sharing one mover path can only be made through an imported JSON file.
-* You cannot draw level art.
-* After a polygon is placed you can move and rotate it as a whole, but not edit single corners.
+* Bare physics objects (no shipped level has one) are kept in the file but neither drawn nor editable.
+* Several objects sharing one mover path can only be made through an imported JSON file. Following covers the usual reason for wanting that.
+* You cannot paint level art in the editor. Make the picture in your own program, put it into your mod folder and pick it.

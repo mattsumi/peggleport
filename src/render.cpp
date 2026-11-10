@@ -440,14 +440,14 @@ void Renderer::putCelCentered(Tex* t, int cel, float cx, float cy, Paint p) {
   put(t, {(cel % t->cols) * t->cw(), (cel / t->cols) * t->ch(), t->cw(), t->ch()}, cx - t->cw() / 2, cy - t->ch() / 2, p);
 }
 
-void Renderer::sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a, bool add, Uint32 tint) {
+void Renderer::sprite(Tex* t, SDL_FRect src, float cx, float cy, float w, float h, float rotRad, Uint8 a, bool add, Uint32 tint, bool flip) {
   if (!t) return;
   SDL_FRect dst{px(cx - w / 2), py(cy - h / 2), w * s_, h * s_};
   SDL_SetTextureAlphaMod(t->t, a);
   SDL_SetTextureColorMod(t->t, (tint >> 16) & 255, (tint >> 8) & 255, tint & 255);
   SDL_SetTextureBlendMode(t->t, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
   if (bloomOn_ && add) bloom_.push_back({t->t, src, dst, -rotRad * RAD2DEG, {dst.w * 0.5f, dst.h * 0.5f}, true, (uint8_t)(tint >> 16), (uint8_t)(tint >> 8), (uint8_t)tint, a});
-  SDL_RenderTextureRotated(r_, t->t, &src, &dst, -rotRad * RAD2DEG, nullptr, SDL_FLIP_NONE);
+  SDL_RenderTextureRotated(r_, t->t, &src, &dst, -rotRad * RAD2DEG, nullptr, flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
   SDL_SetTextureAlphaMod(t->t, 255);
   SDL_SetTextureColorMod(t->t, 255, 255, 255);
   SDL_SetTextureBlendMode(t->t, SDL_BLENDMODE_BLEND);
@@ -741,7 +741,7 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
   if (auto t = objImage(o.image)) {
     V2 off = rot({o.imgDx, o.imgDy}, o.rot);
     float lw = t->lw(), lh = t->lh();
-    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y, lw, lh, o.rot, a);
+    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y, lw, lh, o.rot, a, false, 0xffffff, o.mirror);
   }
   if (feverSlot && lightImg && o.flash > 0) {
     float hx = BX + o.pos.x, hy = BY + o.pos.y;
@@ -918,6 +918,7 @@ struct FxInterp {
 struct SlowMoInterp {
   Board& b;
   std::vector<std::pair<size_t, std::pair<V2, float>>> objs;
+  std::vector<std::pair<size_t, V2>> emits;
   std::vector<V2> balls;
   explicit SlowMoInterp(const Board& cb, float fReal = -1.0f) : b(const_cast<Board&>(cb)) {
     if (!b.slowOn && fReal < 0) return;
@@ -930,10 +931,18 @@ struct SlowMoInterp {
       Obj& o = b.objs[i];
       if (!o.hasMover || !o.canMove || o.gone || o.mtick < 1) continue;
       float x = o.pos.x, y = o.pos.y, r = o.rot;
-      o.mv.calc(o.mtick - 1, f, x, y, r);
+      b.drawCalc(o, f, x, y, r);
       objs.push_back({i, {o.pos, o.rot}});
       o.pos = {x, y};
       if (o.shape == Shape::Poly || o.shape == Shape::Brick) o.rot = r;
+    }
+    for (size_t i = 0; i < b.emitters.size(); i++) {
+      Emit& e = b.emitters[i];
+      if (!e.hasMover || !e.canMove || e.mtick < 1) continue;
+      float x = e.pos.x, y = e.pos.y;
+      b.emitDrawPos(e, f, x, y);
+      emits.push_back({i, e.pos});
+      e.pos = {x, y};
     }
   }
   ~SlowMoInterp() {
@@ -942,6 +951,7 @@ struct SlowMoInterp {
       b.objs[s.first].pos = s.second.first;
       b.objs[s.first].rot = s.second.second;
     }
+    for (auto& s : emits) b.emitters[s.first].pos = s.second;
   }
 };
 }
@@ -1100,17 +1110,22 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
     }
     if (padL > 0) SDL_SetRenderClipRect(r_, &objClip);
   }
-  for (size_t i = 0; i < b.objs.size(); i++)
-    if (b.objs[i].background) drawObj(b, b.objs[i], (int)i, Pass::Main);
+  for (size_t i = 0; i <= b.objs.size(); i++) {
+    emitDraw(b, 0, i);
+    if (i < b.objs.size() && b.objs[i].background) drawObj(b, b.objs[i], (int)i, Pass::Main);
+  }
   fxDrawEffects(b, -1);
   for (size_t i = 0; i < b.objs.size(); i++)
     if (!b.objs[i].background) drawObj(b, b.objs[i], (int)i, Pass::Shadow);
-  for (size_t i = 0; i < b.objs.size(); i++) {
+  for (size_t i = 0; i <= b.objs.size(); i++) {
+    emitDraw(b, 1, i);
+    if (i == b.objs.size()) break;
     const Obj& o = b.objs[i];
     if (!o.background && !o.foreground && !o.foreground2 && o.shape != Shape::Line) drawObj(b, o, (int)i, Pass::Main);
   }
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawEffects(b, 0);
+  drawRod(b);
   fxDrawTexts(b, -1);
   SDL_SetRenderClipRect(r_, &objClip);
   for (auto& bl : b.balls) drawBall(b, bl, false);
@@ -1121,16 +1136,20 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
     drawBall(b, g, true);
     if (hud.showGuide) drawGuide(b);
   }
-  for (size_t i = 0; i < b.objs.size(); i++)
-    if (b.objs[i].foreground && !b.objs[i].foreground2 && !b.objs[i].background) drawObj(b, b.objs[i], (int)i, Pass::Main);
+  for (size_t i = 0; i <= b.objs.size(); i++) {
+    emitDraw(b, 2, i);
+    if (i < b.objs.size() && b.objs[i].foreground && !b.objs[i].foreground2 && !b.objs[i].background) drawObj(b, b.objs[i], (int)i, Pass::Main);
+  }
   for (size_t i = 0; i < b.objs.size(); i++) drawObj(b, b.objs[i], (int)i, Pass::Light);
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawEffects(b, 1);
   drawBoardShadow();
   drawHud(b, hud);
   SDL_SetRenderClipRect(r_, &objClip);
-  for (size_t i = 0; i < b.objs.size(); i++)
-    if (b.objs[i].foreground2) drawObj(b, b.objs[i], (int)i, Pass::Main);
+  for (size_t i = 0; i <= b.objs.size(); i++) {
+    emitDraw(b, 3, i);
+    if (i < b.objs.size() && b.objs[i].foreground2) drawObj(b, b.objs[i], (int)i, Pass::Main);
+  }
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawTexts(b, 0);
   fxDrawTexts(b, 1);

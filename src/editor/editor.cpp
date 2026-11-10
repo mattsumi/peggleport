@@ -1,4 +1,7 @@
 #include "editor/editor.h"
+#include "content.h"
+#include "log.h"
+#include "vfs.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -24,7 +27,7 @@ namespace pp::ed {
 static const struct { const char* name; Tool t; } kTools[] = {
     {"select", Tool::Select}, {"pan", Tool::Pan}, {"blue", Tool::PegBlue}, {"orange", Tool::PegOrange}, {"green", Tool::PegGreen},
     {"purple", Tool::PegPurple}, {"round", Tool::PegRound}, {"bumper", Tool::Bumper}, {"brick_straight", Tool::BrickStraight},
-    {"brick_curved", Tool::BrickCurved}, {"poly", Tool::Poly}, {"line", Tool::Line}, {"hole", Tool::Hole}, {"hole_exit", Tool::HoleExit}};
+    {"brick_curved", Tool::BrickCurved}, {"poly", Tool::Poly}, {"line", Tool::Line}, {"hole", Tool::Hole}, {"hole_exit", Tool::HoleExit}, {"emitter", Tool::Emitter}, {"follow", Tool::Follow}};
 const char* toolName(Tool t) {
   for (auto& e : kTools)
     if (e.t == t) return e.name;
@@ -83,6 +86,140 @@ void Editor::setCustomType(const std::string& key) {
   }
 }
 
+void Editor::setVfs(const Vfs* v) {
+  vfs = v;
+  emitterImage = imageExists("images/levels/flame4") ? "images/levels/flame4" : "";
+}
+bool Editor::imageExists(const std::string& path) const {
+  if (!vfs || path.empty()) return false;
+  for (const char* ext : {".jp2", ".jpg", ".png", ".gif", ".tga", ".j2k"})
+    if (vfs->exists(path + ext)) return true;
+  return false;
+}
+
+static const char* const kArtExt[] = {".tga", ".jpg", ".png", ".gif", ".j2k", ".jp2"};
+static bool isArtExt(std::string e) {
+  for (auto& c : e) c = (char)std::tolower((unsigned char)c);
+  for (const char* x : kArtExt)
+    if (e == x) return true;
+  return false;
+}
+static std::string lowerS(std::string s) {
+  for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+  return s;
+}
+static std::string slashes(std::string s) {
+  for (auto& c : s)
+    if (c == '\\') c = '/';
+  return s;
+}
+static std::vector<std::string> artPrefixes(Editor::ArtSlot s) {
+  if (s == Editor::ArtSlot::Background) return {"levels/"};
+  return {"", "images/levels/", "images/game/", "levels/"};
+}
+std::string Editor::artPath(ArtSlot slot, const std::string& value) const {
+  if (!vfs || value.empty()) return "";
+  for (auto& pre : artPrefixes(slot))
+    if (imageExists(pre + value)) return pre + value;
+  return "";
+}
+std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& modDir) const {
+  std::vector<ArtItem> out;
+  std::set<std::string> seen;
+  std::map<std::string, std::string> levelCase;
+  if (vfs)
+    for (auto& s : listStageLevels(*vfs)) levelCase[normKey(s.name)] = s.name;
+  auto add = [&](const std::string& key, const fs::path* real, const std::string& src) {
+    size_t dot = key.rfind('.');
+    if (dot == std::string::npos || !isArtExt(key.substr(dot))) return;
+    std::string stem = key.substr(0, dot), value, last = real ? real->stem().string() : std::string();
+    if (slot == ArtSlot::Background) {
+      if (stem.rfind("LEVELS\\", 0) != 0 || stem.find('\\', 7) != std::string::npos) return;
+      std::string nm = stem.substr(7);
+      if (nm.empty() || nm[0] == '_') return;
+      auto lc = levelCase.find(nm);
+      value = !last.empty() ? last : lc != levelCase.end() ? lc->second : lowerS(nm);
+    } else {
+      std::string pre;
+      if (stem.rfind("IMAGES\\LEVELS\\", 0) == 0) { stem = stem.substr(14); pre = slot == ArtSlot::Emitter ? "images/levels/" : ""; }
+      else if (stem.rfind("IMAGES\\GAME\\", 0) == 0) { stem = stem.substr(12); pre = "images/game/"; }
+      else if (stem.rfind("IMAGES\\", 0) == 0) { stem = stem.substr(7); pre = "images/"; }
+      else return;
+      if (stem.empty()) return;
+      size_t sl = stem.rfind('\\');
+      std::string dir = sl == std::string::npos ? std::string() : slashes(lowerS(stem.substr(0, sl + 1)));
+      std::string leaf = !last.empty() ? last : lowerS(sl == std::string::npos ? stem : stem.substr(sl + 1));
+      value = pre + dir + leaf;
+    }
+    if (!seen.insert(normKey(value)).second) return;
+    out.push_back({value, src, real ? real->string() : std::string()});
+  };
+  if (vfs)
+    for (auto& L : vfs->layers()) {
+      std::string src = L.isMod ? L.label : "game";
+      for (auto& [k, p] : L.files) add(k, &p, src);
+      for (auto& [k, _] : L.pakIndex) add(k, nullptr, src);
+    }
+  std::error_code ec;
+  if (!modDir.empty() && fs::is_directory(modDir, ec))
+    for (const char* sub : {"levels", "images"})
+      for (fs::recursive_directory_iterator it(modDir / sub, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec)) {
+          fs::path rel = fs::relative(it->path(), modDir, ec);
+          fs::path real = it->path();
+          add(normKey(rel.generic_string()), &real, "mod folder " + modDir.filename().string());
+        }
+  std::sort(out.begin(), out.end(), [](const ArtItem& a, const ArtItem& b) { return lowerS(a.value) < lowerS(b.value); });
+  return out;
+}
+bool Editor::setArt(ArtSlot slot, const std::string& value) {
+  if (slot == ArtSlot::Background) {
+    setMeta("background", value);
+    status = value.empty() ? "level art: the level's own picture" : "level art: " + value;
+    return true;
+  }
+  const char* key = slot == ArtSlot::Emitter ? "emitter_image" : "image";
+  if (sel.empty()) { status = "select an object first"; return false; }
+  bool ok = setProp(key, value);
+  status = ok ? (value.empty() ? "picture removed" : "picture: " + value) : "the selected objects have no picture setting";
+  return ok;
+}
+int Editor::copyArtToMod(const fs::path& modDir) const {
+  if (!vfs) return 0;
+  struct Ref { ArtSlot slot; std::string value; };
+  std::vector<Ref> refs;
+  refs.push_back({ArtSlot::Background, meta.background.empty() ? meta.name : meta.background});
+  for (auto& n : objects()) {
+    if (n->type == 9) { if (!n->str("emitter_image").empty()) refs.push_back({ArtSlot::Emitter, n->str("emitter_image")}); }
+    else if (!n->str("image").empty()) refs.push_back({ArtSlot::Object, n->str("image")});
+  }
+  int copied = 0;
+  std::set<std::string> done;
+  std::error_code ec;
+  for (auto& r : refs) {
+    std::string base = artPath(r.slot, r.value);
+    if (base.empty()) continue;
+    for (const char* ext : kArtExt) {
+      std::string key = normKey(base + ext);
+      if (!done.insert(key).second) continue;
+      for (auto& L : vfs->layers()) {
+        auto f = L.files.find(key);
+        if (f == L.files.end() && !L.pakIndex.count(key)) continue;
+        if (L.isMod && L.kind == Layer::Dir && f != L.files.end() && L.root != modDir) {
+          fs::path rel = fs::relative(f->second, L.root, ec);
+          fs::path dst = modDir / rel;
+          if (!ec && !fs::exists(dst, ec)) {
+            fs::create_directories(dst.parent_path(), ec);
+            if (fs::copy_file(f->second, dst, ec)) copied++;
+          }
+        }
+        break;
+      }
+    }
+  }
+  return copied;
+}
+
 void Editor::resetHistory() {
   customTypes.clear();
   undo_.clear();
@@ -92,6 +229,8 @@ void Editor::resetHistory() {
   metaDirty = false;
   sel.clear();
   polyPts_.clear();
+  cornerPoly_.reset();
+  cornerIdx_ = -1;
   g_ = G();
   issues.clear();
   changed();
@@ -280,6 +419,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
   }
   spit(lv / (meta.name + ".ini"), ini.str());
+  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + modDir.string());
   std::vector<std::pair<std::string, std::string>> levels;
   {
     std::vector<uint8_t> bytes;
@@ -328,11 +468,30 @@ void Editor::begin(const std::string& label, const std::vector<NodeP>& touch) {
   cur_.touched = touch;
   for (auto& n : touch)
     if (auto v = n->val("mover"); v && v->n && std::find(cur_.touched.begin(), cur_.touched.end(), v->n) == cur_.touched.end()) cur_.touched.push_back(v->n);
+  for (auto& m : allMovers(*level))
+    if (Node* sm = subOf(*level, *m); sm && sm != m.get()) {
+      if (std::find(cur_.touched.begin(), cur_.touched.end(), m) == cur_.touched.end()) cur_.touched.push_back(m);
+      cur_.subPose[m.get()] = moverRest(*sm);
+    }
   for (auto& n : cur_.touched) cur_.sb.push_back(snapNode(n));
   open_ = true;
 }
+void Editor::keepFollowers() {
+  if (!open_) return;
+  for (auto& m : allMovers(*level)) {
+    auto it = cur_.subPose.find(m.get());
+    Node* sm = it == cur_.subPose.end() ? nullptr : subOf(*level, *m);
+    if (!sm) continue;
+    V2 now = moverRest(*sm), was = it->second;
+    if (now.x == was.x && now.y == was.y) continue;
+    putNum(*m, "sub_x", Prim::F32, m->f("sub_x") + (now.x - was.x));
+    putNum(*m, "sub_y", Prim::F32, m->f("sub_y") + (now.y - was.y));
+    it->second = now;
+  }
+}
 void Editor::commit() {
   if (!open_) return;
+  keepFollowers();
   cur_.ea = level->entries;
   for (auto& n : cur_.touched) cur_.sa.push_back(snapNode(n));
   undo_.push_back(std::move(cur_));
@@ -444,6 +603,7 @@ NodeP Editor::makeFor(Tool t, V2 p) const {
     case Tool::BrickStraight: return newBrick(p.x, p.y, brickStraight, 1);
     case Tool::BrickCurved: { BrickParams b = brick; if (b.type == 5) b.type = 0; return newBrick(p.x, p.y, b, 1); }
     case Tool::Hole: return newHole(p.x, p.y, 40, 40, true, 0);
+    case Tool::Emitter: return newEmitter(p.x, p.y, emitterImage);
     default: return nullptr;
   }
 }
@@ -477,6 +637,10 @@ void Editor::deleteSelection() {
 }
 void Editor::moveSelection(float dx, float dy) {
   if (sel.empty()) return;
+  if (int ci = cornerIndex(); ci >= 0) {
+    setCorner(ci, cornerWorld(ci) + V2(dx, dy));
+    return;
+  }
   begin("Move", sel);
   std::set<const Node*> done;
   for (auto& n : sel) translateNode(*n, dx, dy, &done);
@@ -507,22 +671,51 @@ void Editor::mirrorSelection(bool horizontal) {
   for (auto& n : v) mirrorNode(*level, *n, horizontal, axis, &done);
   commit();
 }
-static std::vector<NodeP> cloneAll(const std::vector<NodeP>& src) {
+static std::vector<NodeP> cloneAll(const Level& L, const std::vector<NodeP>& src) {
   std::map<const Node*, NodeP> remap;
   std::vector<NodeP> out;
   for (auto& n : src) out.push_back(cloneNode(n, &remap));
+  std::set<const Node*> inSet, outside;
+  for (auto& n : src) inSet.insert(n.get());
+  for (auto& o : L.entries)
+    if (o.n && !inSet.count(o.n.get()))
+      if (const Node* m = moverOf(L, *o.n)) outside.insert(m);
+  for (size_t i = 0; i < src.size(); i++) {
+    const Node* mo = moverOf(L, *src[i]);
+    Node* mc = moverOf(L, *out[i]);
+    for (int depth = 0; mo && mc && depth < 8; depth++) {
+      auto sv = mo->val("sub");
+      if (!sv) break;
+      const Node* so = subOf(L, *mo);
+      auto it = so ? remap.find(so) : remap.end();
+      Val link;
+      link.k = VK::Ref;
+      if (so && outside.count(so)) {
+        link.n = sv->n;
+        mc->fields["sub"] = link;
+        break;
+      }
+      if (it != remap.end()) {
+        link.n = it->second;
+        mc->fields["sub"] = link;
+        break;
+      }
+      mo = so;
+      mc = subOf(L, *mc);
+    }
+  }
   return out;
 }
 void Editor::duplicateSelection(float dx, float dy) {
   if (sel.empty()) return;
-  auto c = cloneAll(sel);
+  auto c = cloneAll(*level, sel);
   std::set<const Node*> done;
   for (auto& n : c) translateNode(*n, dx, dy, &done);
   addNodes(c, "Duplicate");
 }
 void Editor::copySelection() {
   if (sel.empty()) return;
-  clip_ = cloneAll(sel);
+  clip_ = cloneAll(*level, sel);
   float x0, y0, x1, y1;
   selBounds(x0, y0, x1, y1);
   clipOrigin_ = V2((x0 + x1) * 0.5f, (y0 + y1) * 0.5f);
@@ -535,7 +728,7 @@ void Editor::cutSelection() {
 }
 void Editor::paste(V2 at, bool useAt) {
   if (clip_.empty()) { status = "nothing to paste"; return; }
-  auto c = cloneAll(clip_);
+  auto c = cloneAll(*level, clip_);
   V2 d = useAt ? snapPt(at) - clipOrigin_ : V2(grid > 1 ? grid : 10, grid > 1 ? grid : 10);
   if (useAt && snap) d = snapPt(clipOrigin_ + d) - clipOrigin_;
   std::set<const Node*> done;
@@ -600,7 +793,14 @@ bool Editor::setMoverProp(const std::string& key, const std::string& text) {
   begin("Set mover " + key, movers);
   for (auto& m : movers)
     for (auto& d : moverProps())
-      if (key == d.key) { any |= setPropText(*level, *m, d, text); break; }
+      if (key == d.key) {
+        if (!std::strncmp(d.key, "sub_", 4) && !m->val("sub")) break;
+        if (setPropText(*level, *m, d, text)) {
+          any = true;
+          if (std::strncmp(d.key, "sub_", 4)) syncRest(*m);
+        }
+        break;
+      }
   if (any) commit(); else abort();
   return any;
 }
@@ -611,6 +811,84 @@ bool Editor::addMover(int type) {
   for (auto& n : sel) any |= attachMover(*level, *n, type);
   if (any) commit(); else abort();
   return any;
+}
+NodeP Editor::driverOf(const NodeP& follower) const {
+  Node* m = moverOf(*level, *follower);
+  Node* s = m ? subOf(*level, *m) : nullptr;
+  if (!s) return nullptr;
+  for (auto& o : objects())
+    if (o != follower && moverOf(*level, *o) == s) return o;
+  return nullptr;
+}
+std::vector<NodeP> Editor::followersOf(const NodeP& driver) const {
+  std::vector<NodeP> out;
+  Node* dm = moverOf(*level, *driver);
+  if (!dm) return out;
+  for (auto& o : objects()) {
+    Node* m = moverOf(*level, *o);
+    if (m && o != driver && subOf(*level, *m) == dm) out.push_back(o);
+  }
+  return out;
+}
+std::string Editor::describe(const NodeP& n) const {
+  V2 p = nodePos(*level, *n);
+  const char* t = typeName(n->type);
+  if (n->type == 5 && pegOf(*n)) t = "peg";
+  else if (n->type == 5) t = "round object";
+  char b[96];
+  std::snprintf(b, sizeof b, "%s at %.0f, %.0f", t, p.x, p.y);
+  return b;
+}
+bool Editor::followObject(const NodeP& driver) {
+  if (sel.empty()) { status = "select the objects that should follow first"; return false; }
+  Node* dm = moverOf(*level, *driver);
+  if (!dm) { status = "that object has no mover, so there is nothing to follow"; return false; }
+  const Val* dv = driver->val("mover");
+  NodeP dmp = dv ? dv->n : nullptr;
+  if (!dmp) { status = "that object cannot be followed"; return false; }
+  if (dm->val("sub")) { status = "that object follows another one itself, pick the one it follows"; return false; }
+  std::vector<NodeP> who;
+  for (auto& n : sel) {
+    if (!isObjectType(n->type) || n->type == 2) continue;
+    if (n == driver) { status = "an object cannot follow itself"; return false; }
+    Node* fm = moverOf(*level, *n);
+    if (fm == dm) { status = "those objects share one mover already"; return false; }
+    if (fm && !followersOf(n).empty()) { status = "other objects follow " + describe(n) + ", so it cannot follow anything"; return false; }
+    who.push_back(n);
+  }
+  if (who.empty()) { status = "these objects cannot follow anything"; return false; }
+  begin("Follow object", who);
+  V2 start = moverRest(*dm);
+  for (auto& n : who) {
+    if (!n->val("mover")) attachMover(*level, *n, 0);
+    Node* fm = moverOf(*level, *n);
+    if (!fm) continue;
+    Val link;
+    link.k = VK::Ref;
+    link.n = dmp;
+    fm->fields["sub"] = link;
+    putNum(*fm, "sub_x", Prim::F32, start.x);
+    putNum(*fm, "sub_y", Prim::F32, start.y);
+  }
+  commit();
+  status = "now following " + describe(driver);
+  return true;
+}
+bool Editor::stopFollowing() {
+  std::vector<NodeP> who;
+  for (auto& n : sel)
+    if (Node* m = moverOf(*level, *n); m && m->val("sub")) who.push_back(n);
+  if (who.empty()) { status = "nothing to stop"; return false; }
+  begin("Stop following", who);
+  for (auto& n : who) {
+    Node* m = moverOf(*level, *n);
+    m->fields.erase("sub");
+    m->fields.erase("sub_x");
+    m->fields.erase("sub_y");
+  }
+  commit();
+  status = "stopped following";
+  return true;
 }
 bool Editor::setHoleExit(V2 p) {
   std::vector<NodeP> holes;
@@ -645,6 +923,102 @@ void Editor::removeMover() {
   begin("Remove mover", sel);
   for (auto& n : sel) detachMover(*level, *n);
   commit();
+}
+bool Editor::cornersEditable() const {
+  return sel.size() == 1 && sel.front()->type == 3 && sel.front()->val("vertices") && polyCorners(*sel.front()).size() >= 2;
+}
+int Editor::cornerCount() const { return cornersEditable() ? (int)polyCorners(*sel.front()).size() : 0; }
+int Editor::cornerIndex() const {
+  if (!cornersEditable() || sel.front() != cornerPoly_) return -1;
+  return cornerIdx_ >= 0 && cornerIdx_ < cornerCount() ? cornerIdx_ : -1;
+}
+void Editor::selectCorner(int i) {
+  if (!cornersEditable() || i < 0 || i >= cornerCount()) {
+    cornerPoly_.reset();
+    cornerIdx_ = -1;
+    return;
+  }
+  cornerPoly_ = sel.front();
+  cornerIdx_ = i;
+}
+V2 Editor::cornerWorld(int i) const { return cornersEditable() ? polyCornerWorld(*level, *sel.front(), i) : V2(); }
+int Editor::cornerAt(V2 p) const { return cornersEditable() ? hitCorner(*level, *sel.front(), p, 7.0f / std::max(0.05f, zoom_)) : -1; }
+int Editor::edgeAt(V2 p, V2* at) const { return cornersEditable() ? hitEdge(*level, *sel.front(), p, 6.0f / std::max(0.05f, zoom_), at) : -1; }
+bool Editor::applyCorners(const NodeP& poly, const std::vector<V2>& corners, const std::string& label) {
+  begin(label, {poly});
+  bool ok = polySetCorners(*poly, corners);
+  if (ok) commit(); else abort();
+  return ok;
+}
+bool Editor::setCorner(int i, V2 world) {
+  if (!cornersEditable()) return false;
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  if (i < 0 || (size_t)i >= c.size()) { status = "no such corner"; return false; }
+  auto next = c;
+  next[(size_t)i] = polyWorldToLocal(*level, *poly, world);
+  if (!polyShapeOk(c, next)) { status = "that corner would collapse or cross the shape"; return false; }
+  if (!applyCorners(poly, next, "Move corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = i;
+  return true;
+}
+bool Editor::addCorner() {
+  if (!cornersEditable()) return false;
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  int edge = cornerIndex();
+  if (edge < 0) {
+    float best = -1;
+    for (size_t i = 0; i < c.size(); i++) {
+      float l = (c[(i + 1) % c.size()] - c[i]).len2();
+      if (l > best) { best = l; edge = (int)i; }
+    }
+  }
+  V2 mid = (c[(size_t)edge] + c[((size_t)edge + 1) % c.size()]) * 0.5f;
+  auto next = c;
+  next.insert(next.begin() + edge + 1, mid);
+  if (!polyShapeOk(c, next)) { status = "no room for another corner there"; return false; }
+  if (!applyCorners(poly, next, "Add corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = edge + 1;
+  status = "corner added";
+  return true;
+}
+bool Editor::addCornerAt(V2 world) {
+  V2 at;
+  int edge = edgeAt(world, &at);
+  if (edge < 0) return false;
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  auto next = c;
+  next.insert(next.begin() + edge + 1, polyWorldToLocal(*level, *poly, at));
+  if (!polyShapeOk(c, next)) { status = "no room for another corner there"; return false; }
+  if (!applyCorners(poly, next, "Add corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = edge + 1;
+  status = "corner added";
+  return true;
+}
+bool Editor::removeCorner() {
+  int i = cornerIndex();
+  if (i < 0) { status = "select a corner first"; return false; }
+  NodeP poly = sel.front();
+  auto c = polyCorners(*poly);
+  if (c.size() <= 3) { status = "a polygon needs at least 3 corners"; return false; }
+  auto next = c;
+  next.erase(next.begin() + i);
+  if (!polyShapeOk(c, next)) { status = "removing that corner would cross the shape"; return false; }
+  if (!applyCorners(poly, next, "Remove corner")) return false;
+  cornerPoly_ = poly;
+  cornerIdx_ = std::max(0, i - 1);
+  status = "corner removed";
+  return true;
+}
+bool Editor::deleteKey() {
+  if (cornerIndex() >= 0) return removeCorner();
+  deleteSelection();
+  return true;
 }
 int Editor::generate(const std::string& kind, const std::vector<float>& a, int pegType) {
   std::vector<V2> pts;
@@ -689,7 +1063,7 @@ bool Editor::overRotateHandle(V2 p) const {
   return rotateHandle(h) && (p - h).len2() <= (9.0f / zoom_) * (9.0f / zoom_);
 }
 void Editor::cancelGesture() {
-  if (g_.kind == G::Move || g_.kind == G::Rotate) abort();
+  if (g_.kind == G::Move || g_.kind == G::Rotate || g_.kind == G::Corner) abort();
   g_ = G();
   polyPts_.clear();
 }
@@ -713,6 +1087,24 @@ void Editor::mouseDown(V2 p, int button, Mods m, int clicks) {
         begin("Rotate", sel);
         return;
       }
+      if (cornersEditable()) {
+        NodeP poly = sel.front();
+        int ci = cornerAt(p);
+        if (ci >= 0) {
+          cornerPoly_ = poly;
+          cornerIdx_ = ci;
+          g_ = G();
+          g_.kind = G::Corner;
+          g_.corner = ci;
+          g_.start = p;
+          g_.cornerStart = cornerWorld(ci);
+          g_.cornersAtStart = polyCorners(*poly);
+          g_.primary = poly;
+          begin("Move corner", {poly});
+          return;
+        }
+        if (clicks >= 2 && addCornerAt(p)) return;
+      }
       NodeP hit = hitObject(p);
       if (hit) {
         if (m.shift) {
@@ -723,7 +1115,7 @@ void Editor::mouseDown(V2 p, int button, Mods m, int clicks) {
           sel = {hit};
         }
         if (m.alt) {
-          auto c = cloneAll(sel);
+          auto c = cloneAll(*level, sel);
           addNodes(c, "Duplicate");
           hit = c.empty() ? hit : c.front();
         }
@@ -743,6 +1135,13 @@ void Editor::mouseDown(V2 p, int button, Mods m, int clicks) {
       break;
     }
     case Tool::HoleExit: setHoleExit(snapPt(p)); break;
+    case Tool::Follow: {
+      NodeP hit = hitObject(p);
+      if (!hit) status = "click the object to follow";
+      else followObject(hit);
+      tool = Tool::Select;
+      break;
+    }
     case Tool::Line:
       g_ = G();
       g_.kind = G::Line;
@@ -769,6 +1168,7 @@ void Editor::mouseMove(V2 p, Mods m) {
         for (auto& n : sel) translateNode(*n, step.x, step.y, &done);
         g_.appliedD = d;
         g_.moved = true;
+        keepFollowers();
         changed();
       }
       break;
@@ -787,6 +1187,23 @@ void Editor::mouseMove(V2 p, Mods m) {
         g_.moved = true;
         changed();
       }
+      break;
+    }
+    case G::Corner: {
+      V2 w = g_.cornerStart + (p - g_.start);
+      if (snap) w = snapPt(w);
+      if (!g_.moved && w.x == g_.cornerStart.x && w.y == g_.cornerStart.y) break;
+      if (g_.moved && w.x == g_.appliedD.x && w.y == g_.appliedD.y) break;
+      auto next = g_.cornersAtStart;
+      next[(size_t)g_.corner] = polyWorldToLocal(*level, *g_.primary, w);
+      if (!polyShapeOk(g_.cornersAtStart, next)) {
+        status = "that corner would collapse or cross the shape";
+        break;
+      }
+      polySetCorners(*g_.primary, next);
+      g_.appliedD = w;
+      g_.moved = true;
+      changed();
       break;
     }
     case G::Box: g_.b = p; break;
@@ -809,6 +1226,7 @@ void Editor::mouseUp(V2 p, int button, Mods m) {
   switch (g_.kind) {
     case G::Move:
     case G::Rotate:
+    case G::Corner:
       if (g_.moved) commit(); else abort();
       break;
     case G::Box: {
@@ -953,19 +1371,40 @@ std::vector<Issue> Editor::validate() {
     if (g.kind == Geo::Circle) circles.push_back({n, g});
     else if (n->flag("collidable") && (g.kind == Geo::Poly || g.kind == Geo::Line)) solid.push_back({n, g});
   }
-  int outside = 0, partly = 0, wide = 0;
+  int wide = 0;
   for (auto& n : objs) {
     Geo g = geometry(*level, *n);
-    if (g.kind == Geo::None) continue;
+    if (g.kind == Geo::None || g.kind == Geo::Emitter) continue;
     float bx0 = g.x0 + sh, bx1 = g.x1 + sh;
     bool bg = n->flag("background") || !n->flag("collidable");
     if (bx1 < 0 || bx0 > W || g.y1 < 0 || g.y0 > kBoardH + 40) {
-      if (!bg) { outside++; add(Issue::Error, std::string(typeName(n->type)) + " is completely outside the playfield", n); }
+      if (!bg) add(Issue::Error, std::string(typeName(n->type)) + " is completely outside the playfield", n);
     } else if (bx0 < 0 || bx1 > W || g.y0 < 0 || g.y1 > kBoardH) {
-      if (!bg && pegOf(*n)) { partly++; add(Issue::Warn, std::string(typeName(n->type)) + " peg sticks out of the playfield", n); }
+      if (!bg && pegOf(*n)) add(Issue::Warn, std::string(typeName(n->type)) + " peg sticks out of the playfield", n);
     }
     if (W > 650 && (g.x0 < 0 || g.x1 > 650) && !bg) wide++;
   }
+  if (vfs) {
+    std::string bg = meta.background.empty() ? meta.name : meta.background;
+    if (!artExists(ArtSlot::Background, bg)) {
+      if (!meta.background.empty() && meta.background != meta.name) add(Issue::Warn, "level art '" + meta.background + "' was not found in the game or mod files");
+      else add(Issue::Info, "the level has no picture (levels/" + bg + " is missing), it plays without art");
+    }
+    for (auto& n : objs) {
+      std::string img = n->type == 9 ? std::string() : n->str("image");
+      if (!img.empty() && !artExists(ArtSlot::Object, img)) add(Issue::Warn, std::string(typeName(n->type)) + " picture '" + img + "' was not found in the game or mod files", n);
+    }
+  }
+  int emitters = 0;
+  for (auto& n : objs) {
+    if (n->type != 9) continue;
+    emitters++;
+    std::string img = n->str("emitter_image");
+    if (img.empty()) add(Issue::Warn, "emitter has no image", n);
+    else if (vfs && !artExists(ArtSlot::Emitter, img)) add(Issue::Warn, "emitter image '" + img + "' was not found in the game or mod files", n);
+    if (n->i("width") < 1 || n->i("height") < 1) add(Issue::Warn, "emitter area is empty", n);
+  }
+  if (emitters) add(Issue::Info, std::to_string(emitters) + " emitter(s): particle effects of Peggle Nights");
   if (W > 650 && wide) add(Issue::Info, std::to_string(wide) + " object(s) lie outside the original 650 px region (this level needs the wide board)");
   if (W == 650) {
     int beyond = 0;
@@ -1021,13 +1460,19 @@ std::vector<Issue> Editor::validate() {
     int t = std::abs((int)m->i("move_type"));
     if (t == 10 || t > 15) add(Issue::Warn, "mover type " + std::to_string(t) + " does nothing", n);
     if (t != 0 && m->i("time", 200) < 1) add(Issue::Warn, "mover period is below 1 tick", n);
-    if ((t >= 1 && t <= 7 && t != 6 && t != 7) && m->i("radius") == 0 && m->i("radius2") == 0) add(Issue::Info, "mover with radius 0 does not move", n);
+    if ((t >= 1 && t <= 7 && t != 6 && t != 7) && m->i("radius") == 0 && m->i("radius2") == 0 && !m->val("sub")) add(Issue::Info, "mover with radius 0 does not move", n);
+    if (Node* s = subOf(*level, *m)) {
+      bool owned = false;
+      for (auto& o : objs)
+        if (o != n && moverOf(*level, *o) == s) owned = true;
+      if (!owned) add(Issue::Warn, "follows a mover that no object uses, so it never moves", n);
+    }
   }
   if (level->version > 0x42) add(Issue::Info, "file version " + std::to_string(level->version) + ": loads in Peggle Nights only (Deluxe refuses versions above 66)");
   int skipped = 0;
   for (auto& e : level->entries)
     if (e.n && !isObjectType(e.n->type)) skipped++;
-  if (skipped) add(Issue::Info, std::to_string(skipped) + " entries (emitters / bare objects) are kept but not shown");
+  if (skipped) add(Issue::Info, std::to_string(skipped) + " bare object entries are kept but not shown");
   static const std::string okChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
   if (meta.name.empty() || meta.name.find_first_not_of(okChars) != std::string::npos) add(Issue::Error, "level name '" + meta.name + "' must be letters, digits, '_' or '-'");
   bool hasErr = false, hasWarn = false;
@@ -1154,10 +1599,28 @@ std::string Editor::exec(const std::string& line, bool* okOut) {
   else if (c == "distribute") { distribute(w.size() < 2 || w[1] != "v"); msg = "distributed"; }
   else if (c == "set") { if (w.size() > 2) { ok = setProp(w[1], rest); msg = ok ? "set " + w[1] : "cannot set " + w[1]; } else { ok = false; msg = "usage: set KEY VALUE"; } }
   else if (c == "mset") { if (w.size() > 2) { ok = setMoverProp(w[1], rest); msg = ok ? "mover " + w[1] + " set" : "no mover or unknown key"; } else { ok = false; msg = "usage: mset KEY VALUE"; } }
+  else if (c == "follow") {
+    if (n.size() < 2) { ok = false; msg = "usage: follow x y"; }
+    else if (NodeP h = hitObject(V2(n[0], n[1]))) { ok = followObject(h); msg = status; }
+    else { ok = false; msg = "no object there"; }
+  }
+  else if (c == "unfollow") { ok = stopFollowing(); msg = status; }
   else if (c == "mover") {
     if (w.size() > 1 && w[1] == "remove") { removeMover(); msg = "mover removed"; }
     else if (w.size() > 2 && w[1] == "add") { ok = addMover(std::atoi(w[2].c_str())); msg = ok ? "mover added" : "no object can take a mover"; }
     else { ok = false; msg = "usage: mover add TYPE | mover remove"; }
+  } else if (c == "corner") {
+    if (w.size() > 1 && w[1] == "add") { ok = addCorner(); msg = ok ? "corner added" : status; }
+    else if (w.size() > 1 && w[1] == "remove") { ok = removeCorner(); msg = ok ? "corner removed" : status; }
+    else if (w.size() > 1 && w[1] == "move") {
+      auto q = nums(w, 2);
+      ok = q.size() >= 3 && setCorner((int)q[0], V2(q[1], q[2]));
+      msg = ok ? "corner moved" : (q.size() >= 3 ? status : "usage: corner move N x y");
+    } else if (!n.empty()) {
+      selectCorner((int)n[0]);
+      ok = cornerIndex() >= 0;
+      msg = ok ? "corner " + std::to_string(cornerIndex()) : "no such corner";
+    } else { ok = false; msg = "usage: corner N | corner add | corner remove | corner move N x y"; }
   } else if (c == "gen") {
     if (w.size() > 1) {
       int type = 1;

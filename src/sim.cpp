@@ -75,6 +75,10 @@ static void buildBrickLocal(const Node& n, Obj& o) {
   BrickShape s = brickInitFromParams(p);
   o.local = s.pts;
   o.brickInner.assign(s.pts.begin() + s.innerStart, s.pts.begin() + s.innerEnd + 1);
+  o.brickIdx[0] = s.innerEnd;
+  o.brickIdx[1] = s.outerStart;
+  o.brickIdx[2] = s.innerStart;
+  o.brickIdx[3] = s.outerEnd;
   o.brickOuter.assign(s.pts.begin() + s.outerStart, s.pts.begin() + s.outerEnd + 1);
   std::reverse(o.brickOuter.begin(), o.brickOuter.end());
 }
@@ -104,6 +108,8 @@ bool Board::makeObj(const Level& L, const Node& n, Obj& o) {
   o.imgDy = n.f("image_dy");
   o.sound = (int)n.i("sound");
   o.subId = (int)n.i("sub_id");
+  o.logic = n.str("logic");
+  o.toggle = o.logic == "movetoggle" && (o.shape == Shape::Poly || o.shape == Shape::Brick);
   if (auto pv = n.val("peg"); pv && pv->n) {
     o.pegType = (int)pv->n->i("type");
     o.canBeOrange = pv->n->flag("variable");
@@ -113,22 +119,7 @@ bool Board::makeObj(const Level& L, const Node& n, Obj& o) {
   if (auto mv = n.val("mover")) mn = L.resolve(*mv);
   if (mn) {
     o.hasMover = true;
-    Mover& m = o.mv;
-    m.type = (int)mn->i("move_type");
-    m.ax = mn->f("anchor_x");
-    m.ay = mn->f("anchor_y");
-    m.time = (int)mn->i("time", 200);
-    m.offset = (int)mn->i("offset");
-    m.rx = (float)mn->i("radius");
-    m.ry = (float)mn->i("radius2");
-    m.phase = mn->f("phase");
-    m.moveRot = mn->f("move_rotation");
-    m.maxAngle = mn->f("max_angle");
-    m.rotation = mn->f("rotation");
-    m.pause1 = (int)mn->i("pause1"); m.pause2 = (int)mn->i("pause2");
-    m.phase1 = (int)mn->i("phase1"); m.phase2 = (int)mn->i("phase2");
-    m.postDelay = mn->f("post_delay_phase");
-    m.single = cfg.fpBits == 24;
+    o.mv = Mover::fromNode(*mn, cfg.fpBits == 24);
   }
   float baseRot = 0;
   switch (o.shape) {
@@ -229,8 +220,17 @@ void Board::addLevel(const Level& L, bool fromBase) {
     nodeOf.push_back(n);
     return (int)objs.size() - 1;
   };
+  std::vector<const Node*> emitNodes;
+  const size_t emitFirst = emitters.size();
   for (auto& e : L.entries)
-    if (auto n = L.resolve(e)) build(n);
+    if (auto n = L.resolve(e)) {
+      if (n->type == 9) {
+        emitters.push_back(makeEmit(L, *n, fromBase));
+        emitNodes.push_back(n);
+      } else {
+        build(n);
+      }
+    }
   for (size_t i = 0; i < nodeOf.size(); i++) {
     Obj& o = objs[first + i];
     if (o.shape != Shape::Hole) continue;
@@ -240,6 +240,7 @@ void Board::addLevel(const Level& L, bool fromBase) {
         objs[first + i].exitIdx = ex;
       }
   }
+  linkFollowers(L, nodeOf, first, emitNodes, emitFirst);
 }
 
 void Board::widen() {
@@ -269,12 +270,38 @@ void Board::widen() {
         else o.pos.x += dw;
       }
     }
-    if (o.hasMover) {
+    if (o.mv.linked) {
+      if (!o.fromBase) {
+        o.mv.outX += dw * 0.5f;
+        if (o.mv.sub != -1) o.mv.lastX += dw * 0.5f;
+      }
+      if (o.shape != Shape::Line) o.pos = {o.mv.outX, o.mv.outY};
+    } else if (o.hasMover) {
       float x = o.pos.x, y = o.pos.y, r = o.rot;
       o.mv.calc(o.mtick, x, y, r);
       o.pos = {x, y};
     }
     rebuild(o);
+  }
+  for (auto& f : freeMovers_) {
+    f.ax += dw * 0.5f;
+    f.outX += dw * 0.5f;
+  }
+  for (auto& e : emitters) {
+    if (e.fromBase) continue;
+    if (e.mv.linked) {
+      e.mv.ax += dw * 0.5f;
+      e.mv.outX += dw * 0.5f;
+      if (e.mv.sub != -1) e.mv.lastX += dw * 0.5f;
+      e.pos = {e.mv.outX, e.mv.outY};
+    } else if (e.hasMover) {
+      e.mv.ax += dw * 0.5f;
+      float x = e.pos.x, y = e.pos.y, r = 0.0f;
+      e.mv.calc(e.mtick, x, y, r);
+      e.pos = {x, y};
+    } else {
+      e.pos.x += dw * 0.5f;
+    }
   }
 }
 
@@ -342,11 +369,11 @@ void Board::updateObj(Obj& o) {
   }
   if (o.lit) o.litAge++;
   if (o.flash > 0) o.flash--;
-  if (o.hasMover && o.canMove) {
-    o.mtick++;
+  if (o.hasMover && (o.canMove || o.mv.sub != -1)) {
+    if (o.canMove) o.mtick++;
     V2 old = o.pos;
     float x = o.pos.x, y = o.pos.y, r = o.rot;
-    o.mv.calc(o.mtick, x, y, r);
+    moverStep(o, x, y, r);
     if (o.shape == Shape::Hole) {
       const float dx = x - old.x, dy = y - old.y;
       o.pos = {dx + old.x, dy + old.y};
@@ -391,11 +418,13 @@ void Board::updateObj(Obj& o) {
     if (o.fadeOut) o.visible = o.fadeT != 0;
   }
   if (o.moveCount != 0 && --o.moveCount == 0) o.canMove = false;
+  if (o.toggle) polyFlip(o);
 }
 
 bool Board::updateBall(Ball& b) {
   b.age++;
   if (b.holeCooldown > 0) b.holeCooldown--;
+  if (b.holeOut > 0 && b.holeExit >= 0 && (size_t)b.holeExit < objs.size()) b.holeTarget = holeExitPoint(objs[(size_t)b.holeExit]);
   if (b.hat) hatUpdate(b);
   return phys::ballUpdate(b, grav_, physics.maxSpeed, physics.windOrDrag() ? &physics : nullptr);
 }
@@ -478,6 +507,16 @@ void Board::stepBalls() {
       if (balls[(size_t)i].uid == uid) return i;
     return -1;
   };
+  auto hatIndexOf = [&](int uid) {
+    for (int i = 0; i < (int)balls.size(); i++)
+      if (balls[(size_t)i].hatUid == uid) return i;
+    return -1;
+  };
+  auto litThisTick = [&](int oi) {
+    for (const Note& n : notes_)
+      if (n.obj == oi) return true;
+    return false;
+  };
   int curFirst = -1;
   std::vector<int> cand;
   auto flush = [&]() {
@@ -486,16 +525,27 @@ void Board::stepBalls() {
     if (bi >= 0) {
       collide(balls[(size_t)bi], bi, &cand);
       done[(size_t)bi] = 1;
+    } else if ((bi = hatIndexOf(curFirst - SAP_BALL)) >= 0) {
+      collideHat(balls[(size_t)bi], bi, cand);
     }
     cand.clear();
   };
   for (const auto& key : std::vector<std::array<int, 4>>(sapPairs_.begin(), sapPairs_.end())) {
     const std::pair<int, int> pr{SAP_BALL + key[0], key[3]};
     int fi = indexOf(pr.first - SAP_BALL);
-    if (fi < 0 || !live[(size_t)fi]) continue;
+    const int hi = fi < 0 ? hatIndexOf(pr.first - SAP_BALL) : -1;
+    if (fi < 0 && hi < 0) continue;
+    if (!live[(size_t)(fi < 0 ? hi : fi)]) continue;
     if (pr.first != curFirst) {
       flush();
       curFirst = pr.first;
+    }
+    if (hi >= 0) {
+      if (pr.second < SAP_BALL && balls[(size_t)hi].hatAge > 10) {
+        const Obj& ho = objs[(size_t)pr.second];
+        if (ho.collidable && !ho.gone && ho.pegType && !ho.lit && !litThisTick(pr.second)) cand.push_back(pr.second);
+      }
+      continue;
     }
     if (pr.second >= SAP_BALL) {
       int si = indexOf(pr.second - SAP_BALL);
@@ -515,16 +565,15 @@ void Board::stepBalls() {
   flush();
   for (int bi = 0; bi < (int)balls.size(); bi++)
     if (live[(size_t)bi] && !done[(size_t)bi]) phys::ballTranslate(balls[(size_t)bi], balls[(size_t)bi].vel.x, balls[(size_t)bi].vel.y);
-  hatContacts(hatNotes_);
-  notes_.insert(notes_.begin(), hatNotes_.begin(), hatNotes_.end());
-  hatNotes_.clear();
+  for (auto& nt : notes_)
+    if (!nt.hat && balls[(size_t)nt.ball].alive && objs[(size_t)nt.obj].toggle) polyNotify(objs[(size_t)nt.obj]);
   for (auto& nt : notes_) {
     curBall_ = nt.ball;
     Ball& b = balls[nt.ball];
     if (!b.alive) continue;
     Obj& o = objs[nt.obj];
     if (nt.hat) {
-      if (!o.lit) pegHit(nt.obj);
+      hatHit(b, nt.obj);
       continue;
     }
     if (o.shape == Shape::Hole) holeHit(b, nt.obj);
@@ -606,10 +655,16 @@ void Board::stepCore() {
     return;
   }
   updateScoreDisplay();
+  if (chainUsed) rodUpdate();
   shotLogic();
   tick++;
   gunLogic();
-  for (auto& o : objs) updateObj(o);
+  size_t ei = 0;
+  for (size_t i = 0; i < objs.size(); i++) {
+    while (ei < emitters.size() && emitters[ei].before <= i) updateEmit(emitters[ei++]);
+    updateObj(objs[i]);
+  }
+  while (ei < emitters.size()) updateEmit(emitters[ei++]);
   gun::update(gunState, gunAngle, gunTarget);
   if (phase == Phase::Shot || phase == Phase::Popping) stepBalls();
   if (bannerTimer > 0) bannerTimer--;
@@ -626,6 +681,10 @@ bool Board::fire(float angle) {
   orangeHitShot = 0;
   Ball b;
   b.fire = pturn[cur][P_FIREBALL] > 0;
+  if (cfg.nights && pturn[cur][P_CHAIN] > 0) {
+    b.chain = true;
+    chainUsed = true;
+  }
   b.hat = hatOn;
   if (cfg.nights && superOn) b.mode = ultraOn ? 2 : 1;
   b.slot = 0;
@@ -634,7 +693,10 @@ bool Board::fire(float angle) {
   phys::ballSetPos(b, p.x, p.y);
   b.pos = b.prev = p;
   b.vel = gun::launchVelocity(angle, gunSpeed_);
-  if (b.hat) hatInit(b);
+  if (b.hat) {
+    hatInit(b, true);
+    b.hatAge = tick > hatBorn_ ? tick - hatBorn_ : 0;
+  }
   balls.push_back(b);
   phase = Phase::Shot;
   { int bits; static_assert(sizeof(bits) == sizeof(angle)); std::memcpy(&bits, &angle, sizeof bits); ev(Event::Shot, bits); }
@@ -711,12 +773,20 @@ uint64_t Board::hash() const {
   for (auto& o : objs) {
     h = mix(h, o.gone); h = mix(h, o.lit); h = mix(h, o.pegType); h = mix(h, o.popTimer); h = mix(h, o.mtick);
     h = mix(h, o.pos.x); h = mix(h, o.pos.y); h = mix(h, o.rot); h = mix(h, o.collidable);
+    if (o.toggle) h = mix(h, o.mirror);
     if (o.moveCount) { h = mix(h, o.moveCount); h = mix(h, o.canMove); }
     if (o.custom) { h = mix(h, o.custom); h = mix(h, o.hits); h = mix(h, o.hitTick); h = mix(h, o.radius); }
+    if (o.mv.linked) { h = mix(h, o.mv.ax); h = mix(h, o.mv.ay); h = mix(h, o.mv.lastX); h = mix(h, o.mv.lastY); h = mix(h, o.mv.outX); h = mix(h, o.mv.outY); }
   }
   for (auto& b : balls) {
     h = mix(h, b.pos.x); h = mix(h, b.pos.y); h = mix(h, b.vel.x); h = mix(h, b.vel.y); h = mix(h, b.stuck);
     h = mix(h, b.fire); h = mix(h, b.spooky);
+    if (b.hat) { h = mix(h, b.hatAge); h = mix(h, b.disp.x); h = mix(h, b.disp.y); }
+    if (chainUsed) h = mix(h, b.chain);
+  }
+  if (chainUsed) {
+    h = mix(h, rod.state); h = mix(h, rod.timer); h = mix(h, rod.bob); h = mix(h, rod.age);
+    h = mix(h, rod.x); h = mix(h, rod.anchorX); h = mix(h, rod.y); h = mix(h, rod.vy); h = mix(h, rod.baseY);
   }
   for (auto& kv : modState) { h = fnvMix(h, kv.first.data(), kv.first.size()); h = mix(h, kv.second); }
   if (!physics.isDefault())

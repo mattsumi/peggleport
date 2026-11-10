@@ -31,8 +31,15 @@ struct Mover {
   int type = 0, time = 200, offset = 0, pause1 = 0, pause2 = 0, phase1 = 0, phase2 = 0;
   float ax = 0, ay = 0, rx = 0, ry = 0, phase = 0, moveRot = 0, maxAngle = 0, rotation = 0, postDelay = 0;
   bool single = false;
+  bool linked = false;
+  int sub = -1;
+  float lastX = 0, lastY = 0, outX = 0, outY = 0;
+  static Mover fromNode(const Node& n, bool single);
   void calc(int tick, float& x, float& y, float& rot) const;
   void calc(int tick, float frac, float& x, float& y, float& rot) const;
+  void translate(float dx, float dy);
+  void follow(const Mover& s);
+  void step(int tick, float frac, float& x, float& y, float& rot, const Mover* s);
   bool rotating() const { int t = type < 0 ? -type : type; return t == 8 || t == 9 || t == 13 || t == 14; }
 };
 
@@ -54,6 +61,8 @@ struct Obj {
   int custom = 0, hits = 0, hitTick = -1000000;
   float radius0 = 0;
   bool canBeOrange = false, lit = false;
+  std::string logic;
+  bool toggle = false, mirror = false;
   int zoneMode = 0;
   int litAge = 0, popTimer = 0, flash = 0;
   bool hasMover = false, moving = false;
@@ -70,10 +79,34 @@ struct Obj {
   phys::Line pline;
   phys::Poly ppoly;
   std::vector<V2> brickInner, brickOuter;
+  int brickIdx[4]{};
   float hw = 0, hh = 0;
   bool circular = false;
   int score = 0, outDelay = 0, exitIdx = -1;
   float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+};
+
+struct Emit {
+  const Node* node = nullptr;
+  bool fromBase = false, canMove = false, hasMover = false;
+  Mover mv;
+  int mtick = 0;
+  size_t before = 0;
+  V2 pos;
+};
+
+struct Rod {
+  struct Spark {
+    float ang;
+    int life;
+  };
+  int state = 0;
+  int timer = 0, bob = 0, age = 0;
+  int x = 0, anchorX = 0;
+  float y = 586.0f, vy = 0, baseY = 0;
+  std::vector<int> rings;
+  std::vector<Spark> sparks;
+  uint32_t sfx = 0x2545f491u;
 };
 
 struct Event {
@@ -89,7 +122,12 @@ struct Event {
               FlipperMove,
               Zen,
               Hint,
-              TimeBomb   } type;
+              TimeBomb,
+              Toggle,
+              Bubble,
+              ChainStart,
+              ChainStrike,
+              ChainBolt   } type;
   int a = 0, b = 0;
   int c = 0;
 };
@@ -109,11 +147,14 @@ struct Ball {
   int uid = 0;
   bool alive = true, slowFlag = false, touchedBumper = false;
   bool fire = false, spooky = false;
+  bool chain = false;
   bool spookyUsed = false;
   bool hat = false;
   V2 disp, hatPos, hatPrev;
   int hatAge = 0;
-  int stuck = 0, age = 0, holeOut = 0, holeCooldown = 0;
+  int hatUid = 0;
+  float hx0 = 0, hy0 = 0, hx1 = 0, hy1 = 0;
+  int stuck = 0, age = 0, holeOut = 0, holeCooldown = 0, holeExit = -1;
   int slot = 0;
   int rimTick = 0, rimCount = 0;
   int rimMaxY = 0;
@@ -181,7 +222,11 @@ struct LevelResult {
   int percentCleared() const { return pegsTotal ? pegsCleared * 100 / pegsTotal : 0; }
 };
 
+class AIMgr;
+
 class Board {
+  friend class AIMgr;
+
  public:
   bool load(std::shared_ptr<const Level> base, std::shared_ptr<const Level> lv, const BoardConfig& cfg, std::string* err);
   void step();
@@ -216,6 +261,7 @@ class Board {
   BoardConfig cfg;
   int W = 650;
   std::vector<Obj> objs;
+  std::vector<Emit> emitters;
   std::vector<Ball> balls;
   Phase phase = Phase::Aim;
   int tick = 0, cur = 0, players = 1;
@@ -242,7 +288,19 @@ class Board {
   void timeBomb();
   static int spinLight(int startDeg, int timer0);
   int spinCode_ = 0;
-  void hatInit(Ball& b);
+  void hatInit(Ball& b, bool atOrigin = false);
+  int hatBorn_ = 0;
+  void polyNotify(Obj& o);
+  void polyFlip(Obj& o);
+  void addBubbles(const Obj& o, int kind);
+  Rod rod;
+  bool chainUsed = false;
+  int bucketIndex() const;
+  bool electroBall() const;
+  float rodTargetX(const Obj& bucket) const;
+  void rodUpdate();
+  void rodMoveX();
+  void chainLightning(int pegIdx);
   void hatUpdate(Ball& b);
   static void setPolyActive(Obj& o, bool on);
   void clickInShot();
@@ -360,16 +418,22 @@ class Board {
   void addShotScore(int n) { incShotScore(n); }
   std::vector<std::pair<int, int>> contactNotes() const { std::vector<std::pair<int, int>> v; for (auto& n : notes_) v.push_back({n.ball, n.obj}); return v; }
   void noteContact(Ball& b, Obj& o);
+  const Mover* subMover(const Mover& m) const;
+  void drawCalc(const Obj& o, float frac, float& x, float& y, float& r) const;
+  void drawCalc(const Mover& mv, int mtick, float frac, float& x, float& y, float& r) const;
+  void emitDrawPos(const Emit& e, float frac, float& x, float& y) const;
 
  private:
   struct Note { int ball, obj; bool hat = false; };
-  void hatContacts(std::vector<Note>& out);
+  void collideHat(const Ball& owner, int bi, const std::vector<int>& cand);
+  void hatHit(const Ball& owner, int oi);
+  Ball* hatCur_ = nullptr;
   std::shared_ptr<const Level> base_, level_;
   std::vector<int> nonOrange_;
   std::vector<int> orangeSet_, otherSet_;
   int purple_ = -1, popIdx_ = 0, popDelay_ = 0, settle_ = 0;
   std::vector<int> hitList_;
-  std::vector<Note> notes_, hatNotes_;
+  std::vector<Note> notes_;
 
   static constexpr int SAP_BALL = 1 << 20;
   struct SapEnd { int id; bool start; };
@@ -393,6 +457,12 @@ class Board {
   void widen();
   void rebuild(Obj& o);
   void updateObj(Obj& o);
+  void moverStep(Obj& o, float& x, float& y, float& r);
+  void moverStep(Mover& m, int mtick, float& x, float& y, float& r);
+  void updateEmit(Emit& e);
+  Emit makeEmit(const Level& L, const Node& n, bool fromBase);
+  void linkFollowers(const Level& L, const std::vector<const Node*>& nodeOf, size_t first, const std::vector<const Node*>& emitNodeOf, size_t emitFirst);
+  std::vector<Mover> freeMovers_;
   bool updateBall(Ball& b);
   std::vector<int> gather(const Ball& b) const;
   bool collide(Ball& b, int bi, const std::vector<int>* pre = nullptr, V2* firstHit = nullptr);

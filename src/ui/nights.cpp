@@ -94,11 +94,88 @@ int MainMenu::mantelAt(App& app, float mx, float my) {
   return -1;
 }
 
+static std::string trophyName(int id) { return "Trophy:" + std::to_string(id); }
+static std::string decalName(const DecalInfo& d) { return "Decal:" + d.image + std::to_string(d.layer); }
+
+float MainMenu::fadeOf(const std::string& name) const {
+  for (const Sparkle& s : sparkles)
+    if (s.name == name) return (float)(int)(std::clamp(s.fade, 0.0f, 1.0f) * 255.0f) / 255.0f;
+  return 1.0f;
+}
+
+void MainMenu::buildSparkles() {
+  sparkles.clear();
+  PlayerInfo* p = app.curProfile;
+  if (!isNights || !p) return;
+  struct Item {
+    std::string name;
+    int x, y, w, h;
+    float emit;
+    int group;
+  };
+  std::vector<Item> items;
+  for (int id : {1, 3, 2, 0})
+    if (mantelEarned(app, id)) {
+      const MantelTrophy& t = kMantel[id];
+      items.push_back({trophyName(id), t.rx, t.ry, t.rw, t.rh, 1.0f, -1});
+    }
+  std::vector<int> stages;
+  for (int i = app.stages.numStages(); i < app.stages.numAllStages(); i++) {
+    const StageInfo* s = app.stages.stage(i);
+    if (!s) continue;
+    for (const DecalInfo& d : s->decals) {
+      if (!app.gfx.img(d.image)) continue;
+      auto at = std::find(stages.begin(), stages.end(), i);
+      if (at == stages.end()) at = stages.insert(stages.end(), i);
+      items.push_back({decalName(d), d.hx, d.hy, d.hw, d.hh, d.emit, (int)(at - stages.begin())});
+    }
+  }
+  bool changed = false;
+  for (const Item& it : items) {
+    if (!p->mantelSeen.insert(it.name).second) continue;
+    changed = true;
+    if (!p->mantelSeenKnown) continue;
+    float scale = 0.2f;
+    if (it.group >= 0) scale = (float)(int)((double)it.group * 0.800000011920929) + 0.2f;
+    sparkles.push_back({it.name, SparkleField(it.x, it.y, it.w, it.h, it.emit, app.rand()), 0.0f - scale, it.w != 0 && it.h != 0});
+  }
+  if (!p->mantelSeenKnown) {
+    p->mantelSeenKnown = true;
+    changed = true;
+  }
+  if (changed) {
+    p->dirty = true;
+    app.saveProfile();
+  }
+}
+
+void MainMenu::updateSparkles() {
+  if (app.anyDialog()) return;
+  for (Sparkle& s : sparkles) {
+    s.fade = std::min(s.fade + 0.005f, 1.0f);
+    if (s.live && s.fade > -0.2f && !s.field.update()) s.live = false;
+  }
+}
+
+void MainMenu::drawSparkles(Gfx& g) {
+  static const char* const kImage[SparkleField::kImages] = {"IMAGE_TROPHY_PARTICLE1", "IMAGE_TROPHY_PARTICLE2", "IMAGE_TROPHY_PARTICLE3",
+                                                            "IMAGE_TROPHY_PARTICLE4", "IMAGE_TROPHY_PARTICLE5", "IMAGE_TROPHY_PARTICLE6"};
+  for (const Sparkle& s : sparkles) {
+    if (!s.live) continue;
+    for (const SparkleField::Particle& q : s.field.particles()) {
+      Tex* t = g.img(kImage[q.image]);
+      if (!t) continue;
+      float k = s.field.scale(q);
+      g.drawRot(t, q.x, q.y, 0, k, k, Mode(s.field.alpha(q) / 255.0f, 0xffffff, true));
+    }
+  }
+}
+
 void MainMenu::drawNights(Gfx& g) {
   drawLoungeScene(g, sunTick);
   for (int id : {1, 3, 2, 0})
     if (mantelEarned(app, id))
-      if (Tex* t = g.img(kMantel[id].image)) g.draw(t, (float)kMantel[id].sx, (float)kMantel[id].sy);
+      if (Tex* t = g.img(kMantel[id].image)) g.draw(t, (float)kMantel[id].sx, (float)kMantel[id].sy, Mode(fadeOf(trophyName(id))));
   {
     int st = -1;
     const DecalInfo* hov = decalAt(app, app.mouseX - x, app.mouseY - y, &st);
@@ -107,12 +184,14 @@ void MainMenu::drawNights(Gfx& g) {
       if (!s) continue;
       for (const DecalInfo& d : s->decals) {
         if (Tex* t = g.img(d.image)) {
-          g.draw(t, (float)d.x, (float)d.y);
-          if (&d == hov) g.draw(t, (float)d.x, (float)d.y, Mode(0.5f + 0.2f * std::sin(sunTick * 0.15f), 0xffffff, true));
+          float a = fadeOf(decalName(d));
+          g.draw(t, (float)d.x, (float)d.y, Mode(a));
+          if (&d == hov) g.draw(t, (float)d.x, (float)d.y, Mode((0.5f + 0.2f * std::sin(sunTick * 0.15f)) * a, 0xffffff, true));
         }
       }
     }
   }
+  drawSparkles(g);
   if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, (float)bubbleFade / 15.0f, true);
   drawSpeechBubble(g, bubble, 1.0f - (bubbleFade > 0 ? (float)bubbleFade / 15.0f : 0.0f), bubbleFade == 0);
   {
@@ -154,12 +233,28 @@ ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
     bContinue->visible = false;
   }
   a.playMusic("music/progress.ogg");
-  if (m == 4) a.playSample("AWARD");
+  if (newest >= 0 || m == 4) a.playSample("DRUMROLL");
+  if (m == 4) {
+    drumEnd = 350;
+    if (a.audio)
+      if (const Sample* s = a.audio->sample("DRUMROLL"))
+        if (s->rate > 0) drumEnd = (int)((double)s->pcm.size() / 2 / s->rate * 100.0);
+  }
 }
 
 void ProgressScreen::update() {
   Panel::update();
   t++;
+  if (mode == 4) {
+    if (t == drumEnd + 2) app.playSample("TROPHY_WIN_INTRO");
+    else if (t == drumEnd + 270) app.playSample("AWARD");
+    else if (t == drumEnd + 305) app.playSample("APPLAUSE");
+    if (closing > 0 && ++closing == 21) {
+      app.playSample("APPLAUSE_LONG");
+      app.showCreditsScreen();
+      return;
+    }
+  }
   if (newest >= 0 && t == 41) app.playSample("TROPHY_PHOTO_IN");
   if (newest >= 0 && !bContinue->visible && t > 140) {
     bContinue->visible = true;
@@ -230,7 +325,10 @@ void ProgressScreen::drawLayer(Gfx& g) {
 }
 
 void ProgressScreen::finish() {
-  if (mode == 4) { app.showCreditsScreen(); return; }
+  if (mode == 4) {
+    if (closing == 0) closing = 1;
+    return;
+  }
   if (mode == 1) { app.showStoryScreen(false, false); return; }
   if (mode == 2) { app.showMainMenu(); return; }
   app.showAdventureScreen();
@@ -306,6 +404,10 @@ CreditsScreen::CreditsScreen(App& a) : Screen(a) {
 
 void CreditsScreen::update() {
   Panel::update();
+  if (total == 80) app.playSample("TROPHY_CURTAINS");
+  else if (total == 332) app.playSample("CREDITS_SPOTLIGHT_ON");
+  else if (total == 410) app.playSample("FANFARE");
+  total++;
   t++;
   if (page < pages.size() && t > pages[page].hold) {
     page++;

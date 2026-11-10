@@ -351,7 +351,10 @@ StoryScreen::StoryScreen(App& a, bool rev, bool eg) : Screen(a), reveal(rev), ea
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x21e);
   bContinue->x = 400 - bContinue->w / 2;
   bContinue->visible = false;
-  initText();
+  const int reached = a.curProfile ? std::max(0, a.curProfile->advStage) : 0;
+  win = a.game != Game::Nights && (rev || (a.numStages() > 0 && reached >= a.numStages()));
+  if (win) initWin();
+  else initText();
 }
 
 void StoryScreen::initText() {
@@ -362,6 +365,7 @@ void StoryScreen::initText() {
   text.clear();
   if (s) {
     for (auto& d : s->story[0]) text += d.text;
+    headVisible = (int)stripColorCodes(text).size();
     if (page != 1) text += "\n^ffffff^A few choice words of\nPeggle Wisdom^oldclr^\n\n";
     else text += "\n";
     for (auto& d : s->story[page]) text += d.text;
@@ -373,6 +377,10 @@ void StoryScreen::initText() {
 
 void StoryScreen::update() {
   Panel::update();
+  if (win) {
+    updateWin();
+    return;
+  }
   if (bContinue->visible) {
     float tx = 400 - bContinue->w / 2;
     if (bContinue->x < tx) bContinue->x = std::min(tx, bContinue->x + 30);
@@ -385,6 +393,10 @@ void StoryScreen::update() {
   }
   if (boxFade != 0 && ++boxFade == 20) boxFade = 0;
   if (wait != 0) { wait--; return; }
+  if (!dreamy && app.game == Game::Nights && stage != 10 && headVisible > 0 && typed >= headVisible) {
+    dreamy = true;
+    app.playSample("STAGE_DREAMY_IN");
+  }
   if (typed < totalVisible) {
     typed++;
     app.playSample("TYPING");
@@ -407,18 +419,20 @@ void StoryScreen::update() {
   app.playSample("TEXT_WOOSH");
 }
 void StoryScreen::finish() {
-  if (reveal) { app.showMainMenu(); return; }
+  if (win || reveal) { app.showMainMenu(); return; }
+  if (app.game == Game::Nights) app.playSample("STAGE_DREAMY_OUT");
   app.showBoard(true, true);
 }
 void StoryScreen::onButton(int) { finish(); }
 bool StoryScreen::input(const Input& in) {
-  if (in.type == Input::MouseDown && !done && in.button > 0) {
+  if (!win && in.type == Input::MouseDown && !done && in.button > 0) {
     typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1;
     return true;
   }
   return Panel::input(in);
 }
 void StoryScreen::keyDown(int key, int) {
+  if (win) return;
   if (key == SDLK_ESCAPE || key == SDLK_RETURN || key == SDLK_SPACE) {
     if (done) finish();
     else { typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1; }
@@ -446,6 +460,10 @@ static uint32_t charColor(int i) {
 }
 
 void StoryScreen::drawLayer(Gfx& g) {
+  if (win) {
+    drawWin(g);
+    return;
+  }
   g.fill(0, 0, 800, 600, 0x000000);
   if (Tex* bx = g.img("IMAGE_DLG_DIALOGBOX")) g.drawBox(bx, -2, -4, 804, 608);
   const bool first = !app.curProfile || stage == 0 || app.curProfile->advCompletions != 0;
@@ -732,8 +750,21 @@ void TrophyScreen::syncPage() {
   bPrev->visible = page > 0;
   bNext->visible = page + 1 < (int)app.trophies.pages().size();
   if (app.curProfile) { app.curProfile->i38 = page; app.curProfile->dirty = true; }
+  badgeTicks = applauseTicks = 0;
+  const auto& pages = app.trophies.pages();
+  if (page >= 0 && page < (int)pages.size())
+    for (int i = 0; i < 5 && i < (int)pages[page].trophies.size(); i++)
+      if (app.newTrophies.erase(pages[page].trophies[i].id)) badgeTicks = 100;
 }
-void TrophyScreen::update() { Panel::update(); if (hoverTicks > 0 && --hoverTicks == 0) hovered = -1; }
+void TrophyScreen::update() {
+  Panel::update();
+  if (badgeTicks > 0 && --badgeTicks == 0) {
+    applauseTicks = 10;
+    app.playSample("AWARD");
+  }
+  if (applauseTicks > 0 && --applauseTicks == 0) app.playSample("APPLAUSE");
+  if (hoverTicks > 0 && --hoverTicks == 0) hovered = -1;
+}
 void TrophyScreen::onButtonEnter(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 0; } }
 void TrophyScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 10; } }
 void TrophyScreen::doPlay(int slot) {

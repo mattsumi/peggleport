@@ -15,7 +15,7 @@
 
 namespace pp::ed {
 
-enum class Tool { Select, Pan, PegBlue, PegOrange, PegGreen, PegPurple, PegRound, Bumper, BrickStraight, BrickCurved, Poly, Line, Hole, HoleExit };
+enum class Tool { Select, Pan, PegBlue, PegOrange, PegGreen, PegPurple, PegRound, Bumper, BrickStraight, BrickCurved, Poly, Line, Hole, HoleExit, Emitter, Follow };
 const char* toolName(Tool t);
 bool toolFromName(const std::string& s, Tool& t);
 
@@ -42,6 +42,20 @@ class Editor {
   std::vector<Issue> issues;
   int revision = 0;
   std::map<const Node*, std::string> customTypes;
+  const Vfs* vfs = nullptr;
+  std::string emitterImage;
+  void setVfs(const Vfs* v);
+  bool imageExists(const std::string& path) const;
+
+  enum class ArtSlot { Background, Object, Emitter };
+  struct ArtItem {
+    std::string value, source, file;
+  };
+  std::vector<ArtItem> artChoices(ArtSlot slot, const std::filesystem::path& modDir) const;
+  std::string artPath(ArtSlot slot, const std::string& value) const;
+  bool artExists(ArtSlot slot, const std::string& value) const { return !artPath(slot, value).empty(); }
+  bool setArt(ArtSlot slot, const std::string& value);
+  int copyArtToMod(const std::filesystem::path& modDir) const;
   std::string customType(const NodeP& n) const;
   void setCustomType(const std::string& key);
 
@@ -86,8 +100,28 @@ class Editor {
   bool setProp(const std::string& key, const std::string& text);
   bool setMoverProp(const std::string& key, const std::string& text);
   bool addMover(int type);
+  NodeP driverOf(const NodeP& follower) const;
+  std::vector<NodeP> followersOf(const NodeP& driver) const;
+  bool followObject(const NodeP& driver);
+  bool stopFollowing();
+  void keepFollowers();
+  std::string describe(const NodeP& n) const;
   bool setHoleExit(V2 p);
   void removeMover();
+
+  bool cornersEditable() const;
+  NodeP cornerPoly() const { return cornersEditable() ? sel.front() : nullptr; }
+  int cornerCount() const;
+  int cornerIndex() const;
+  void selectCorner(int i);
+  V2 cornerWorld(int i) const;
+  int cornerAt(V2 p) const;
+  int edgeAt(V2 p, V2* at) const;
+  bool setCorner(int i, V2 world);
+  bool addCorner();
+  bool addCornerAt(V2 world);
+  bool removeCorner();
+  bool deleteKey();
   int generate(const std::string& kind, const std::vector<float>& a, int pegType);
   void setMeta(const std::string& key, const std::string& value);
   bool undo();
@@ -133,6 +167,7 @@ class Editor {
     std::vector<Val> eb, ea;
     std::vector<NodeP> touched;
     std::vector<NodeSnap> sb, sa;
+    std::map<const Node*, V2> subPose;
   };
   std::vector<Step> undo_, redo_;
   Step cur_;
@@ -150,7 +185,7 @@ class Editor {
   void finishLoad();
 
   struct G {
-    enum Kind { None, Move, Box, Rotate, Line, Stamp } kind = None;
+    enum Kind { None, Move, Box, Rotate, Line, Stamp, Corner } kind = None;
     V2 a, b, start, pivot;
     float applied = 0, ang0 = 0;
     V2 appliedD;
@@ -158,10 +193,16 @@ class Editor {
     NodeP primary;
     V2 primaryStart;
     bool shiftBox = false;
+    int corner = -1;
+    V2 cornerStart;
+    std::vector<V2> cornersAtStart;
   } g_;
   std::vector<V2> polyPts_;
+  NodeP cornerPoly_;
+  int cornerIdx_ = -1;
   void finishPoly();
   NodeP makeFor(Tool t, V2 p) const;
+  bool applyCorners(const NodeP& poly, const std::vector<V2>& corners, const std::string& label);
 };
 
 }

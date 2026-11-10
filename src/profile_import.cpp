@@ -222,6 +222,8 @@ bool parseNights(DataReader& r, PlayerInfo& p, std::string& why) {
   if (!readSetStr(r, strs) || !readSetStr(r, strs)) { why = "a list of levels is cut short"; return false; }
   if (!readSetInt(r, ints)) { why = "a list of numbers is cut short"; return false; }
   if (!readSetStr(r, strs)) { why = "a list of names is cut short"; return false; }
+  p.mantelSeen.insert(strs.begin(), strs.end());
+  p.mantelSeenKnown = true;
   if (!r.ok()) { why = "the file ends too early"; return false; }
   return true;
 }

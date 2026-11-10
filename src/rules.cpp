@@ -398,7 +398,7 @@ void Board::awardStyle(int id, const char* nameOverride) {
 void Board::pegHit(int oi, bool byPower) {
   Obj& o = objs[oi];
   if (!o.pegType || o.gone) return;
-  Ball* ball = (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[curBall_] : nullptr;
+  Ball* ball = hatCur_ ? hatCur_ : (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[curBall_] : nullptr;
   const bool duel = cfg.duel && players > 1;
   if (cfg.nights) {
     if (!byPower && ball && ball->sinceHit == 0 && o.shape == Shape::Brick) {
@@ -530,13 +530,17 @@ void Board::pegHit(int oi, bool byPower) {
     greenFlag = true;
     doPower(oi);
   }
+  if (Ball* cb = (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[(size_t)curBall_] : nullptr; cb && cb->chain) {
+    cb->chain = false;
+    chainLightning(oi);
+  }
 }
 
 bool Board::customHit(int oi, bool force) {
   Obj& o = objs[(size_t)oi];
   const PegTypeDef* d = pegTypeDef(o.custom);
   if (!d) return true;
-  Ball* ball = (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[(size_t)curBall_] : nullptr;
+  Ball* ball = hatCur_ ? hatCur_ : (curBall_ >= 0 && curBall_ < (int)balls.size()) ? &balls[(size_t)curBall_] : nullptr;
   const bool hooks = g_simHooks && !noModHooks && d->onHit;
   const bool fire = ball && ball->fire;
   if (!d->clears && force) return false;
@@ -658,10 +662,11 @@ void Board::holeHit(Ball& b, int oi) {
     const Obj& e = objs[h.exitIdx];
     ev(Event::HoleIn, oi, (int)(&b - balls.data()));
     b.holeCooldown = 20;
-    if (h.outDelay < 1) b.pos = e.pos;
+    if (h.outDelay < 1) b.pos = b.prev = holeExitPoint(e);
     else {
       b.holeOut = h.outDelay;
-      b.holeTarget = e.pos;
+      b.holeExit = h.exitIdx;
+      b.holeTarget = holeExitPoint(e);
     }
     return;
   }
@@ -1058,6 +1063,10 @@ void Board::beginTurn(bool next) {
   superOn = ultraOn = false;
   triplerOn = hatOn = false;
   activatePowers();
+  if (cfg.nights && pturn[cur][P_CHAIN] > 0) {
+    chainUsed = true;
+    ev(Event::ChainStart);
+  }
   if (pegsHitShot > 0) {
     pegsHitShot = 0;
     makeScorePeg();
@@ -1362,7 +1371,7 @@ void Board::doPowerup(int oi, int power, bool silent) {
   }
   if (g_simHooks && !noModHooks && g_simHooks->power(*this, oi, pw, silent)) return;
   if (pw < 0 || pw > 14) return;
-  Ball* ball = curBall_ >= 0 && curBall_ < (int)balls.size() ? &balls[(size_t)curBall_] : nullptr;
+  Ball* ball = hatCur_ ? hatCur_ : curBall_ >= 0 && curBall_ < (int)balls.size() ? &balls[(size_t)curBall_] : nullptr;
   int& counter = pturn[cur][pw];
   const int first = counter == 0 ? 1 : 0;
   const int greensNow = greenHits;
@@ -1483,7 +1492,7 @@ void Board::activatePowers() {
   }
   if (master[cur] >= masters::kFirstPower) modMasterTurn();
   if (triplerCount[cur] != 0) { triplerOn = true; triplerCount[cur]--; }
-  if (hatCount[cur] != 0) { hatOn = true; hatCount[cur]--; }
+  if (hatCount[cur] != 0) { hatOn = true; hatBorn_ = tick; hatCount[cur]--; }
   if (cfg.nights) {
     if (superCount[cur] > 0) superOn = true;
     if (superCount[cur] > 1) ultraOn = true;
