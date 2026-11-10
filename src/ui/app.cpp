@@ -18,13 +18,14 @@
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
 #include "ui/screens.h"
+#include "gamepaths.h"
 
 namespace fs = std::filesystem;
 
 namespace pp {
 std::filesystem::path defaultUserDir(Game g) {
   char* p = SDL_GetPrefPath("PopCap Games", g == Game::Deluxe ? "Peggle" : "PeggleNights");
-  fs::path r = p ? fs::path(p) / "userdata" : fs::path("userdata");
+  fs::path r = p ? pathFromUtf8(p) / "userdata" : fs::path("userdata");
   if (p) SDL_free(p);
   return r;
 }
