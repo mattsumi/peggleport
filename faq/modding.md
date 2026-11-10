@@ -429,7 +429,7 @@ The lock-down uses what each system offers: a sandbox profile on macOS, Landlock
 
 The permission dialog for a native plugin says what the helper blocks, for example: "It runs in a restricted helper process: no network, cannot write files, cannot start programs, can only read its own folder." The Mods screen shows the same for every active plugin.
 
-If your system cannot enforce all four limits, the dialog says "This plugin could not be restricted on this system" and names what is missing. The plugin then stays off until the player also presses **Run anyway** in a second, separate question. That answer is stored in `mods.json` for the exact content hash of the plugin, so an update asks again. On Windows the helper limits file writes and new processes but cannot block the network, so Windows players are asked this second question.
+If your system cannot enforce all four limits, the dialog says "This plugin could not be restricted on this system" and names what is missing. The plugin then stays off until the player also presses **Run anyway** in a second, separate question. That answer is stored in `mods.json` for the exact content hash of the plugin, so an update asks again. On Windows the helper blocks file writes and new processes but cannot block the network or keep a plugin from reading other files, so Windows players are asked this second question.
 
 ### When a plugin misbehaves
 
