@@ -145,6 +145,7 @@ struct Ball {
   V2 lastN;
   bool hitFlag142 = false, hitFlag165 = false;
   int uid = 0;
+  bool pairs = true;
   bool alive = true, slowFlag = false, touchedBumper = false;
   bool fire = false, spooky = false;
   bool chain = false;
@@ -447,6 +448,7 @@ class Board {
   int ballUid_ = 0;
   const float* sapBox(int id) const;
   bool sapOverlap(int a, int b) const;
+  bool sapBallPairs(int a, int b) const;
   void sapAdd(int id);
   void sapRemove(int id);
   void sapSortList(std::vector<SapEnd>& list, int axis);

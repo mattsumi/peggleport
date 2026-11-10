@@ -180,11 +180,9 @@ struct AIMgr::Run {
     Ball& nb = w.balls.back();
     nb.uid = ++w.ballUid_;
     phys::ballSyncBounds(nb);
+    if (nights) w.sapSort();
     w.sapAdd(Board::SAP_BALL + nb.uid);
-    for (auto it = w.sapPairs_.begin(); it != w.sapPairs_.end();) {
-      if ((*it)[1] == 2 && ((*it)[0] == nb.uid || (*it)[2] == nb.uid)) it = w.sapPairs_.erase(it);
-      else ++it;
-    }
+    nb.pairs = true;
   }
   void stepFrame();
   void jumpMovers(int n);
@@ -289,7 +287,9 @@ void AIMgr::Run::doMultiball(int ci, int oi) {
   phys::ballSetPos(nb, peg.x, peg.y);
   nb.pos = nb.prev = peg;
   nb.vel = {dir, nights ? -3.5f : -3.0f};
+  nb.pairs = false;
   addCand(c, nb);
+  w.balls[(size_t)bi].pairs = true;
   cands[(size_t)ci].partner = (int)cands.size() - 1;
 }
 
@@ -642,6 +642,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
     if (r.charge) c.bestFrame = 0;
     V2 v;
     Ball ball = r.makeBall(angles[(size_t)i], r.fireball, v);
+    ball.pairs = false;
     r.cands.push_back(c);
     r.w.balls.push_back(ball);
     r.owner.push_back(i);

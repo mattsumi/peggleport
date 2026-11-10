@@ -32,6 +32,17 @@ bool Board::sapOverlap(int a, int b) const {
   return p[0] <= q[2] && q[0] <= p[2] && p[1] <= q[3] && q[1] <= p[3];
 }
 
+bool Board::sapBallPairs(int a, int b) const {
+  int need = 2;
+  for (const Ball& ball : balls) {
+    const bool hit = ball.uid == a - SAP_BALL || ball.hatUid == a - SAP_BALL || ball.uid == b - SAP_BALL || ball.hatUid == b - SAP_BALL;
+    if (!hit) continue;
+    if (!ball.pairs) return false;
+    if (--need == 0) break;
+  }
+  return true;
+}
+
 void Board::sapAdd(int id) {
   const bool ball = id >= SAP_BALL;
   for (const SapEnd& e : sapX_) {
@@ -39,6 +50,7 @@ void Board::sapAdd(int id) {
     int o = e.id;
     const bool oball = o >= SAP_BALL;
     if (ball) {
+      if (oball && !sapBallPairs(id, o)) continue;
       if (!sapOverlap(id, o)) continue;
       if (!oball) sapInsert(id, o);
       else if (id < o) sapInsert(id, o);
@@ -94,14 +106,16 @@ void Board::sapSortList(std::vector<SapEnd>& list, int axis) {
       if (A.start && !B.start) {
         if (aball) {
           if (!bball) sapErase(A.id, B.id);
-          else if (A.id < B.id) sapErase(A.id, B.id);
-          else sapErase(B.id, A.id);
+          else if (sapBallPairs(A.id, B.id)) {
+            if (A.id < B.id) sapErase(A.id, B.id);
+            else sapErase(B.id, A.id);
+          }
         } else if (bball) {
           sapErase(B.id, A.id);
         }
       } else if (!A.start && B.start) {
         if (aball) {
-          if (sapOverlap(A.id, B.id)) {
+          if ((!bball || sapBallPairs(A.id, B.id)) && sapOverlap(A.id, B.id)) {
             if (!bball || A.id < B.id) sapInsert(A.id, B.id);
             else sapInsert(B.id, A.id);
           }
