@@ -607,7 +607,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
         angles.push_back(a);
         for (int k = 0; k < nb; k++) {
           angles.push_back(r.keep(a - (float)k * 0.009999999776482582f));
-          angles.push_back(r.keep((float)k * 0.009999999776482582f + a));
+          if (k > 0 || !r.nights) angles.push_back(r.keep((float)k * 0.009999999776482582f + a));
         }
       }
       if (nb == 0) randoms -= orangeCount;
