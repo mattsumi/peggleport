@@ -163,7 +163,6 @@ struct AIMgr::Run {
     }
   }
 
-  std::vector<char> ballBall;
   void notifyBall(int ci, int oi);
   void setHole(int ci, int bi, const Obj& h);
   void doMultiball(int ci, int oi);
@@ -256,12 +255,13 @@ void AIMgr::Run::doMultiball(int ci, int oi) {
   const int bi = ballIndex(ci);
   const Ball sb = w.balls[(size_t)bi];
   const V2 peg = w.objs[(size_t)oi].pos;
-  float dir = 0.5f;
+  const float spd = nights ? 0.75f : 0.5f;
+  float dir = spd;
   const float dxp = peg.x - sb.pos.x;
   if (!(0.0f <= dxp)) {
-    dir = -0.5f;
+    dir = -spd;
   } else if (dxp == 0.0f && !(w.shotRand[0] & 1u)) {
-    dir = -0.5f;
+    dir = -spd;
   }
   Cand c;
   const Cand& src = cands[(size_t)ci];
@@ -280,11 +280,9 @@ void AIMgr::Run::doMultiball(int ci, int oi) {
   nb.r = sb.r;
   phys::ballSetPos(nb, peg.x, peg.y);
   nb.pos = nb.prev = peg;
-  nb.vel = {dir, -3.0f};
+  nb.vel = {dir, nights ? -3.5f : -3.0f};
   addCand(c, nb);
   cands[(size_t)ci].partner = (int)cands.size() - 1;
-  ballBall[(size_t)ci] = 1;
-  ballBall.push_back(1);
 }
 
 void AIMgr::Run::doExploder(int ci, int oi) {
@@ -481,7 +479,7 @@ void AIMgr::Run::stepFrame() {
     }
     if (second >= Board::SAP_BALL) {
       const int si = indexOf(second - Board::SAP_BALL);
-      if (si >= 0 && live[(size_t)si] && ballBall[(size_t)owner[(size_t)fi]] && ballBall[(size_t)owner[(size_t)si]])
+      if (si >= 0 && live[(size_t)si] && cands[(size_t)owner[(size_t)fi]].partner == owner[(size_t)si])
         phys::checkBallCollision(w.balls[(size_t)fi], w.balls[(size_t)si]);
       continue;
     }
@@ -632,7 +630,6 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
     r.cands.push_back(c);
     r.w.balls.push_back(ball);
     r.owner.push_back(i);
-    r.ballBall.push_back(0);
   }
   r.aimedIdx = aimedAt;
   thinking_ = true;
@@ -658,6 +655,7 @@ void AIMgr::finish() {
   bool bestB = false, bestC = false, bestE = false;
   for (int i = 0; i < n; i++) {
     Run::Cand& c = r.cands[(size_t)i];
+    if (c.clone) continue;
     const int P0 = c.pegF[0], P1 = c.pegF[1], P2 = c.pegF[2], O0 = c.orgF[0], G = c.greenF;
     bool A = P0 != c.coll[0];
     bool B = P0 == O0;
