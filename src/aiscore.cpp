@@ -123,6 +123,13 @@ struct AIMgr::Run {
 
   bool isPeg(const Obj& o) const { return o.pegType != 0; }
 
+  bool collides(const Cand& c, const Obj& o, int oi) const {
+    if (o.pegType == 0) return true;
+    const bool passes = o.pegType == 4 && power == 3;
+    if (!passes && !c.fireball) return true;
+    return !c.seen[(size_t)oi];
+  }
+
   int scoreMult(int left) const { return clearAll && left <= 0 ? 10 : Board::multiplier(left); }
 
   void sample(Cand& c, int bi) {
@@ -484,7 +491,7 @@ void AIMgr::Run::stepFrame() {
       const Ball& b = w.balls[(size_t)fi];
       if (!phys::holeContains(b.pos.x, b.pos.y, o.pos.x, o.pos.y, o.hw, o.hh, o.circular)) continue;
       w.notes_.push_back({fi, second});
-    } else {
+    } else if (collides(cands[(size_t)owner[(size_t)fi]], o, second)) {
       cand.push_back(second);
     }
   }
