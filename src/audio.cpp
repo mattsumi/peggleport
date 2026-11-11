@@ -181,7 +181,7 @@ void Audio::play(const std::string& id, float semitones, float volume, int throt
   Voice v;
   v.s = s;
   v.step = freq / 44100.0;
-  v.vol = volumeCurve(std::clamp(s->baseVolume * volume, 0.0f, 1.0f));
+  v.vol = std::clamp(s->baseVolume * volume, 0.0f, 1.0f);
   voices_.push_back(v);
 }
 
@@ -194,7 +194,7 @@ void Audio::playLoop(const std::string& id) {
   Voice v;
   v.s = s;
   v.step = std::clamp((double)s->rate, 100.0, 100000.0) / 44100.0;
-  v.vol = volumeCurve(std::clamp(s->baseVolume, 0.0f, 1.0f));
+  v.vol = std::clamp(s->baseVolume, 0.0f, 1.0f);
   v.loop = true;
   voices_.push_back(v);
 }
@@ -217,7 +217,7 @@ void Audio::stopSample(const std::string& id) {
 void Audio::fadeStep(Voice& v) {
   v.inst -= 0.05f;
   if (v.inst > 0) {
-    v.vol = volumeCurve(std::clamp(v.s->baseVolume * v.inst, 0.0f, 1.0f));
+    v.vol = std::clamp(v.s->baseVolume * v.inst, 0.0f, 1.0f);
     return;
   }
   v.fading = false;
@@ -524,7 +524,7 @@ void Audio::render(float* out, int frames) {
   for (auto& v : voices_) {
     const auto& pcm = v.s->pcm;
     double n = (double)pcm.size() / 2;
-    const float g = v.vol * sfxVol_;
+    const float g = volumeCurve(v.vol * sfxVol_);
     for (int i = 0; i < frames && (v.loop || v.pos < n - 1); i++) {
       size_t k = (size_t)v.pos;
       size_t k1 = k + 1 < (size_t)n ? k + 1 : 0;
