@@ -97,6 +97,7 @@ class Gfx {
   float textWidth(const std::string& font, const std::string& s);
   float fontHeight(const std::string& font) { return fp_->height(font); }
   float fontAscent(const std::string& font) { return fp_->ascent(font); }
+  float fontAscentPadding(const std::string& font) { return fp_->ascentPadding(font); }
   float fontLineSpacing(const std::string& font) { return fp_->lineSpacing(font); }
   void drawString(const std::string& font, float x, float y, const std::string& s, uint32_t rgb = 0xffffff, float alpha = 1.0f, Align a = Align::Left);
   float drawWrapped(const std::string& font, Rect box, const std::string& s, uint32_t rgb = 0xffffff, float alpha = 1.0f, Align a = Align::Left, float lineSpacing = -1);

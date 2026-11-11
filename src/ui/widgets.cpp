@@ -130,8 +130,8 @@ void Button::draw(Gfx& g) {
         g.drawBoxSrc(image, 0, ch * row, image->lw(), ch, dx, dy, w, h, full);
       }
       if (!label.empty()) {
-        float asc = g.fontAscent(font);
-        float ty = (h + asc - asc / 6 - 1) / 2 + textOffY;
+        const int asc = (int)g.fontAscent(font);
+        float ty = (float)(((int)h + asc - (int)g.fontAscentPadding(font) - asc / 6 - 1) / 2) + textOffY;
         float tw = g.textWidth(font, label);
         drawButtonLabel(g, *this, (w - tw) / 2 + textOffX + dx, ty + dy);
       }

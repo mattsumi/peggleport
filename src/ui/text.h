@@ -23,6 +23,7 @@ class FontProvider {
   virtual ~FontProvider() = default;
   virtual float height(const std::string& font) = 0;
   virtual float ascent(const std::string& font) = 0;
+  virtual float ascentPadding(const std::string&) { return 0; }
   virtual float lineSpacing(const std::string& font) { return height(font); }
   virtual float width(const std::string& font, const std::string& plain) = 0;
   virtual void draw(const std::string& font, float x, float y, const std::string& plain, uint32_t rgb, float alpha) = 0;
