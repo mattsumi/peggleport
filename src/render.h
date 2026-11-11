@@ -135,6 +135,7 @@ class Renderer {
   bool zenOn_ = false;
   int guideAge_ = 1, guideRack_ = 0;
   void drawBoardShadow();
+  void drawBoardShadowBottom(float rows, float top);
   void drawZoomFrame(const Board& b);
   void brickMesh(const Obj& o, Tex* t, int row, float dx, float dy, uint32_t rgba, Blend mode, float inflate = 0);
   void drawHud(const Board& b, const Hud& hud);

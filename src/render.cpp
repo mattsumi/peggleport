@@ -864,6 +864,20 @@ void Renderer::drawBoardShadow() {
   for (auto& p : pieces) put(t, {p.x, p.y, p.w, p.h}, X + p.x + p.dx, Y + p.y, {}, p.w + p.dw, p.h);
 }
 
+void Renderer::drawBoardShadowBottom(float rows, float top) {
+  Tex* t = img("IMAGE_INT_BACKSHADOW");
+  if (!t) return;
+  const float W = t->lw(), y = t->lh() - rows;
+  const float dw = (float)(canvasW_ - 800), e = 0.01f;
+  auto sx = [&](float c) { return (std::round(px(c)) - ox_) / s_ + e; };
+  auto sy = [&](float c) { return (std::round(py(c)) - oy_) / s_ + e; };
+  const float x0 = sx(76), x1 = sx(106), x2 = sx(691 + dw), x3 = sx(76 + W + dw);
+  const float y0 = sy(top + y), h = sy(top + y + rows) - y0 + e;
+  put(t, {0, y, 30, rows}, x0, y0, {}, x1 - x0 + e, h);
+  put(t, {30, y, 585, rows}, x1, y0, {}, x2 - x1 + e, h);
+  put(t, {615, y, W - 615, rows}, x2, y0, {}, x3 - x2 + e, h);
+}
+
 void Renderer::drawZoomFrame(const Board& b) {
   float k = 0.1f * (float)(20 - b.zoomFade) / 20.0f + 1.0f;
   float s0 = s_, ox0 = ox_, oy0 = oy_;
@@ -1109,6 +1123,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
       quad(bg, {0, 0, (float)bg->w, (float)bg->h}, cx - w / 2, cy - h / 2, w, h);
     }
     if (padL > 0) SDL_SetRenderClipRect(r_, &objClip);
+    drawBoardShadowBottom(b.cfg.nights ? 26.0f : 25.0f, ((int)bg->lh() & 1) ? 49.0f : 50.0f);
   }
   for (size_t i = 0; i <= b.objs.size(); i++) {
     emitDraw(b, 0, i);
