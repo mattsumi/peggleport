@@ -30,7 +30,7 @@ class Audio {
   void reloadAssets(const VfsChange& change);
   const Sample* sample(const std::string& id);
   void play(const std::string& id, float semitones = 0, float volume = 1.0f, int throttle = 0, bool force = false);
-  void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f);
+  void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f, float level = 1.0f);
   void playLevelMusic(bool nights);
   void playLoop(const std::string& id);
   void stopSample(const std::string& id);

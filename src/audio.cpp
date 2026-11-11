@@ -93,6 +93,7 @@ struct Audio::Music {
   double pos = 0;
   bool loop = true, isOgg = false;
   float gain = 1.0f;
+  float level = 1.0f;
   bool fixed = false;
   float fade = 1.0f;
   std::string path;
@@ -416,7 +417,7 @@ void Audio::playLevelMusic(bool nights) {
   }
 }
 
-void Audio::playMusic(const std::string& path, bool loop, int startOrder, float gain) {
+void Audio::playMusic(const std::string& path, bool loop, int startOrder, float gain, float level) {
   auto h = vfs_.read(path);
   if (!h) {
     vfsLogMiss("music", path);
@@ -429,6 +430,7 @@ void Audio::playMusic(const std::string& path, bool loop, int startOrder, float 
   auto m = std::make_unique<Music>();
   m->loop = loop;
   m->gain = gain;
+  m->level = level;
   m->fixed = gain != 1.0f;
   std::string low = path;
   for (auto& c : low) c = (char)std::tolower((unsigned char)c);
@@ -543,8 +545,8 @@ void Audio::render(float* out, int frames) {
     }
 #endif
   };
-  if (music_) mixMusic(*music_, music_->fixed ? feverVol_ : musicVol_ * duck_);
-  for (auto& f : fading_) mixMusic(*f, musicVol_ * duck_ * f->fade);
+  if (music_) mixMusic(*music_, music_->fixed ? feverVol_ : musicVol_ * duck_ * music_->level);
+  for (auto& f : fading_) mixMusic(*f, musicVol_ * duck_ * f->fade * f->level);
   for (int i = 0; i < frames * 2; i++) out[i] = std::clamp(out[i], -1.0f, 1.0f);
 }
 

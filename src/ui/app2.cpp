@@ -43,7 +43,11 @@ void App::playMusic(const std::string& which) {
   } else path = which;
   if (path == curMusic_) return;
   curMusic_ = path;
-  audio->playMusic(path, true);
+  float level = 1.0f;
+  if (path == "music/Menu_Amb_2.ogg") level = 0.6f;
+  else if (path == "music/menu.ogg") level = 0.75f;
+  else if (path == "music/progress.ogg") level = 0.3f;
+  audio->playMusic(path, true, 0, 1.0f, level);
 }
 
 void App::stopMusic() {
