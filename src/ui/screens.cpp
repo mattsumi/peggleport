@@ -425,6 +425,7 @@ void MainMenu::update() {
   bool unused_ = any; (void)unused_;
   updateBubbles();
   bLink->visible = app.curProfile != nullptr && bubble == 0;
+  if (app.bothGames && app.homeGame != app.game && !app.anyDialog() && !app.helpOverlay() && !app.moving()) app.goHome();
 }
 
 void MainMenu::placeButtons() {

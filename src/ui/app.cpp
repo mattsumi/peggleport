@@ -280,6 +280,7 @@ void App::requestGameSwitch(Game g, StartTarget start) {
   switchTo_.game = g;
   switchTo_.start = start;
   switchWanted_ = true;
+  switchHome_ = false;
   switchWait_ = 0;
 }
 
@@ -291,9 +292,25 @@ bool App::takeGameSwitchRequest(GameRequest& r) {
   return true;
 }
 
+void App::gameSwitchRefused(const GameRequest& r) {
+  if (game == homeGame || r.game != homeGame) return;
+  bothGames = false;
+  homeGame = game;
+  showMainMenu();
+}
+
 void App::setHomeGame(Game g) {
   homeGame = g;
   if (homeHook) homeHook(g);
+}
+
+bool App::goHome() {
+  if (!bothGames || homeGame == game) return false;
+  if (!switchWanted_) {
+    requestGameSwitch(homeGame);
+    switchHome_ = true;
+  }
+  return true;
 }
 
 void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow) {
@@ -496,6 +513,7 @@ void App::scrollOn(Panel* l) {
 }
 
 void App::setScreen(std::unique_ptr<Screen> s, Dir offDir) {
+  if (switchWanted_ && switchHome_) switchWanted_ = false;
   scrollDir = 0;
   if (cur_) {
     Screen* old = cur_.get();
@@ -538,6 +556,7 @@ void App::showMainMenu() {
   duelSes = DuelSession{};
   killDialog(D_Options);
   if (cur_ && std::string(cur_->name()) == "mainmenu") return;
+  if (goHome()) return;
   playMusic("fadeout");
   Dir leave = Right;
   if (cur_ && std::string(cur_->name()) == "loading") leave = Left;

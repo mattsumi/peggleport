@@ -286,6 +286,8 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
           window.keepPicture(SDL_RenderReadPixels(ren, nullptr), app.pictureFillsWindow());
           app.playMusic("fadeout");
           app.requestQuit();
+        } else {
+          app.gameSwitchRefused(wanted);
         }
         P.last = 0;
       }

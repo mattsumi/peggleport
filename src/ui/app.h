@@ -113,6 +113,7 @@ class App : public WidgetHost {
   void requestQuit() { quit_ = true; }
   void requestGameSwitch(Game g, StartTarget start = {});
   bool takeGameSwitchRequest(GameRequest& r);
+  void gameSwitchRefused(const GameRequest& r);
   bool gameSwitchPending() const { return switchWanted_; }
   void startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow);
   bool pictureFillsWindow() const { return cur_ && (cur_->isGame() || cur_->canvasWidth() != 800); }
@@ -120,6 +121,7 @@ class App : public WidgetHost {
   Game homeGame = Game::Deluxe;
   std::function<void(Game)> homeHook;
   void setHomeGame(Game g);
+  bool goHome();
   void enterAdventure();
   void doAdventureQuestion();
   void requestGameFolders() { foldersWanted_ = true; }
@@ -309,6 +311,7 @@ class App : public WidgetHost {
   int updates_ = 0;
   bool quit_ = false;
   bool switchWanted_ = false;
+  bool switchHome_ = false;
   int switchWait_ = 0;
   bool foldersWanted_ = false;
   GameRequest switchTo_;
