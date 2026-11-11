@@ -54,6 +54,7 @@ class StageMgr {
   const StageInfo* stage(int i) const { return i >= 0 && i < (int)stages_.size() ? &stages_[i] : nullptr; }
   StageInfo* stage(int i) { return i >= 0 && i < (int)stages_.size() ? &stages_[i] : nullptr; }
   const LevelInfo* levelByName(const std::string& name) const;
+  std::string title(int i) const;
   size_t numLevels() const { return mainLevels_; }
   size_t numAllLevels() const { return byName_.size(); }
   const std::string& tip(unsigned i) const;

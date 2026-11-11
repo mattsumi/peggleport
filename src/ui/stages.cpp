@@ -167,6 +167,13 @@ const LevelInfo* StageMgr::levelByName(const std::string& name) const {
   return &stages_[it->second.first].levels[it->second.second];
 }
 
+std::string StageMgr::title(int i) const {
+  static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
+  const StageInfo* s = stage(i);
+  if (s && s->pack && !s->name.empty()) return s->name;
+  return i >= 0 && i <= 11 ? std::string("Stage ") + kWord[i] : "Stage " + std::to_string(i + 1);
+}
+
 const std::string& StageMgr::tip(unsigned i) const {
   static const std::string none;
   return tips_.empty() ? none : tips_[i % tips_.size()];

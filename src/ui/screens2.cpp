@@ -252,7 +252,6 @@ void LevelScreen::keyDown(int key, int) {
 }
 
 void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
-  static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
   const StageInfo* s = app.stages.stage(stage);
   const bool duel = app.gameMode == GameMode::Duel, chal = app.gameMode == GameMode::Challenge, normal = !duel && !chal;
   const float panelX = 300, panelW = 190;
@@ -285,8 +284,7 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
     return;
   }
   bool randomOver = hovered == 5;
-  const StageInfo* curSt = app.stages.stage(stage);
-  std::string title = randomOver ? "Play Random Level" : curSt && curSt->pack && !curSt->name.empty() ? curSt->name : (stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1));
+  std::string title = randomOver ? "Play Random Level" : app.stages.title(stage);
   g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", title) / 2, 365, title, 0xffff00);
   if (normal || chal || duel) {
     std::string hint = chal ? "Pick a level for the challenge!"
