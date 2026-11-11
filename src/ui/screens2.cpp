@@ -184,7 +184,7 @@ static const float kSlot[5][2] = {{43, 85}, {304, 85}, {568, 85}, {43, 334}, {56
 static const float kSlotW = 190, kSlotH = 175;
 
 LevelScreen::LevelScreen(App& a) : Screen(a) {
-  a.playMusic("beats:60");
+  a.playMusic(a.game == Game::Deluxe ? "beats:60" : "music/menu.ogg");
   stage = std::clamp(a.curProfile ? a.curProfile->levelSelectStage : 0, 0, std::max(0, a.stages.numStages() - 1));
   if (a.curProfile && a.curProfile->maxStage < stage) stage = a.curProfile->maxStage;
   if (a.packStage >= a.stages.numStages() && a.packStage < a.stages.numAllStages() && a.gameMode != GameMode::Challenge) stage = a.packStage;
