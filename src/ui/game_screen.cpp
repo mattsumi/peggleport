@@ -734,9 +734,11 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
     }
     if (p && won && !duel_) {
       if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
-      if (o.cleared) p->clearedLevels.insert(levelFile_);
       if (app.game == Game::Nights && app.gameMode != GameMode::Challenge && li && li->ace > 0 && o.totalScore >= li->ace) p->acedLevels.insert(levelFile_);
-      if (o.cleared) for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
+    }
+    if (p && o.cleared && !duel_ && (won || app.game == Game::Deluxe)) {
+      p->clearedLevels.insert(levelFile_);
+      for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
     }
   }
   newBest = rank == 1;
