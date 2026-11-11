@@ -321,13 +321,15 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
     yesBtn->font = "BUTTON";
   }
   bool adv = a.gameMode == GameMode::Adventure, chal = a.gameMode == GameMode::Challenge;
+  const auto* board = dynamic_cast<GameScreen*>(a.screen());
+  const bool watching = a.gameMode == GameMode::Demo || (board && board->viewing());
   if (fg && chal) newLevel->label = "Restart Challenge";
   else if (adv) newLevel->label = "Restart Level";
   mainMenu->visible = fg;
   newLevel->visible = fg;
   newChallenge->visible = fg && chal;
   help->visible = true;
-  if (fg && (a.gameMode == GameMode::Demo)) { newLevel->visible = false; help->visible = false; }
+  if (fg && watching) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
   extraH = (float)(0xdc + (fg ? 0x24 : 0x3c));
   if (editor->visible) extraH += 0x20;
