@@ -113,7 +113,7 @@ bool ReplayData::load(const std::string& path, ReplayData& out) {
   getCfg(r, d.cfg);
   if (version == kVersionPhysics) getPhysics(r, d.cfg.physics);
   uint32_t cnt = r.u32();
-  if (r.bad || cnt > 5000000) return false;
+  if (r.bad || cnt > 5000000 || d.startTick > 4000000) return false;
   d.log.resize(cnt);
   for (auto& e : d.log) { e.tick = r.i32(); e.kind = (uint8_t)r.u32(); e.a = r.i32(); e.b = r.i32(); }
   if (r.bad) return false;
