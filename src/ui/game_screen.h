@@ -69,6 +69,7 @@ class GameScreen : public Screen {
   void onLeave() override;
   void startChallengeLevel();
   void restartLevel();
+  bool hasProgress() const;
   void masterChosen(bool picked);
   void nextLevel();
   bool ok() const { return ready_; }

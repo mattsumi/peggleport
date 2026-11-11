@@ -257,6 +257,11 @@ void GameScreen::restartLevel() {
   ready_ = startLevel(levelFile_);
 }
 
+bool GameScreen::hasProgress() const {
+  if (!ready_ || done_ || !app.curProfile) return false;
+  return board_.score[0] > 0 || (duel_ && board_.score[1] > 0);
+}
+
 void GameScreen::showCharacterDialog() {
   auto d = std::make_unique<CharacterDialog>(app, duel_);
   CharacterDialog* raw = d.get();

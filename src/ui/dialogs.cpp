@@ -407,7 +407,7 @@ void OptionsDialog::onButton(int id) {
     case 7: app.showHelpScreen(app.hasBoard()); if (!app.hasBoard()) app.finishOptionsDialog(true, true); break;
     case 12: app.showModsScreen(); app.finishOptionsDialog(true, true); break;
     case 8: app.doConfirmMainMenuDialog(); break;
-    case 9: app.doConfirmRestartLevelDialog(app.gameMode == GameMode::Challenge ? 1 : 0); break;
+    case 9: app.doConfirmRestartLevelDialog(); break;
     case 10: app.doConfirmNewChallengeDialog(); break;
     case 13: app.finishOptionsDialog(true, true); app.showEditor(); break;
     case 14: app.doVisualsDialog(); break;

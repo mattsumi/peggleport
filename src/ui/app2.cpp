@@ -236,7 +236,8 @@ void App::dialogButton(int dlg, int btn) {
       off(dlg);
       if (yes) {
         finishOptionsDialog(false, true);
-        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
+        if (gameMode == GameMode::QuickPlay || gameMode == GameMode::Duel) showLevelScreen(false);
+        else if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
       }
       return;
     case D_NewChallenge:
@@ -281,10 +282,24 @@ void App::dialogButton(int dlg, int btn) {
 void App::doConfirmMainMenuDialog() {
   doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
 }
-void App::doConfirmRestartLevelDialog(int kind) {
-  Dialog* d = doDialog(D_RestartLevel, true, kind == 1 ? "Restart Challenge?" : "Restart Level?",
-                       kind == 1 ? "Are you sure you want to restart this challenge? Your progress on it will be lost." : "Are you sure you want to restart this level? Your progress on this level will be lost.", "", BUTTONS_YES_NO);
-  d->setYesNo(kind == 1 ? "Restart Challenge" : "Restart Level", "NO");
+void App::doConfirmRestartLevelDialog() {
+  const char* title = "New Level?";
+  const char* text = "Are you sure that you want to pick a new level?";
+  const char* yes = "New Level";
+  if (gameMode == GameMode::Challenge) {
+    title = "Restart Challenge?";
+    text = "Are you sure you want to restart this challenge? Your progress on it will be lost.";
+    yes = "Restart Challenge";
+  } else if (gameMode == GameMode::Adventure) {
+    title = "Restart Level?";
+    text = "Are you sure you want to restart this level? Your progress on this level will be lost.";
+    yes = "Restart Level";
+  } else if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
+    dialogButton(D_RestartLevel, ID_YES);
+    return;
+  }
+  Dialog* d = doDialog(D_RestartLevel, true, title, text, "", BUTTONS_YES_NO);
+  d->setYesNo(yes, "NO");
 }
 
 
