@@ -675,6 +675,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   EndLevelDialog::Mode mode = EndLevelDialog::QuickLose;
   const LevelInfo* li = app.curLevelInfo();
   std::string title = li ? li->title : levelFile_;
+  if (app.game == Game::Nights && li) o.aceScore = li->ace;
   submitStats();
   if (app.gameMode == GameMode::Adventure) {
     mode = won ? EndLevelDialog::AdventureWin : EndLevelDialog::AdventureLose;
@@ -1042,10 +1043,14 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   auto text = [&](const char* font, float x, float base, const std::string& s, uint32_t c, Align al = Align::Left) {
     if (draw) g.drawString(font, x, base, s, c, 1, al);
   };
-  auto bigRow = [&](const char* label, const std::string& v) {
+  const bool nights = app.game == Game::Nights;
+  const uint32_t bigLabel = nights ? 0x66ffbb : 0x66ffff, bigValue = nights ? 0xed88fe : 0xfeed00;
+  const uint32_t rowLabel = nights ? 0xed90fe : 0xe3d540, rowValue = nights ? 0x66ffaa : 0xb9f811;
+  auto bigRow = [&](const std::string& label, const std::string& v, const char* extra = nullptr) {
     float base = y + g.fontAscent(kBig);
-    text(kBig, L, base, label, 0x66ffff);
-    if (draw) g.drawString(kBig, R - g.textWidth(kBig, v), base, v, 0xfeed00);
+    text(kBig, L, base, label, bigLabel);
+    if (extra) text(kBig, L + g.textWidth(kBig, label), base, extra, 0xffff99);
+    if (draw) g.drawString(kBig, R - g.textWidth(kBig, v), base, v, bigValue);
     y += g.fontHeight(kBig) + 4;
   };
   const bool advMode = mode == AdventureWin || mode == AdventureLose || mode == AdventureComplete;
@@ -1053,7 +1058,13 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     bigRow("Total Score:", commas(totalCur));
     if (draw) g.fill(L, y - 3, R - L, 1, 0xffffff);
   }
-  bigRow(advMode ? "Level Score:" : "Score:", commas(levelCur));
+  const bool aceRow = nights && out.won && out.aceScore > 0;
+  if (nights) {
+    if (aceRow) bigRow("Ace Score:", commas(out.aceScore));
+    bigRow("Your Score:", commas(levelCur), aceRow && levelCur > out.aceScore ? " ACED!!" : nullptr);
+  } else {
+    bigRow(advMode ? "Level Score:" : "Score:", commas(levelCur));
+  }
   if ((mode == AdventureWin || mode == AdventureComplete) && tgt[3] > 0) {
     int t = out.tryNumber;
     bigRow(t == 1 ? "Win on 1st Try:" : t == 2 ? "Win on 2nd Try:" : t == 3 ? "Win on 3rd Try:" : "Try Bonus:", commas(cur[3]));
@@ -1062,8 +1073,8 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   float sy = y;
   auto row = [&](float x0, float x1, const char* l, const std::string& v) {
     float base = sy + g.fontAscent(kPlain);
-    text(kPlain, x0, base, l, 0xe3d540);
-    if (draw) g.drawString(kPlain, x1 - g.textWidth(kPlain, v), base, v, 0xb9f811);
+    text(kPlain, x0, base, l, rowLabel);
+    if (draw) g.drawString(kPlain, x1 - g.textWidth(kPlain, v), base, v, rowValue);
     sy += g.fontHeight(kPlain) + 3;
   };
   row(L, L + 140, "Shots:", std::to_string(out.shots));
@@ -1083,6 +1094,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     }
     float rx = L + 30, nx = rx + 40, sx = nx + 250, lh = g.fontHeight(kPlain) + 1;
     int n = std::min<int>((int)table.size(), 10);
+    if (aceRow && n > 0) lh -= (g.fontHeight(kBig) + 4) / (float)n;
     for (int i = 0; i < n && draw; i++) {
       uint32_t col = i == highlight ? hslToRgbEnd((shownTicks * 3) % 0xff, 0xff, 0x80) : 0xffffff;
       float base = y + g.fontAscent(kPlain) + i * lh;

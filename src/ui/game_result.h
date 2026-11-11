@@ -11,6 +11,7 @@ struct LevelOutcome {
   int orangeTotal = 0, orangeHit = 0, pegsTotal = 0, pegsCleared = 0, ticks = 0;
   int styleCount[24]{};
   int tryBonus = 0, effBonus = 0, tryNumber = 1, prevTotal = 0;
+  int aceScore = 0;
   int percentCleared() const { return pegsTotal ? pegsCleared * 100 / pegsTotal : 0; }
 };
 
