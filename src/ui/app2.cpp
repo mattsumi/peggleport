@@ -388,13 +388,12 @@ void App::endLevelButton(int id, int mode) {
     return;
   }
   if (id == 0 && gs && curProfile && (m == EndLevelDialog::QuickWin || m == EndLevelDialog::QuickLose)) {
-    int s = -1, l = -1;
-    if (stages.randomLevel(*curProfile, s, l, gameMode == GameMode::Duel, rand()) && s >= 0) {
+    int s = curStage, l = curLevel;
+    if (stages.randomLevel(*curProfile, s, l, gameMode == GameMode::Duel, 10, rand()) && s >= 0) {
       curStage = s;
       curLevel = l;
       curProfile->levelSelectStage = s;
       curProfile->dirty = true;
-      stages.markUsed(s, l);
       gs->nextLevel();
       return;
     }
@@ -442,8 +441,9 @@ std::string App::resolveChallengeLevel(const std::string& tok) {
   std::string l = tok;
   for (auto& c : l) c = (char)std::tolower((unsigned char)c);
   if (l.rfind("rand", 0) == 0 && curProfile) {
+    if (challengeStep == 0) stages.resetUse();
     int s = -1, lv = -1;
-    if (stages.randomLevel(*curProfile, s, lv, false, rand()) && s >= 0)
+    if (stages.randomLevel(*curProfile, s, lv, l == "rand2", 10, rand()) && s >= 0)
       if (const StageInfo* st = stages.stage(s))
         if (const LevelInfo* li = st->level(lv)) { curStage = s; curLevel = lv; return li->file; }
   }

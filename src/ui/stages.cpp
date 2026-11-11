@@ -179,23 +179,31 @@ const std::string& StageMgr::tip(unsigned i) const {
   return tips_.empty() ? none : tips_[i % tips_.size()];
 }
 
-bool StageMgr::randomLevel(const PlayerInfo& p, int& stage, int& level, bool duel, uint32_t rnd) {
-  struct C { int s, l, use; };
+void StageMgr::resetUse() {
+  useCounter_ = 0;
+  for (auto& s : stages_)
+    for (auto& l : s.levels) l.lastUse = -1000;
+}
+
+bool StageMgr::randomLevel(const PlayerInfo& p, int& stage, int& level, bool skipExcluded, int minAge, uint32_t rnd, bool retry) {
+  struct C { int s, l; };
   std::vector<C> c;
-  int bestUse = 1 << 30;
   for (int s = 0; s < mainStages_; s++)
     for (int l = 0; l < (int)stages_[s].levels.size(); l++) {
       const auto& li = stages_[s].levels[l];
-      if (li.excludeRand || !p.isLevelUnlocked(s, l)) continue;
-      c.push_back({s, l, li.lastUse});
-      bestUse = std::min(bestUse, li.lastUse);
+      if (s == stage && l == level) continue;
+      if (!p.isLevelUnlocked(s, l)) continue;
+      if (skipExcluded && li.excludeRand) continue;
+      if (minAge > 0 && useCounter_ - li.lastUse < minAge) continue;
+      c.push_back({s, l});
     }
-  if (c.empty()) return false;
-  std::vector<C> pool;
-  for (auto& x : c)
-    if (x.use <= bestUse + 5) pool.push_back(x);
-  if (pool.empty()) pool = c;
-  auto pick = pool[rnd % pool.size()];
+  if (c.empty()) {
+    if (!retry) return false;
+    resetUse();
+    return randomLevel(p, stage, level, skipExcluded, minAge, rnd, false);
+  }
+  const C pick = c[rnd % c.size()];
+  if (minAge > 0) markUsed(pick.s, pick.l);
   stage = pick.s;
   level = pick.l;
   return true;

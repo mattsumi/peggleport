@@ -283,7 +283,11 @@ void LevelScreen::doPlay(int id) {
   int lvl = id;
   if (other) {
     int s = stage;
-    if (id >= 5 && (!groupOpen() || !og->stages.randomLevel(*og->player, s, lvl, app.gameMode == GameMode::Duel, app.rand()) || s < 0)) return;
+    if (id >= 5) {
+      s = -1;
+      lvl = -1;
+      if (!groupOpen() || !og->stages.randomLevel(*og->player, s, lvl, app.gameMode == GameMode::Duel, 0, app.rand()) || s < 0) return;
+    }
     const StageInfo* st = og->stages.stage(s);
     const LevelInfo* li = st ? st->level(lvl) : nullptr;
     if (!li) return;
@@ -301,7 +305,7 @@ void LevelScreen::doPlay(int id) {
   if (id >= 5) {
     if (!app.curProfile || !groupOpen()) return;
     int s = -1, l = -1;
-    if (!app.stages.randomLevel(*app.curProfile, s, l, app.gameMode == GameMode::Duel, app.rand()) || s < 0) return;
+    if (!app.stages.randomLevel(*app.curProfile, s, l, app.gameMode == GameMode::Duel, 0, app.rand()) || s < 0) return;
     stage = s;
     lvl = l;
   }
