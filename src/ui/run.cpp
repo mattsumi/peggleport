@@ -205,7 +205,7 @@ static SDL_Surface* makeWindowIcon(Game game) {
   return s;
 }
 
-static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* ren) {
+static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_Renderer* ren, bool freshWindow, GameRequest& next) {
   RunResult result = RunResult::Quit;
   SDL_Cursor* customCursor = nullptr;
   {
@@ -214,7 +214,8 @@ static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* 
     std::unique_ptr<Audio> audio = std::make_unique<Audio>(vfs);
     if (!audio->openDevice()) audio.reset();
     App::Config cfg;
-    cfg.game = game;
+    cfg.game = o.game;
+    cfg.start = o.start;
     cfg.seed = (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count();
     App app(gfx, vfs, audio.get(), &board, cfg);
     app.setFullscreenHook = [&](bool on) { SDL_SetWindowFullscreen(win, on); };
@@ -227,7 +228,8 @@ static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* 
       app.showCursorHook(app.settings.customCursors);
       if (old) SDL_DestroyCursor(old);
     };
-    if (app.settings.fullscreen) SDL_SetWindowFullscreen(win, true);
+    if (!freshWindow) app.settings.fullscreen = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0;
+    else if (app.settings.fullscreen) SDL_SetWindowFullscreen(win, true);
     app.showLoadingScreen();
 
     Live L;
@@ -236,11 +238,30 @@ static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* 
     L.app = &app;
     L.gfx = &gfx;
     Pacer P;
-    while (!app.wantsQuit()) paceOnce(L, P);
+    while (!app.wantsQuit()) {
+      paceOnce(L, P);
+      GameRequest wanted;
+      if (app.takeGameSwitchRequest(wanted)) {
+        if (!o.canOpen || o.canOpen(wanted.game)) {
+          next = wanted;
+          result = RunResult::SwitchGame;
+          app.requestQuit();
+        }
+        P.last = 0;
+      }
+      if (app.takeGameFoldersRequest() && o.chooseFolders) {
+        if (o.chooseFolders(o.game)) {
+          next = GameRequest();
+          next.game = o.game;
+          result = RunResult::SwitchGame;
+          app.requestQuit();
+        }
+        P.last = 0;
+      }
+    }
 
     if (!(SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED))) SDL_GetWindowSize(win, &app.settings.winW, &app.settings.winH);
     app.shutdown();
-    if (app.gameSwitchRequested()) result = RunResult::SwitchGame;
     for (SDL_Gamepad* g : L.pads) SDL_CloseGamepad(g);
   }
   SDL_SetCursor(SDL_GetDefaultCursor());
@@ -248,35 +269,60 @@ static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* 
   return result;
 }
 
-RunResult runApp(const RunOptions& o, Vfs& vfs, std::string& error) {
-  Game game = o.game;
+static void keepPendingInvites() {
+  SDL_PumpEvents();
+  SDL_Event e;
+  while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_DROP_FILE, SDL_EVENT_DROP_TEXT) > 0)
+    if (e.drop.data && pp::online::isInviteLike(e.drop.data)) pp::ui::online::setPendingInvite(e.drop.data);
+}
+
+bool GameWindow::open(Game game, int w, int h, std::string& error) {
   const char* title = game == Game::Deluxe ? "Peggle Deluxe (PegglePort)" : "Peggle Nights (PegglePort)";
+  if (!win_) {
+    SDL_Rect area;
+    if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &area) && area.w > 0 && area.h > 0) {
+      w = std::min(w, area.w);
+      h = std::min(h, area.h);
+    }
+    if (!SDL_CreateWindowAndRenderer(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win_, &ren_)) {
+      error = std::string("The game window could not be opened: ") + SDL_GetError();
+      win_ = nullptr;
+      ren_ = nullptr;
+      return false;
+    }
+    SDL_SetRenderVSync(ren_, 1);
+    SDL_StartTextInput(win_);
+  } else {
+    SDL_SetWindowTitle(win_, title);
+    SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);
+    SDL_RenderClear(ren_);
+    SDL_RenderPresent(ren_);
+  }
+  if (SDL_Surface* icon = makeWindowIcon(game)) { SDL_SetWindowIcon(win_, icon); SDL_DestroySurface(icon); }
+  return true;
+}
+
+void GameWindow::close() {
+  if (ren_) SDL_DestroyRenderer(ren_);
+  if (win_) SDL_DestroyWindow(win_);
+  ren_ = nullptr;
+  win_ = nullptr;
+}
+
+RunResult runApp(const RunOptions& o, Vfs& vfs, GameWindow& window, GameRequest& next, std::string& error) {
   int w = o.winW, h = o.winH;
   Settings remembered;
-  if (remembered.load(defaultUserDir(game).parent_path() / "settings.ini") && remembered.winW >= 640 && remembered.winH >= 480) {
+  if (remembered.load(defaultUserDir(o.game).parent_path() / "settings.ini") && remembered.winW >= 640 && remembered.winH >= 480) {
     w = remembered.winW;
     h = remembered.winH;
   }
-  SDL_Rect area;
-  if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &area) && area.w > 0 && area.h > 0) {
-    w = std::min(w, area.w);
-    h = std::min(h, area.h);
-  }
+  keepPendingInvites();
   SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
-  SDL_Window* win = nullptr;
-  SDL_Renderer* ren = nullptr;
-  if (!SDL_CreateWindowAndRenderer(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win, &ren)) {
-    error = std::string("The game window could not be opened: ") + SDL_GetError();
-    return RunResult::Failed;
-  }
-  SDL_SetRenderVSync(ren, 1);
-  SDL_StartTextInput(win);
-  if (SDL_Surface* icon = makeWindowIcon(game)) { SDL_SetWindowIcon(win, icon); SDL_DestroySurface(icon); }
+  bool freshWindow = !window.isOpen();
+  if (!window.open(o.game, w, h, error)) return RunResult::Failed;
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);
-  RunResult result = playWindow(vfs, game, win, ren);
+  RunResult result = playWindow(o, vfs, window.window(), window.renderer(), freshWindow, next);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
-  SDL_DestroyRenderer(ren);
-  SDL_DestroyWindow(win);
   return result;
 }
 

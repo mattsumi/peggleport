@@ -14,6 +14,7 @@
 #include "ui/gfx.h"
 #include "ui/fireworks.h"
 #include "ui/stages.h"
+#include "ui/start_target.h"
 #include "ui/widescreen.h"
 #include "ui/widgets.h"
 #include "vfs.h"
@@ -88,6 +89,7 @@ class App : public WidgetHost {
  public:
   struct Config {
     Game game = Game::Deluxe;
+    StartTarget start;
     std::filesystem::path userDir;
     bool fastBoot = false;
     int boardWidth = 0;
@@ -107,8 +109,23 @@ class App : public WidgetHost {
   void shutdown();
   bool wantsQuit() const { return quit_; }
   void requestQuit() { quit_ = true; }
-  void requestGameSwitch() { switchGame_ = true; quit_ = true; }
-  bool gameSwitchRequested() const { return switchGame_; }
+  void requestGameSwitch(Game g, StartTarget start = {}) {
+    switchTo_.game = g;
+    switchTo_.start = start;
+    switchWanted_ = true;
+  }
+  bool takeGameSwitchRequest(GameRequest& r) {
+    if (!switchWanted_) return false;
+    switchWanted_ = false;
+    r = switchTo_;
+    return true;
+  }
+  void requestGameFolders() { foldersWanted_ = true; }
+  bool takeGameFoldersRequest() {
+    bool wanted = foldersWanted_;
+    foldersWanted_ = false;
+    return wanted;
+  }
   void onWindowClose();
   int updateCount() const { return updates_; }
   float renderAlpha = 1.0f;
@@ -289,7 +306,9 @@ class App : public WidgetHost {
   std::unique_ptr<LogView> logView_;
   int updates_ = 0;
   bool quit_ = false;
-  bool switchGame_ = false;
+  bool switchWanted_ = false;
+  bool foldersWanted_ = false;
+  GameRequest switchTo_;
   float canvasW_ = 800;
   uint32_t rng_ = 0x2545f491;
   CrtRand crt_;

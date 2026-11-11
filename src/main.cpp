@@ -4,35 +4,40 @@
 #include <filesystem>
 #include <string>
 
+#include "gamefind.h"
 #include "gamepaths.h"
+#include "log.h"
 #include "mods/manager.h"
 #include "mods/overlay.h"
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "profile.h"
-#include "ui/launcher.h"
 #include "ui/run.h"
+#include "ui/start.h"
 #include "vfs.h"
 
 namespace {
 
 void showProblem(const std::string& text) { SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PegglePort", text.c_str(), nullptr); }
 
-pp::ui::RunResult playGame(pp::Game game, const std::filesystem::path& dir, std::string& error) {
-  pp::Vfs vfs;
-  std::string reason;
-  if (!vfs.mountGame(dir, &reason)) {
-    error = std::string("The game files in ") + pp::pathToUtf8(dir) + " could not be loaded: " + reason;
-    return pp::ui::RunResult::Failed;
-  }
+pp::ui::RunResult playGame(const pp::ui::GameRequest& request, pp::Vfs& vfs, pp::ui::GameFolders& folders, pp::ui::GameWindow& window, pp::ui::GameRequest& next, std::string& error) {
   pp::mods::ModManager mods;
-  mods.setUserDir(pp::defaultUserDir(game));
+  mods.setUserDir(pp::defaultUserDir(request.game));
   mods.discover();
   mods.activate(&vfs);
   pp::mods::installOverlay();
   pp::ui::RunOptions options;
-  options.game = game;
-  return pp::ui::runApp(options, vfs, error);
+  options.game = request.game;
+  options.start = request.start;
+  options.canOpen = [&](pp::Game g) {
+    folders.setWindow(window.window());
+    return folders.readyFor(g);
+  };
+  options.chooseFolders = [&](pp::Game running) {
+    folders.setWindow(window.window());
+    return folders.chooseFolders(running);
+  };
+  return pp::ui::runApp(options, vfs, window, next, error);
 }
 
 }
@@ -57,23 +62,41 @@ int main(int argc, char** argv) {
   if (!invite.empty()) pp::ui::online::setPendingInvite(invite);
 
   int exitCode = 0;
-  bool allowAutoStart = true;
-  for (;;) {
-    pp::ui::LauncherResult pick = pp::ui::runLauncher(allowAutoStart);
-    allowAutoStart = false;
-    if (!pick.error.empty()) {
-      showProblem(pick.error);
-      exitCode = 1;
-      break;
+  {
+    pp::ui::GameFolders folders(pp::ui::GameFolders::defaultStoreFile(), pp::systemFindSources(pp::ui::GameFolders::programDir()), pp::ui::systemDialogs());
+    folders.detect();
+    pp::ui::GameRequest request;
+    bool play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
+    pp::ui::GameWindow window;
+    while (play) {
+      folders.setWindow(window.window());
+      const std::filesystem::path dir = folders.dir(request.game);
+      pp::Vfs vfs;
+      std::string reason;
+      if (!vfs.mountGame(dir, &reason)) {
+        std::string problem = std::string("The game files in ") + pp::pathToUtf8(dir) + " could not be loaded: " + reason;
+        folders.drop(request.game);
+        request = pp::ui::GameRequest();
+        if (folders.gameToOpen(request.game)) {
+          folders.tell(problem);
+          continue;
+        }
+        if (folders.askForAnyGame(problem + "\n\nChoose the folder Peggle Deluxe or Peggle Nights is installed in.") && folders.gameToOpen(request.game)) continue;
+        exitCode = 1;
+        break;
+      }
+      pp::log::info("start", std::string("Opening ") + pp::gameTitle(request.game) + " from " + pp::pathToUtf8(dir));
+      std::string error;
+      pp::ui::GameRequest next;
+      pp::ui::RunResult result = playGame(request, vfs, folders, window, next, error);
+      if (result == pp::ui::RunResult::Failed) {
+        showProblem(error);
+        exitCode = 1;
+        break;
+      }
+      if (result != pp::ui::RunResult::SwitchGame) break;
+      request = next;
     }
-    if (!pick.play) break;
-    std::string error;
-    pp::ui::RunResult result = playGame(pick.game, pick.dir, error);
-    if (result == pp::ui::RunResult::Failed) {
-      showProblem(error);
-      continue;
-    }
-    if (result != pp::ui::RunResult::SwitchGame) break;
   }
   SDL_Quit();
   return exitCode;
