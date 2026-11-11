@@ -404,6 +404,7 @@ void CharacterDialog::drawInfo(Gfx& g) {
 }
 
 bool CharacterDialog::input(const Input& in) {
+  if (in.type == Input::KeyDown && in.key == SDLK_ESCAPE) return true;
   if (in.type == Input::MouseMove) {
     int p, i;
     hover = cellAt(in.x - x, in.y - y, &p, &i) ? i : -1;
