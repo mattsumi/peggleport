@@ -17,6 +17,7 @@
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
+#include "ui/character_dialog.h"
 #include "ui/screens.h"
 #include "gamepaths.h"
 
@@ -300,7 +301,7 @@ void App::incLevel(int delta) {
       if (game == Game::Nights && p.maxStage < 3 && curStage >= 3) menuUnlocked = true;
       p.maxStage = curStage;
       p.maxLevel = 0;
-      if (gameMode == GameMode::Adventure) p.char1 = curStage;
+      if (gameMode == GameMode::Adventure) p.char1 = CharacterDialog::masterMetAt(game, curStage);
     }
     if (numStages() <= curStage && p.advCompletions < 1000000) p.advCompletions++;
     if (curStage == p.maxStage && p.maxLevel < curLevel) p.maxLevel = curLevel;
