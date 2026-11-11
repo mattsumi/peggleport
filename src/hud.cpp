@@ -69,6 +69,7 @@ void Renderer::drawBallColumn(const Board& b) {
   if (back) put(back, {0, 0, back->lw(), back->lh()}, 24, 180);
   int n = b.ballsLeft[b.cur];
   if (b.fever && b.feverBallsPaid > 0) n = std::max(0, n - b.feverBallsPaid);
+  if (b.phase == Phase::Aim) n = std::max(0, n - 1);
   int shown = std::min(n, 15);
   int spacing = ball ? (int)ball->lh() : 20;
   int bottom = 410 + 3 * shown;
