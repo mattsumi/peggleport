@@ -728,7 +728,7 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
       }
       for (int i = 0; i < 4; i++)
         if (mi_.master[i] >= masters::kFirstPower && !masters::byPower(mi_.master[i]) && mi_.missingMaster.empty()) mi_.missingMaster = "power " + std::to_string(mi_.master[i]);
-      if (welcomed_) pp::log::info("net", "joined as player " + std::to_string(local_ + 1) + " of " + std::to_string(mi_.players) + ", level " + mi_.level);
+      if (welcomed_) pp::log::info("net", "joined as player " + std::to_string(local_ + 1) + " of " + std::to_string(mi_.players));
       return;
     case START:
       started_ = true;

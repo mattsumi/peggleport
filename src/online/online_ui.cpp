@@ -15,6 +15,7 @@
 #include <sstream>
 #include <thread>
 
+#include "log.h"
 #include "online/content_hash.h"
 #include "online/direct.h"
 #include "online/invite.h"
@@ -504,6 +505,7 @@ class OnlineScreen : public Screen {
       std::string err;
       const MatchInfo& mi = sess_->info();
       LevelBundle lb;
+      pp::log::info("net", "the host chose the level " + levelLogName(app, mi.level));
       if (!mi.missingMaster.empty()) {
         leaveRoom("The host picked the Master \"" + mi.missingMaster + "\" from a mod that you do not have, so you cannot join this room.", 1);
         return;

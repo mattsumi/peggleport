@@ -31,6 +31,7 @@ struct LevelChoice {
 std::vector<LevelChoice> levelChoices(const App& app);
 std::string levelTitle(const App& app, const std::string& file);
 bool levelInstalled(const App& app, const std::string& file);
+std::string levelLogName(const App& app, const std::string& file);
 std::string cleanText(const std::string& s, size_t maxBytes);
 std::string drawableText(const std::string& s);
 std::string fitText(Gfx& g, const std::string& font, const std::string& s, float width);

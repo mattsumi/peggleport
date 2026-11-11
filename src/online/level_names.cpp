@@ -104,4 +104,9 @@ std::string levelTitle(const App& app, const std::string& file) { return titleFo
 
 bool levelInstalled(const App& app, const std::string& file) { return !file.empty() && file.size() <= 128 && app.vfs.exists("levels/" + file + ".dat"); }
 
+std::string levelLogName(const App& app, const std::string& file) {
+  const std::string name = cleanText(file, kNameBytes), title = levelTitle(app, file);
+  return title == name ? name : title + " (" + name + ")";
+}
+
 }

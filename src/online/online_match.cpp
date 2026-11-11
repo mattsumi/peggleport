@@ -44,9 +44,9 @@ class OnlineGameScreen : public Screen {
     ready_ = match_.init(lb_.base, lb_.level, cfg, info_.players, info_.party, &err);
     if (!ready_) {
       loadError_ = err;
-      pp::log::error("net", "cannot start the online match on level " + lb_.name + ": " + err);
+      pp::log::error("net", "cannot start the online match on the level " + levelLogName(app, lb_.name) + ": " + err);
     } else {
-      pp::log::info("net", "online match started on level " + lb_.name + " (" + std::to_string(info_.players) + " player(s), seed " + std::to_string(seed) + ")");
+      pp::log::info("net", "online match started on the level " + levelLogName(app, lb_.name) + ": " + std::to_string(info_.players) + " player(s), seed " + std::to_string(seed));
     }
     state_ = Playing;
     wantFire_ = false;
