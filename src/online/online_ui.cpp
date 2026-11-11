@@ -78,8 +78,11 @@ class NetEdit : public EditBox {
     if (Tex* box = g.img("IMAGE_DLG_TEXTBOX")) g.drawBox(box, 0, 0, w, h);
     else g.fill(0, 0, w, h, 0x000000, 0.6f);
     float asc = g.fontAscent(font);
-    g.drawString(font, textPad, (h + asc * 0.8f) / 2, value, 0x14204a);
-    if (focused && (tick / 40) % 2 == 0) g.fill(textPad + g.textWidth(font, value.substr(0, caret)), 5, 1, h - 10, 0x14204a);
+    const float shift = textShift(g);
+    g.pushClip(textPad - 1, 0, w - 2 * textPad + 2, h);
+    g.drawString(font, textPad - shift, (h + asc * 0.8f) / 2, value, 0x14204a);
+    if (focused && (tick / 40) % 2 == 0) g.fill(textPad - shift + g.textWidth(font, value.substr(0, caret)), 5, 1, h - 10, 0x14204a);
+    g.popClip();
   }
 };
 
@@ -158,6 +161,7 @@ class OnlineScreen : public Screen {
       e->font = e->widthFont = "PLAIN";
       e->maxChars = maxChars;
       e->textPad = pad;
+      e->clipText = true;
       e->maxWidth = room;
       e->x = x; e->y = y - 4; e->w = w; e->h = 36;
       return add(std::move(e));

@@ -118,6 +118,7 @@ class EditBox : public Widget {
   std::string widthFont = "OVERLOAD24";
   int caret = 0, tick = 0;
   float textPad = 4;
+  bool clipText = false;
   bool paper = false;
   uint32_t ink = 0xffffff;
   bool wantsFocus() const override { return true; }
@@ -126,6 +127,7 @@ class EditBox : public Widget {
   bool key(int sdlKey, int mod) override;
   bool text(const std::string& t) override;
   bool mouseDown(float lx, float ly, int button, int clicks) override { return true; }
+  float textShift(Gfx& g) const;
   std::function<void()> onEnter;
   Gfx* gfx = nullptr;
 };

@@ -195,11 +195,20 @@ void EditBox::draw(Gfx& g) {
   }
   float asc = g.fontAscent(font);
   float ty = (h + asc * 0.8f) / 2;
-  g.drawString(font, textPad, ty, value, ink);
+  const float shift = textShift(g);
+  if (clipText) g.pushClip(textPad - 1, 0, w - 2 * textPad + 2, h);
+  g.drawString(font, textPad - shift, ty, value, ink);
   if (focused && (tick / 40) % 2 == 0) {
-    float cx = textPad + g.textWidth(font, value.substr(0, caret));
+    float cx = textPad - shift + g.textWidth(font, value.substr(0, caret));
     g.fill(cx, 3, 1, h - 6, ink);
   }
+  if (clipText) g.popClip();
+}
+float EditBox::textShift(Gfx& g) const {
+  if (!clipText) return 0;
+  const float room = w - 2 * textPad, all = g.textWidth(font, value);
+  if (all <= room) return 0;
+  return std::clamp(g.textWidth(font, value.substr(0, (size_t)std::max(0, caret))) - room, 0.0f, all - room);
 }
 
 }
