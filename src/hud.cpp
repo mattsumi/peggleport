@@ -73,7 +73,7 @@ void Renderer::drawBallColumn(const Board& b) {
   int shown = std::min(n, 15);
   int spacing = ball ? (int)ball->lh() : 20;
   int bottom = 410 + 3 * shown;
-  if (back) put(back, {0, 0, back->lw(), back->lh()}, 28, (float)(17 + bottom));
+  if (Tex* plunger = img("IMAGE_INT_PLUNGER")) put(plunger, {0, 0, plunger->lw(), plunger->lh()}, 28, (float)(17 + bottom));
   int vis = std::min(n, 25);
   for (int i = 0; i < vis; i++) put(ball, {0, 0, ball->lw(), ball->lh()}, 30, (float)(bottom - i * spacing));
   if (glass) put(glass, {0, 0, glass->lw(), glass->lh()}, 3, 92);
