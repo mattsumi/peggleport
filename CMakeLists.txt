@@ -56,6 +56,7 @@ endif()
 
 add_library(pp_core STATIC
   src/log.cpp
+  src/gamefind.cpp
   src/vfs.cpp
   src/level.cpp
   src/sim.cpp

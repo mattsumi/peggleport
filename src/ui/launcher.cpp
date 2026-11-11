@@ -12,7 +12,9 @@
 #include <string>
 #include <vector>
 
+#include "gamefind.h"
 #include "gamepaths.h"
+#include "log.h"
 #include "online/invite.h"
 #include "online/online_ui.h"
 
@@ -187,8 +189,15 @@ class Launcher {
  public:
   LauncherResult run(bool allowAutoStart) {
     store_.load();
-    for (int i = 0; i < 2; i++)
-      if (store_.dir[i].empty()) store_.dir[i] = findGameDir(kGames[i]);
+    {
+      const char* base = SDL_GetBasePath();
+      FindSources sources = systemFindSources(base && *base ? pathFromUtf8(base) : fs::path());
+      for (int i = 0; i < 2; i++) sources.remembered[i] = store_.dir[i];
+      FoundGames found = findGames(sources);
+      for (auto& line : searchReport(found)) pp::log::info("start", line);
+      for (int i = 0; i < 2; i++)
+        if (store_.dir[i].empty()) store_.dir[i] = found.dir[i];
+    }
     if (store_.last >= 0 && store_.dir[store_.last].empty()) store_.last = -1;
     sel_ = store_.last >= 0 ? store_.last : !store_.dir[0].empty() ? 0 : !store_.dir[1].empty() ? 1 : 0;
 
