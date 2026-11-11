@@ -610,7 +610,7 @@ void GameScreen::finishLevel() {
   bool won = o.won;
   if (app.gameMode == GameMode::Challenge)
     if (const TrophyInfo* t = app.trophies.byId(app.curChallenge))
-      if (!cfg_.ch.active && t->scoreReq > 0 && app.challengeStep + 1 >= (int)t->levels.size() && o.totalScore < t->scoreReq) { won = false; o.won = false; }
+      if (!cfg_.ch.active && t->scoreReq > 0 && app.challengeStep + 1 >= (int)t->levels.size()) { won = o.totalScore > t->scoreReq; o.won = won; }
   if (app.game == Game::Nights && app.gameMode == GameMode::Challenge && cfg_.ch.active && !won) {
     const ChallengeRules& c = cfg_.ch;
     const LevelResult& r = board_.result;
