@@ -135,7 +135,7 @@ bool GameScreen::startLevel(const std::string& name) {
         cfg.ch.levelIndex = std::max(0, app.challengeStep);
         cfg.ch.levelCount = std::max<int>(1, (int)t->levels.size());
         if (app.challengeStep == 0 && !app.challengeKeepLives) { app.challengeLives = std::max(1, t->lives); app.challengeScore = 0; }
-        app.challengeKeepLives = false;
+        if (!ownChoice || charChosen_) app.challengeKeepLives = false;
         if (!t->scoreReset && app.challengeStep > 0) cfg.startScore = app.challengeScore;
       } else if (ng != t->raw.end() && ng->second.find("true") != std::string::npos) cfg.greens = false;
       auto ch = t->raw.find("Characters");
@@ -190,6 +190,10 @@ bool GameScreen::choosesMaster() const {
   if (!app.curProfile || viewer_) return false;
   if (app.gameMode == GameMode::QuickPlay) return true;
   if (app.gameMode == GameMode::Adventure) return app.curProfile->maxStage >= (app.game == Game::Nights ? 11 : 10);
+  if (app.gameMode == GameMode::Challenge) {
+    const TrophyInfo* t = app.trophies.byId(app.curChallenge);
+    return t && t->opponents.empty() && t->raw.find("Characters") == t->raw.end();
+  }
   return false;
 }
 
