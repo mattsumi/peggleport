@@ -69,6 +69,7 @@ class GameScreen : public Screen {
   void onLeave() override;
   void startChallengeLevel();
   void restartLevel();
+  void masterChosen(bool picked);
   void nextLevel();
   bool ok() const { return ready_; }
   const LevelBundle& bundle() const { return lb_; }
@@ -125,8 +126,11 @@ class GameScreen : public Screen {
   void startReplay(bool all = false);
   void stopReplay();
   void stepReplay();
-  bool charPaused_ = false, charChosen_ = false;
+  bool charPaused_ = false, charChosen_ = false, keepRoll_ = false;
+  int rolled_ = -1;
   void showCharacterDialog();
+  bool choosesMaster() const;
+  int chosenMaster();
   int hudStage_ = 0, hudLevel_ = 0;
   int boardResets_ = 0;
   int stageDialogDelay_ = 0;

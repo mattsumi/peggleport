@@ -97,17 +97,19 @@ bool GameScreen::startLevel(const std::string& name) {
   cfg.seed = seed;
   int stage = app.curStage;
   auto randomMaster = [&](int c) {
-    if (app.game != Game::Deluxe || c != 10) return c;
-    return (int)(app.rand() % (unsigned)(std::min(app.curProfile ? app.curProfile->maxStage : 0, 9) + 1));
+    if (c != CharacterDialog::randomChoice(app.game)) return c;
+    return CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)CharacterDialog::mastersMet(app.game, app.curProfile)));
   };
   int mi = std::clamp(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay ? stage : (app.curProfile ? randomMaster(app.curProfile->char1) : 0), 0, 10);
   if (app.game == Game::Deluxe) mi = std::min(mi, 9);
   if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack) mi = std::clamp(app.curProfile ? app.curProfile->char1 : 0, 0, 10);
   if (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
+  const bool ownChoice = choosesMaster();
+  if (ownChoice) mi = chosenMaster();
   cfg.master[0] = Board::masterByName(kMasterNames[mi]);
   {
     const StageInfo* sp = app.stages.stage(stage);
-    const bool char1Used = !(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) || (sp && sp->pack) ||
+    const bool char1Used = ownChoice || !(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) || (sp && sp->pack) ||
                            (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0));
     if (char1Used)
       if (const int mp = modPowerFor(app, 0)) cfg.master[0] = mp;
@@ -180,8 +182,32 @@ bool GameScreen::startLevel(const std::string& name) {
   pushMouse();
   app.playMusic("level");
   stageDialogDelay_ = 15;
-  if (duel_ && !charChosen_ && app.gameMode == GameMode::Duel) showCharacterDialog();
+  if (!charChosen_ && ((duel_ && app.gameMode == GameMode::Duel) || ownChoice)) showCharacterDialog();
   return true;
+}
+
+bool GameScreen::choosesMaster() const {
+  return app.gameMode == GameMode::QuickPlay && app.curProfile && !viewer_;
+}
+
+int GameScreen::chosenMaster() {
+  static int lastRolled = -1;
+  const int c = app.curProfile->char1;
+  const bool keep = keepRoll_ && rolled_ >= 0;
+  keepRoll_ = false;
+  if (c != CharacterDialog::randomChoice(app.game)) return std::clamp(c, 0, app.game == Game::Nights ? 10 : 9);
+  if (keep) return rolled_;
+  const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+  for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
+    rolled_ = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+    if (rolled_ != lastRolled) break;
+  }
+  lastRolled = rolled_;
+  return rolled_;
+}
+
+void GameScreen::masterChosen(bool picked) {
+  keepRoll_ = !picked;
 }
 
 void GameScreen::showStageDialog() {
@@ -225,10 +251,9 @@ void GameScreen::restartLevel() {
 }
 
 void GameScreen::showCharacterDialog() {
-  auto d = std::make_unique<CharacterDialog>(app);
+  auto d = std::make_unique<CharacterDialog>(app, duel_);
   CharacterDialog* raw = d.get();
-  float h = raw->preferredHeight(raw->w);
-  raw->resize((800 - raw->w) / 2, std::max(8.0f, (600 - h) / 2), raw->w, h);
+  raw->place();
   raw->doScroll(true);
   app.addDialog(D_Character, std::move(d));
   pause(true);
@@ -514,6 +539,7 @@ void GameScreen::update() {
     charChosen_ = true;
     pause(false);
     ready_ = startLevel(levelFile_);
+    charChosen_ = duel_;
     return;
   }
   if (pauseCount_ > 0) return;

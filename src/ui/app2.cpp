@@ -263,7 +263,10 @@ void App::dialogButton(int dlg, int btn) {
     case D_ToMenu: off(dlg); return;
     case D_Tip: off(dlg); return;
     case D_Character:
-      if (auto* cd = dynamic_cast<CharacterDialog*>(getDialog(dlg))) cd->accept();
+      if (auto* cd = dynamic_cast<CharacterDialog*>(getDialog(dlg))) {
+        cd->accept();
+        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->masterChosen(cd->picked[0]);
+      }
       off(dlg);
       return;
     case D_Options: finishOptionsDialog(yes, true); return;

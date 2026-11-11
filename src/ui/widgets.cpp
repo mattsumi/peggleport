@@ -60,9 +60,7 @@ void Button::draw(Gfx& g) {
         g.drawCel(image, 0, 0, 0, 0, full);
         if (pressed) g.drawCel(image, 0, 0, 0, 1, full);
         else if (a > 0) g.drawCel(image, 0, 0, 0, 1, Mode(alpha * a));
-        return;
-      }
-      if (pressed) {
+      } else if (pressed) {
         g.drawCel(image, 0, 0, 0, additiveDown ? 0 : 1, Mode(alpha));
         if (additiveDown) g.drawCel(image, 0, 0, 0, 0, Mode(alpha * 0.25f, 0xffffff, true));
       } else if (a > 0) {
