@@ -286,7 +286,10 @@ void Renderer::drawOrbFront(const Board& b, int dw) {
   if (b.master[b.cur] == 12 || b.master[b.cur] == 7) blinkOff = (chTick_ / 30) % 2 == 0;
   bool hideCount = chCountBlink_ != 0 && (chCountBlink_ / 30) % 2 == 0;
   if (Tex* t = img("IMAGE_IP_POWERUPBANNER")) {
-    int row = std::clamp(stageCel_, 0, t->rows - 1);
+    static const int kBannerOfPower[15] = {-1, 0, 4, 1, 2, 3, 5, 9, -1, 6, -1, -1, 8, 7, 10};
+    const int pw = b.master[b.cur];
+    const int own = pw >= 0 && pw < 15 ? kBannerOfPower[pw] : -1;
+    int row = std::clamp(own >= 0 ? own : stageCel_, 0, t->rows - 1);
     putCelAt(t, (active && !blinkOff) ? 1 : 0, row, 343 + cx, 1);
   }
   if (Tex* t = img("IMAGE_INT_COUNTER")) put(t, {0, 0, t->lw(), t->lh()}, 382 + cx, 17);
