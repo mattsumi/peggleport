@@ -294,9 +294,9 @@ void Renderer::drawOrbFront(const Board& b, int dw) {
     putCelAt(t, (active && !blinkOff) ? 1 : 0, row, 343 + cx, 1);
   }
   if (Tex* t = img("IMAGE_INT_COUNTER")) put(t, {0, 0, t->lw(), t->lh()}, 382 + cx, 17);
-  if (Font* f = hideCount ? nullptr : font("FONT_SMALL_DISP")) {
+  if (Font* f = hideCount ? nullptr : font("FONT_OVERLOAD10OUTLINE")) {
     std::string s = std::to_string(std::clamp(b.turns[b.cur], 0, 99));
-    drawText(f, 400 + cx - f->width(s) / 2.0f, 32, s, 0xffffffffu);
+    drawText(f, 400 + cx - (float)(f->width(s) / 2), 32, s, 0xffffffffu);
   }
 }
 
