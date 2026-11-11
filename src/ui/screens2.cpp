@@ -126,7 +126,7 @@ void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
     row("Total Score:", p->advScore);
     row("Retries:", p->advRetries);
   } else {
-    const long long levels = (long long)app.stages.numLevels();
+    const long long levels = (long long)app.stages.numAllLevels();
     row("Challenges Finished:", (long long)p->trophies.size(), (long long)app.trophies.numTrophies());
     row("Levels 100% Cleared:", (long long)p->clearedLevels.size(), levels);
     if (nights) row("Levels Aced:", (long long)p->acedLevels.size(), levels);
