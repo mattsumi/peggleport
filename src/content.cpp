@@ -170,7 +170,7 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     }
     out.base = std::make_shared<Level>(std::move(*bl));
   }
-  if (ini.count("board_width")) out.cfg.boardWidth = std::max(650, std::atoi(ini["board_width"].c_str()));
+  if (ini.count("board_width")) out.cfg.boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
   if (ini.count("balls")) out.cfg.balls = std::max(1, std::atoi(ini["balls"].c_str()));
   if (ini.count("orange")) out.cfg.orange = std::max(0, std::atoi(ini["orange"].c_str()));
   {
