@@ -49,13 +49,17 @@ bool Button::mouseUp(float lx, float ly, int button) {
 
 static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
   const uint32_t rgb = b.over ? b.labelOver : b.labelColor;
-  if (b.labelStyle != 0 || b.font != "BUTTON") {
+  if ((b.labelStyle != 0 && b.labelStyle != 16) || b.font != "BUTTON") {
     g.drawString(b.font, x, y, b.label, rgb, b.alpha);
     return;
   }
-  static const uint32_t kOutline[3] = {0x00264cccu, 0x003366ccu, 0x003f7fccu};
-  static const uint32_t kMain[3] = {0xe7fff3ffu, 0xffff00ffu, 0xffff00ffu};
-  static const uint32_t kGradient[3] = {0x19b24c00u, 0x33d86600u, 0x4c7f7f00u};
+  static const uint32_t kOutlines[2][3] = {{0x00264cccu, 0x003366ccu, 0x003f7fccu}, {0x5b1e54ffu, 0x600256ffu, 0xe533ccffu}};
+  static const uint32_t kMains[2][3] = {{0xe7fff3ffu, 0xffff00ffu, 0xffff00ffu}, {0xfb54eaffu, 0xfe94e7ffu, 0xfdb6f7ffu}};
+  static const uint32_t kGradients[2][3] = {{0x19b24c00u, 0x33d86600u, 0x4c7f7f00u}, {0xcc2bb700u, 0xe08cef00u, 0x9999ff00u}};
+  const size_t set = b.labelStyle == 16 ? 1 : 0;
+  const uint32_t* kOutline = kOutlines[set];
+  const uint32_t* kMain = kMains[set];
+  const uint32_t* kGradient = kGradients[set];
   const int state = (b.down && b.over) ? 2 : ((b.down || b.over) ? 1 : 0);
   FontProvider& fp = g.fontProvider();
   uint32_t mult[3] = {0, 0, 0}, add[3] = {0, 0, 0};
