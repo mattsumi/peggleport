@@ -513,7 +513,7 @@ void StoryScreen::drawLayer(Gfx& g) {
   float pw = portrait ? portrait->lw() : 184, ph = portrait ? portrait->lh() : 184;
   float fade = boxes == 0 ? 0.0f : (boxFade > 0 ? boxFade / 20.0f : 1.0f);
   if (boxes > 0) {
-    float tx = 20 + pw + aX, ty = 20 + aY, tw = 800 - tx - 50;
+    float tx = 20 + pw + aX, ty = (nights ? 20.0f : 10.0f) + aY, tw = 800 - tx - 50;
     const float textH = std::max(180.0f, g.wrappedHeight("STAGE", tw, firstVisible(text, totalVisible)));
     if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, textH + 20, Mode(0.5f * fade, 0x000000));
     if (portrait) {
@@ -532,22 +532,28 @@ void StoryScreen::drawLayer(Gfx& g) {
     std::string adv = "Adventure: ^00FF00^" + std::to_string(app.curProfile->maxLevelIndex()) + " of 55^oldclr^ Complete";
     std::string chl = "Challenge: ^00FF00^" + std::to_string((int)app.curProfile->trophies.size()) + " of " + std::to_string(app.trophies.numTrophies()) + "^oldclr^ Complete";
     auto line = [&](const std::string& s, float base) {
-      std::string plain = stripColorCodes(s);
-      float x = 80 + (800 - g.textWidth("OVERLOAD16OUTLINE", plain)) / 2 - 40;
+      std::string bare;
+      int carets = 0;
+      for (char c : s) {
+        if (c == '^') carets++;
+        else bare += c;
+      }
+      const int raw = (int)(g.textWidth("OVERLOAD16OUTLINE", bare) + (float)carets * g.textWidth("OVERLOAD16OUTLINE", "^"));
+      float x = (float)(80 + (800 - raw) / 2);
       for (auto& run : parseColorCodes(s)) {
         g.drawString("OVERLOAD16OUTLINE", x, base, run.text, run.rgb < 0 ? 0xffffff : (uint32_t)run.rgb);
         x += g.textWidth("OVERLOAD16OUTLINE", run.text);
       }
     };
-    line(adv, 342 + 88);
-    line(chl, 440 + 30);
+    line(adv, 342 + 25);
+    line(chl, 440 + 25);
     Tex* chars = g.img("IMAGE_CHR_CHARACTERS");
     Tex* shadows = g.img("IMAGE_CHR_CHARACTERSHADOWS");
     Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
     Tex* sel = g.img("IMAGE_DLG_SELECTORFRAME");
     const int unlocked = app.curProfile->maxStage;
     for (int i = 0; i < 11; i++) {
-      float cx = (float)(53 + 64 * i), cy = 342 + 14;
+      float cx = (float)(53 + 64 * i), cy = 342 + 25;
       bool open = i <= unlocked && i < 10;
       if (i < 10) {
         if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, nights ? CharacterDialog::masterMetAt(app.game, i) : i, 0);
