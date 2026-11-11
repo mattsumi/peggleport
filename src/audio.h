@@ -33,6 +33,7 @@ class Audio {
   void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f);
   void playLevelMusic(bool nights);
   void stopSample(const std::string& id);
+  void dropQueued() { pending_.clear(); }
   void fadeMusic(int frames);
   void stopMusic();
   void fadeOutMusic();

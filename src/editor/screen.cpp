@@ -1451,6 +1451,7 @@ void EditorScreen::startPlay() {
   ed.validate();
   std::string err;
   playSeed_ = app.rand();
+  if (app.audio) app.audio->dropQueued();
   playOk_ = ed.buildBoard(play_, playLb_, nullptr, playSeed_, false, &err);
   if (!playOk_) { say("cannot play: " + err); return; }
   playing_ = true;

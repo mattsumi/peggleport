@@ -41,6 +41,7 @@ class OnlineGameScreen : public Screen {
     cfg.seed = seed;
     cfg.boardWidth = info_.boardWidth;
     for (int i = 0; i < 4; i++) cfg.master[i] = info_.master[i];
+    if (app.audio) app.audio->dropQueued();
     match_ = Match();
     std::string err;
     ready_ = match_.init(lb_.base, lb_.level, cfg, info_.players, info_.party, &err);

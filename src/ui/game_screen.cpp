@@ -163,6 +163,7 @@ bool GameScreen::startLevel(const std::string& name) {
   }
   aiWait_ = 0;
   cfg.liveSpin = !demo_;
+  if (app.audio) app.audio->dropQueued();
   board_ = Board();
   cfg_ = cfg;
   log_.clear();
@@ -399,6 +400,7 @@ bool GameScreen::startViewer(const ReplayData& d) {
   BoardConfig rcfg = d.cfg;
   rcfg.liveSpin = true;
   cfg_ = rcfg;
+  if (app.audio) app.audio->dropQueued();
   board_ = Board();
   if (!board_.load(lb_.base, lb_.level, rcfg, &err)) { loadError = err; return false; }
   replay_ = board_;
