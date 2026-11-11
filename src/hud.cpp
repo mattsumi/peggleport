@@ -327,11 +327,11 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
   drawBallColumn(b);
   drawFrame(dw);
   drawOrbFront(b, dw);
-  if (Tex* t = tex("images/dialog/menubutton", 2, 1, "roundbutton_")) putCelAt(t, 0, hud.menuOver ? 1 : 0, 12.0f, 540.0f);
+  if (Tex* t = tex("images/dialog/menubutton", 2, 1, "roundbutton_"); t && hud.menuOver) putCelAt(t, 0, 0, 12.0f, 540.0f);
   if (b.shotIndex == 0) {
     if (Tex* t = img("IMAGE_INT_BUTTONCOVER")) put(t, {0, 0, t->lw(), t->lh()}, 735.0f + dw, 538);
-  } else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_")) {
-    putCelAt(t, 0, hud.replayOver ? 1 : 0, 736.0f + dw, 540.0f);
+  } else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_"); t && hud.replayOver) {
+    putCelAt(t, 0, 0, 736.0f + dw, 540.0f);
   }
   drawOrangeMeter(b, dw);
   if (hud.clearedBefore)
