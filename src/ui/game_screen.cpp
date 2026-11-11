@@ -187,7 +187,10 @@ bool GameScreen::startLevel(const std::string& name) {
 }
 
 bool GameScreen::choosesMaster() const {
-  return app.gameMode == GameMode::QuickPlay && app.curProfile && !viewer_;
+  if (!app.curProfile || viewer_) return false;
+  if (app.gameMode == GameMode::QuickPlay) return true;
+  if (app.gameMode == GameMode::Adventure) return app.curProfile->maxStage >= (app.game == Game::Nights ? 11 : 10);
+  return false;
 }
 
 int GameScreen::chosenMaster() {
@@ -211,7 +214,7 @@ void GameScreen::masterChosen(bool picked) {
 }
 
 void GameScreen::showStageDialog() {
-  if (app.gameMode != GameMode::Adventure || !app.curProfile || boardResets_ >= 1) return;
+  if (app.gameMode != GameMode::Adventure || !app.curProfile || boardResets_ >= 1 || choosesMaster()) return;
   const LevelInfo* li = app.curLevelInfo();
   if (!li || li->dialog.empty()) return;
   const std::string& t = li->dialog;
