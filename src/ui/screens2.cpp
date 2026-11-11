@@ -416,7 +416,7 @@ void StoryScreen::initText() {
   }
   totalVisible = (int)stripColorCodes(text).size();
   start = 20;
-  app.playMusic("beats:48");
+  app.playMusic(app.game == Game::Deluxe || reveal ? "beats:48" : "music/09.mo3");
 }
 
 void StoryScreen::update() {
