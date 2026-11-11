@@ -542,7 +542,6 @@ ImportScan scanOriginalSaves(const fs::path& chosen) {
 std::vector<fs::path> originalSaveFolders(Game g) {
   std::vector<fs::path> cand;
   const char* product = g == Game::Nights ? "PeggleNights" : "Peggle";
-  const char* steamId = g == Game::Nights ? "3540" : "3480";
   auto env = [](const char* n) -> std::string {
     const char* v = std::getenv(n);
     return v ? v : "";
@@ -558,6 +557,7 @@ std::vector<fs::path> originalSaveFolders(Game g) {
   shared(fs::path("C:/ProgramData"));
   if (auto e = env("APPDATA"); !e.empty()) cand.push_back(tail(fs::path(e)));
 #else
+  const char* steamId = g == Game::Nights ? "3540" : "3480";
   std::string home = env("HOME");
   if (!home.empty()) {
     fs::path h(home);
