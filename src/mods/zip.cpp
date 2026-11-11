@@ -174,7 +174,7 @@ bool extractZip(const fs::path& zip, const fs::path& outDir, std::string* err) {
     cd += 46 + nl + el + cl;
     if (name.empty() || name.back() == '/') continue;
     if (!safeRelPath(name)) { skipped += " " + name; continue; }
-    if (lho + 30 > n || rd32(d + lho) != 0x04034b50u) { if (err) *err = "bad zip local header"; return false; }
+    if (lho > n || n - lho < 30 || rd32(d + lho) != 0x04034b50u) { if (err) *err = "bad zip local header"; return false; }
     size_t data = lho + 30 + rd16(d + lho + 26) + rd16(d + lho + 28);
     if (data + csize > n || usize > (128u << 20) || (total += usize) > (512u << 20)) { if (err) *err = "zip entry too large or truncated: " + name; return false; }
     std::vector<uint8_t> bytes;
