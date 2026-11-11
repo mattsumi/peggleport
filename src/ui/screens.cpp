@@ -235,6 +235,16 @@ void LoadingScreen::drawOverlay(Gfx& g) {
     return;
   }
   int cnt = updateCount;
+  Tex* frameL = g.img("IMAGE_SCREENFRAMELEFT");
+  Tex* frameT = g.img("IMAGE_SCREENFRAMETOP");
+  Tex* frameB = g.img("IMAGE_SCREENFRAMEBOTTOM");
+  Tex* frameR = g.img("IMAGE_SCREENFRAMERIGHT");
+  if (frameL && frameT && frameB && frameR) {
+    g.draw(frameL, 0, 0);
+    g.draw(frameT, frameL->lw(), 0);
+    g.draw(frameB, frameL->lw(), frameL->lh() - frameB->lh());
+    g.draw(frameR, frameL->lw() + frameT->lw(), 0);
+  }
   if (playPulse > 0 && playPulse < 50 && playBtn->visible) {
     float v = playPulse < 25 ? (float)playPulse : (float)(50 - playPulse);
     float a = v / 25.0f * 100.0f / 255.0f;
