@@ -473,6 +473,7 @@ void Audio::render(float* out, int frames) {
       out[i * 2 + 1] += (pcm[k * 2 + 1] * (1 - f) + pcm[k * 2 + 3] * f) * v.vol;
       v.pos += v.step;
     }
+    if (v.pos >= n - 1) v.pos = n;
   }
   auto mixMusic = [&](Music& m, float mg) {
     if (m.isOgg) {
