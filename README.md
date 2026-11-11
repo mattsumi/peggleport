@@ -21,7 +21,7 @@ PegglePort is a fan project. It has nothing to do with PopCap Games or Electroni
 1. Download the archive for your system from the Releases page and unpack it anywhere. On macOS you can also open the disk image and drag PegglePort to Applications.
 2. Start `peggleport.exe` (Windows), `PegglePort.app` (macOS) or `peggleport` (Linux).
 3. PegglePort finds Peggle Deluxe and Peggle Nights by itself (Steam, Origin, EA app and PopCap installs) and opens straight into the game.
-4. If you have both games you get one game: the Peggle Deluxe main menu opens, **Adventure** asks which of the two adventures you want, and the row **Main Menu** in Options lets you open with the Peggle Nights menu instead.
+4. If you have both games you get one game: the Peggle Deluxe main menu opens, **Adventure** asks which of the two adventures you want, Quick Play, Duel and Challenge list the levels of both games, and the row **Main Menu** in Options lets you open with the Peggle Nights menu instead.
 5. If it finds no game, a message shows where it looked, and a folder window lets you pick the folder that contains `main.pak`. It remembers the folder.
 
 The FAQ has answers about settings, saves, mods, the editor, online play and problems: [FAQ.md](FAQ.md).
