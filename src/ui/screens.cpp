@@ -536,7 +536,7 @@ void MainMenu::drawLayer(Gfx& g) {
   (void)dim;
   if (Tex* bg = g.img("IMAGE_MM_BACKGROUND")) g.draw(bg, 15, 11);
   float sunX = -170, sunY = -190;
-  if (Tex* glow = g.img("IMAGE_SUNGLOW")) g.drawRot(glow, sunX + 0x18a, sunY + 0x17f, 0.05f * sunTick * 0.01f, 1, 1);
+  if (Tex* glow = g.img("IMAGE_SUNGLOW")) g.drawRot(glow, sunX + 0x18a, sunY + 0x17f, 0.05f * (float)sunTick * 3.14159265f / 180.0f, 1, 1);
   if (Tex* bs = g.img("IMAGE_MM_BLANKSUN")) g.draw(bs, sunX + 0x13f, sunY + 0x133);
   if (Tex* fg = g.img("IMAGE_MM_FOREGROUND")) g.draw(fg, 15, 600 - fg->lh() - 0x3c);
   if (Tex* bj = g.img("IMAGE_MM_BJORN")) g.draw(bj, 15, 0x82);
