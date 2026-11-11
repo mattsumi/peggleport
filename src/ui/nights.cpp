@@ -283,7 +283,7 @@ void ProgressScreen::update() {
 }
 
 void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
-  if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
+  g.fill(0, 0, 800, 600, 0x000000);
   const PlayerInfo* p = app.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
@@ -301,7 +301,12 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     Tex* pic = g.img("IMAGE_TROPHY_PORTRAIT_" + std::to_string(i + 1));
     if (hid && (!shown || a < 1)) g.draw(hid, cx - hid->lw() / 2, cy - hid->lh() / 2);
     if (pic && shown) g.draw(pic, cx - pic->lw() / 2, cy - pic->lh() / 2, Mode(a));
-    if (met == newest && t > 10 && t < 160) {
+  }
+  if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
+  for (int i = 0; i < 11; i++) {
+    const int* f = kFrames[kMasterFrame[i]];
+    float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
+    if (stageOfMaster(i) == newest && t > 10 && t < 160) {
       float k = t < 40 ? (t - 10) / 30.0f : t < 110 ? 1.0f : std::max(0.0f, (160 - t) / 50.0f);
       if (Tex* sp = g.img("IMAGE_TROPHY_PARTICLE_WHITE_MED_ROUND")) g.drawRot(sp, cx, cy, 0, 3.0f, 3.5f, Mode(0.55f * k, 0xfff0c0, true));
       if (Tex* sk = g.img("IMAGE_TROPHY_SPARKLE"))
