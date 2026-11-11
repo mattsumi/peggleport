@@ -76,6 +76,7 @@ class Audio {
   int prevPhase_ = -1;
   int fireLoopEnd_ = 0;
   int chainLoopEnd_ = 0;
+  int chainLoopAt_ = 0;
   bool prevSlow_ = false;
   int lvlBase_ = -1, intensity_ = 0, pendOrder_ = -1, pendRow_ = 0;
   std::vector<std::unique_ptr<Music>> fading_;
