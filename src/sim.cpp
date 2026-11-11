@@ -332,6 +332,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   int balls0 = cfg.balls > 0 ? cfg.balls : (cfg.duel ? 6 : 10);
   for (int p = 0; p < players; p++) ballsLeft[p] = balls0;
   score[0] = cfg.startScore;
+  if (players > 1) score[1] = cfg.startScore2;
   if (cfg.duel && players > 1) {
     uint32_t r = rng.rand();
     if (players != 2) {

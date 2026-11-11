@@ -140,8 +140,8 @@ bool GameScreen::startLevel(const std::string& name) {
         if (!t->scoreReset && app.challengeStep > 0) cfg.startScore = app.challengeScore;
       } else {
         if (ng != t->raw.end() && ng->second.find("true") != std::string::npos) cfg.greens = false;
-        if (app.challengeStep == 0) app.challengeScore = 0;
-        else if (!t->scoreReset) cfg.startScore = app.challengeScore;
+        if (app.challengeStep == 0) app.challengeScore = app.challengeScore2 = 0;
+        else if (!t->scoreReset) { cfg.startScore = app.challengeScore; cfg.startScore2 = app.challengeScore2; }
       }
       auto ch = t->raw.find("Characters");
       if (ch != t->raw.end()) {
@@ -732,10 +732,12 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         }
         if (mode != EndLevelDialog::ChallengeLose) app.endBodyOverride.clear();
       }
-      if (app.game == Game::Deluxe && ct && !ct->scoreReset && moreLevels && !duel_) {
+      if (app.game == Game::Deluxe && ct && !ct->scoreReset && moreLevels) {
         mode = EndLevelDialog::ChallengeLevelDone;
         app.challengeMore = true;
         app.challengeScore = o.totalScore;
+        app.challengeScore2 = duel_ ? board_.score[1] : 0;
+        app.endHeaderOverride.clear();
       }
       if (p && won && ct && !app.challengeMore) {
         p->awardTrophy(ct->id);

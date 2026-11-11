@@ -190,6 +190,7 @@ struct BoardConfig {
   bool duel = false;
   int balls = 0;
   int startScore = 0;
+  int startScore2 = 0;
   int orange = 25;
   uint32_t seed = 4357;
   bool greens = true, purple = true;

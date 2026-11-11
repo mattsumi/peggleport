@@ -235,6 +235,7 @@ class App : public WidgetHost {
   std::string endHeaderOverride;
   std::string challengeLevel;
   int challengeScore = 0;
+  int challengeScore2 = 0;
   int challengeLives = 0;
   bool challengeKeepLives = false;
   int mantelBefore = 0;
