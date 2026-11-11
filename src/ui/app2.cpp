@@ -38,6 +38,7 @@ void App::playMusic(const std::string& which) {
   else if (which == "credits") path = "music/credits.ogg";
   else if (which == "level") {
     curMusic_ = "level";
+    if (game != Game::Deluxe) audio->stopMusic();
     audio->playLevelMusic(game != Game::Deluxe);
     return;
   } else path = which;
