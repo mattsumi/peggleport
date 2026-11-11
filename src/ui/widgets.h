@@ -70,6 +70,7 @@ class Button : public Widget {
   float fadeIn = 0.2f, fadeOut = 0.08f;
   bool idleImage = false;
   bool labelOnEmbedded = false;
+  int labelStyle = -1;
   bool additiveDown = false;
   std::string hoverSound = "MOUSEOVER", clickSound = "BUTTON1";
   float hoverPitch = 0;

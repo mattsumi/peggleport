@@ -98,6 +98,7 @@ Button* Panel::patchButton(int id, const std::string& label, const std::string& 
   b->x = bx;
   b->y = by;
   b->textOffY = 5;
+  if (app.game == Game::Nights) b->labelStyle = 0;
   return b;
 }
 

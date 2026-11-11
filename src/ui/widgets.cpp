@@ -47,6 +47,30 @@ bool Button::mouseUp(float lx, float ly, int button) {
   return true;
 }
 
+static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
+  const uint32_t rgb = b.over ? b.labelOver : b.labelColor;
+  if (b.labelStyle != 0 || b.font != "BUTTON") {
+    g.drawString(b.font, x, y, b.label, rgb, b.alpha);
+    return;
+  }
+  static const uint32_t kOutline[3] = {0x00264cccu, 0x003366ccu, 0x003f7fccu};
+  static const uint32_t kMain[3] = {0xe7fff3ffu, 0xffff00ffu, 0xffff00ffu};
+  static const uint32_t kGradient[3] = {0x19b24c00u, 0x33d86600u, 0x4c7f7f00u};
+  const int state = (b.down && b.over) ? 2 : ((b.down || b.over) ? 1 : 0);
+  FontProvider& fp = g.fontProvider();
+  uint32_t mult[3] = {0, 0, 0}, add[3] = {0, 0, 0};
+  bool have = true;
+  for (size_t i = 0; i < 3; i++) have = fp.layerColors(b.font, i, mult[i], add[i]) && have;
+  if (have) {
+    fp.setLayerColors(b.font, 0, kOutline[state], add[0]);
+    fp.setLayerColors(b.font, 1, kMain[state], add[1]);
+    fp.setLayerColors(b.font, 2, mult[2] & 0xffffff00u, kGradient[state] | (uint32_t)std::clamp((int)(90.0f * b.alpha), 0, 255));
+  }
+  g.drawString(b.font, x, y, b.label, rgb, b.alpha);
+  if (have)
+    for (size_t i = 0; i < 3; i++) fp.setLayerColors(b.font, i, mult[i], add[i]);
+}
+
 void Button::draw(Gfx& g) {
   if (!visible || (!image && kind != Kind::Link)) return;
   Mode full(alpha);
@@ -67,7 +91,7 @@ void Button::draw(Gfx& g) {
         g.drawCel(image, 0, 0, 0, 0, Mode(alpha * a));
       }
       if (labelOnEmbedded && !label.empty())
-        g.drawString(font, (w - g.textWidth(font, label)) / 2, (h + g.fontAscent(font) - g.fontAscent(font) / 6 - 1) / 2 + textOffY + 4, label, over ? labelOver : labelColor, alpha);
+        drawButtonLabel(g, *this, (w - g.textWidth(font, label)) / 2, (h + g.fontAscent(font) - g.fontAscent(font) / 6 - 1) / 2 + textOffY + 4);
       return;
     }
     case Kind::Simple:
@@ -92,7 +116,7 @@ void Button::draw(Gfx& g) {
         float asc = g.fontAscent(font);
         float ty = (h + asc - asc / 6 - 1) / 2 + textOffY;
         float tw = g.textWidth(font, label);
-        g.drawString(font, (w - tw) / 2 + textOffX + dx, ty + dy, label, over ? labelOver : labelColor, alpha);
+        drawButtonLabel(g, *this, (w - tw) / 2 + textOffX + dx, ty + dy);
       }
       return;
     }

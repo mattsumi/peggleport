@@ -26,6 +26,8 @@ class FontProvider {
   virtual float lineSpacing(const std::string& font) { return height(font); }
   virtual float width(const std::string& font, const std::string& plain) = 0;
   virtual void draw(const std::string& font, float x, float y, const std::string& plain, uint32_t rgb, float alpha) = 0;
+  virtual bool layerColors(const std::string&, size_t, uint32_t&, uint32_t&) { return false; }
+  virtual void setLayerColors(const std::string&, size_t, uint32_t, uint32_t) {}
 };
 
 std::unique_ptr<FontProvider> makeDebugFontProvider(SDL_Renderer* r, class Gfx* g);
