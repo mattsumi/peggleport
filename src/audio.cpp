@@ -178,7 +178,21 @@ void Audio::play(const std::string& id, float semitones, float volume, int throt
   Voice v;
   v.s = s;
   v.step = freq / 44100.0;
-  v.vol = volumeCurve(std::clamp(s->baseVolume * volume, 0.0f, 1.0f)) * sfxVol_;
+  v.vol = volumeCurve(std::clamp(s->baseVolume * volume, 0.0f, 1.0f));
+  voices_.push_back(v);
+}
+
+void Audio::playLoop(const std::string& id) {
+  const Sample* s = sample(id);
+  if (!s || s->pcm.size() < 4) return;
+  std::lock_guard<std::mutex> lk(mu_);
+  voices_.erase(std::remove_if(voices_.begin(), voices_.end(), [](const Voice& v) { return v.pos >= (double)v.s->pcm.size() / 2; }), voices_.end());
+  if (voices_.size() >= 32) return;
+  Voice v;
+  v.s = s;
+  v.step = std::clamp((double)s->rate, 100.0, 100000.0) / 44100.0;
+  v.vol = volumeCurve(std::clamp(s->baseVolume, 0.0f, 1.0f));
+  v.loop = true;
   voices_.push_back(v);
 }
 
@@ -187,7 +201,21 @@ void Audio::stopSample(const std::string& id) {
   if (!s) return;
   std::lock_guard<std::mutex> lk(mu_);
   for (auto& v : voices_)
-    if (v.s == s) v.pos = (double)s->pcm.size() / 2;
+    if (v.s == s) {
+      v.loop = false;
+      v.pos = (double)s->pcm.size() / 2;
+    }
+}
+
+void Audio::stopLoops() {
+  std::lock_guard<std::mutex> lk(mu_);
+  for (auto& v : voices_)
+    if (v.loop) {
+      v.loop = false;
+      v.pos = (double)v.s->pcm.size() / 2;
+    }
+  fireLoop_ = false;
+  chainLoop_ = false;
 }
 
 void Audio::playFx(const std::vector<FxSound>& s) {
@@ -288,29 +316,27 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
     if (prevPhase_ == (int)Phase::Aim && ph == (int)Phase::Shot) play(!b.balls.empty() && b.balls[0].fire ? "FIREBALLSHOT" : "CANNONSHOT");
   }
   prevPhase_ = ph;
-  {
+  if (!leaving_) {
     bool fireAlive = b.phase == Phase::Aim && b.pturn[b.cur][Board::P_FIREBALL] > 0;
     for (const auto& bl : b.balls) fireAlive = fireAlive || (bl.fire && bl.alive);
-    if (fireAlive && updates_ >= fireLoopEnd_) {
-      play("FIREBALLLOOP", 0, 1, 0, true);
-      const Sample* fs = sample("FIREBALLLOOP");
-      fireLoopEnd_ = updates_ + (fs && fs->rate > 0 ? (int)((double)fs->pcm.size() / 2 / fs->rate * 100.0) : 100);
-    } else if (!fireAlive && fireLoopEnd_ > 0) {
+    if (fireAlive && !fireLoop_) {
+      playLoop("FIREBALLLOOP");
+      fireLoop_ = true;
+    } else if (!fireAlive && fireLoop_) {
       stopSample("FIREBALLLOOP");
-      fireLoopEnd_ = 0;
+      fireLoop_ = false;
     }
   }
-  {
+  if (!leaving_) {
     bool chainAlive = b.phase == Phase::Aim && b.cfg.nights && b.pturn[b.cur][Board::P_CHAIN] > 0;
     for (const auto& bl : b.balls) chainAlive = chainAlive || (bl.chain && bl.alive);
     chainAlive = chainAlive && updates_ >= chainLoopAt_;
-    if (chainAlive && updates_ >= chainLoopEnd_) {
-      play("LIGHTNING_LOOP", 0, 1, 0, true);
-      const Sample* ls = sample("LIGHTNING_LOOP");
-      chainLoopEnd_ = updates_ + (ls && ls->rate > 0 ? (int)((double)ls->pcm.size() / 2 / ls->rate * 100.0) : 100);
-    } else if (!chainAlive && chainLoopEnd_ > 0) {
+    if (chainAlive && !chainLoop_) {
+      playLoop("LIGHTNING_LOOP");
+      chainLoop_ = true;
+    } else if (!chainAlive && chainLoop_) {
       stopSample("LIGHTNING_LOOP");
-      chainLoopEnd_ = 0;
+      chainLoop_ = false;
     }
   }
   if (b.slowOn && !prevSlow_) {
@@ -471,14 +497,17 @@ void Audio::render(float* out, int frames) {
   for (auto& v : voices_) {
     const auto& pcm = v.s->pcm;
     double n = (double)pcm.size() / 2;
-    for (int i = 0; i < frames && v.pos < n - 1; i++) {
+    const float g = v.vol * sfxVol_;
+    for (int i = 0; i < frames && (v.loop || v.pos < n - 1); i++) {
       size_t k = (size_t)v.pos;
+      size_t k1 = k + 1 < (size_t)n ? k + 1 : 0;
       float f = (float)(v.pos - (double)k);
-      out[i * 2] += (pcm[k * 2] * (1 - f) + pcm[k * 2 + 2] * f) * v.vol;
-      out[i * 2 + 1] += (pcm[k * 2 + 1] * (1 - f) + pcm[k * 2 + 3] * f) * v.vol;
+      out[i * 2] += (pcm[k * 2] * (1 - f) + pcm[k1 * 2] * f) * g;
+      out[i * 2 + 1] += (pcm[k * 2 + 1] * (1 - f) + pcm[k1 * 2 + 1] * f) * g;
       v.pos += v.step;
+      if (v.loop && v.pos >= n) v.pos -= n;
     }
-    if (v.pos >= n - 1) v.pos = n;
+    if (!v.loop && v.pos >= n - 1) v.pos = n;
   }
   auto mixMusic = [&](Music& m, float mg) {
     if (m.isOgg) {

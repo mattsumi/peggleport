@@ -418,6 +418,7 @@ void App::saveAll() {
 
 void App::shutdown() {
   if (cur_) cur_->onLeave();
+  if (audio) audio->stopLoops();
   saveAll();
 }
 
@@ -546,6 +547,7 @@ void App::setScreen(std::unique_ptr<Screen> s, Dir offDir) {
   if (cur_) {
     Screen* old = cur_.get();
     old->onLeave();
+    if (audio) audio->stopLoops();
     scrollOff(old, offDir, true);
     movers_.back().owned = std::move(cur_);
   } else if (offDir == Down) {
@@ -773,8 +775,10 @@ void App::tick() {
   if (logView_ && logView_->visible()) logView_->update();
   if (cur_) cur_->update();
   if (overlay_) overlay_->update();
+  if (audio) audio->setBoardLeaving(true);
   for (auto& m : movers_)
     if (m.owned) m.owned->update();
+  if (audio) audio->setBoardLeaving(false);
   for (size_t i = 0; i < dialogs_.size();)
     if (dialogs_[i]->gone) dialogs_.erase(dialogs_.begin() + (long)i);
     else i++;

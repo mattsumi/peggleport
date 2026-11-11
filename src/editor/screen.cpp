@@ -1461,6 +1461,7 @@ void EditorScreen::startPlay() {
 }
 void EditorScreen::stopPlay() {
   playing_ = false;
+  if (app.audio) app.audio->stopLoops();
   builtRev_ = -1;
   dirtyLayout();
   say("back in the editor");

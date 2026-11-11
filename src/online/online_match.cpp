@@ -156,6 +156,7 @@ class OnlineGameScreen : public Screen {
       else state_ = Lost;
     }
     if (net_->desynced() && state_ == Playing) state_ = Desynced;
+    if (state_ != Playing && app.audio) app.audio->stopLoops();
     if (state_ == Playing || state_ == Over) {
       Board& vb = match_.boards[match_.boardOf(local_)];
       if (state_ == Playing) {

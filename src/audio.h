@@ -32,8 +32,11 @@ class Audio {
   void play(const std::string& id, float semitones = 0, float volume = 1.0f, int throttle = 0, bool force = false);
   void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f);
   void playLevelMusic(bool nights);
+  void playLoop(const std::string& id);
   void stopSample(const std::string& id);
-  void dropQueued() { pending_.clear(); }
+  void stopLoops();
+  void dropQueued() { pending_.clear(); stopLoops(); }
+  void setBoardLeaving(bool on) { leaving_ = on; }
   void fadeMusic(int frames);
   void stopMusic();
   void fadeOutMusic();
@@ -56,6 +59,7 @@ class Audio {
     const Sample* s = nullptr;
     double pos = 0, step = 1;
     float vol = 1;
+    bool loop = false;
   };
   struct Music;
   const Vfs& vfs_;
@@ -75,8 +79,9 @@ class Audio {
   std::vector<int> playlist_;
   size_t playIdx_ = 0;
   int prevPhase_ = -1;
-  int fireLoopEnd_ = 0;
-  int chainLoopEnd_ = 0;
+  bool fireLoop_ = false;
+  bool chainLoop_ = false;
+  bool leaving_ = false;
   int chainLoopAt_ = 0;
   bool prevSlow_ = false;
   bool prevHeld_ = false;
