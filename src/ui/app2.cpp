@@ -288,6 +288,11 @@ void App::alignQuestionWithMenu(Dialog* d) {
 }
 
 void App::doConfirmMainMenuDialog() {
+  if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
+    finishOptionsDialog(false, false);
+    doToMenu();
+    return;
+  }
   Dialog* d = doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
   alignQuestionWithMenu(d);
 }

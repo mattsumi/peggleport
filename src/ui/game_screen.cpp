@@ -258,8 +258,14 @@ void GameScreen::restartLevel() {
 }
 
 bool GameScreen::hasProgress() const {
-  if (!ready_ || done_ || !app.curProfile) return false;
-  return board_.score[0] > 0 || (duel_ && board_.score[1] > 0);
+  if (!ready_ || done_ || viewer_ || demo_ || !app.curProfile) return false;
+  switch (app.gameMode) {
+    case GameMode::Adventure: return board_.result.shots > 0;
+    case GameMode::QuickPlay: return board_.score[0] > 0;
+    case GameMode::Duel: return board_.score[0] > 0 || board_.score[1] > 0;
+    case GameMode::Challenge: return app.challengeStep > 0 || board_.score[0] > 0;
+    default: return false;
+  }
 }
 
 void GameScreen::showCharacterDialog() {
