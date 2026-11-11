@@ -70,6 +70,7 @@ class MainMenu : public Screen {
   void drawSparkles(Gfx& g);
   Button *bAdv, *bSolo, *bDuel, *bChal, *bReplay, *bOptions, *bDemo, *bQuit, *bLink, *bUpsell;
   void setBubble(int which, int delay);
+  int fadeTicks() const { return isNights ? 15 : 20; }
   void placeButtons();
   void updateBubbles();
   int advStage = 0, advLevel = 0, bubbleCount = 0;

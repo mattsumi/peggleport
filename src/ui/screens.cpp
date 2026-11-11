@@ -348,8 +348,8 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   lk->kind = Button::Kind::Link;
   lk->label = "If this is not you, click here.";
   lk->font = "PLAIN2";
-  lk->colNormal = 0x646464;
-  lk->colOver = 0xffffff;
+  lk->colNormal = 0x000064;
+  lk->colOver = 0x0000ff;
   lk->w = a.gfx.textWidth(lk->font, lk->label);
   lk->h = a.gfx.fontHeight(lk->font) + 8;
   lk->x = 0x13b;
@@ -387,7 +387,7 @@ void MainMenu::syncPlayerInfo() {
       app.saveProfile();
     }
   }
-  bLink->visible = p != nullptr;
+  bLink->visible = p != nullptr && bubble == 0;
   bAdv->blink = 0;
   buildSparkles();
 }
@@ -396,7 +396,7 @@ void MainMenu::setBubble(int which, int delay) {
   if (bubble != which) {
     int c = bubbleCount++;
     if (c >= delay) {
-      bubbleFade = 15;
+      bubbleFade = fadeTicks();
       bubbleOld = bubble;
       bubble = which;
       bubbleCount = 0;
@@ -424,6 +424,7 @@ void MainMenu::update() {
   if (false) {} 
   bool unused_ = any; (void)unused_;
   updateBubbles();
+  bLink->visible = app.curProfile != nullptr && bubble == 0;
 }
 
 void MainMenu::placeButtons() {
@@ -483,14 +484,14 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
   if (fading && (!name.empty() || which > 0)) {
     float k = 1.0f;
     if (bubbleFade > 0) {
-      float d = 10.0f - std::fabs(10.0f - (float)bubbleFade);
+      float d = (float)fadeTicks() / 2.0f - std::fabs((float)fadeTicks() / 2.0f - (float)bubbleFade);
       k -= 0.0025f * d;
     }
     if (isNights) drawSpeechBox(g, bx - 5, by + 4, 280, 126, k);
     else if (Tex* sb = g.img("IMAGE_MM_SPEECHBUBBLE")) g.drawRot(sb, sb->lw() / 2 + bx, sb->lh() / 2 + 10 + by, 0, k, k);
   }
   float tH = 0x50, tW = 0xeb, tY = 0x14 + by, tX = 0xa + bx;
-  uint32_t col = 0x646464;
+  uint32_t col = 0x000064;
   if (which > 0) {
     std::string s;
     switch (which) {
@@ -502,7 +503,7 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
         break;
       case 2: s = "Play individual levels that you have unlocked in Adventure!"; break;
       case 3: s = "Play against a friend or the computer in this two player mode!"; break;
-      case 4: s = isNights ? "Complete all of these extra difficult challenges to boost your Peggle Master rank!" : "Complete all of these extra\ndifficult challenges to become a\nPeggle Grand Master!"; break;
+      case 4: s = isNights ? "Complete all of these extra\ndifficult challenges to boost\nyour Peggle Master rank!" : "Complete all of these extra\ndifficult challenges to become a\nPeggle Grand Master!"; break;
       case 5: s = "Watch the Peggle Masters play and see if you can learn their tricks!"; break;
       case 6: s = "View instant replays\nthat you've saved!"; break;
       case 7: s = "Set options like sound volume\nand colorblind mode.\nHelp is also available here."; break;
@@ -511,16 +512,21 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
       case 10: s = "This trophy is awarded for beating all of the challenges!"; break;
       case 11: s = "This trophy is awarded for beating all of the challenges and clearing all of the levels!"; break;
     }
-    float hh = g.wrappedHeight("SMALLMONO", tW, s, 20);
-    g.drawWrapped("SMALLMONO", {tX, tY + (tH - hh) / 2, tW, tH}, s, col, alpha, Align::Center, 20);
+    float hh = g.wrappedHeight("PLAIN2", tW, s, 20);
+    g.drawWrapped("PLAIN2", {tX, tY + (tH - hh) / 2, tW, tH}, s, col, alpha, Align::Center, 20);
   } else if (!name.empty()) {
     std::string s = adv < 0 ? (isNights ? "Welcome to Peggle Nights," : "Welcome to Peggle,") : "Welcome Back,";
     float ty = tY - 10 + g.fontHeight("PLAIN2BIG");
     g.drawString("PLAIN2BIG", bx + tW / 2 + 10, ty, s, 0x86065d, alpha, Align::Center);
     g.drawString("PLAIN2BIG", bx + 0xfa / 2.0f + 10, ty + g.fontHeight("PLAIN2BIG") - 10, name + "!", 0x86065d, alpha, Align::Center);
   }
-  if (which == 8 || (fading && bubbleOld == 8 && bubbleFade > 0)) {
-    if (Tex* cry = g.img("IMAGE_MM_CRY")) g.draw(cry, 0xc2, 0xb2, Mode(which == 8 ? 1.0f : bubbleFade / 15.0f));
+  if (which == 8) {
+    float k = 1.0f;
+    if (bubbleFade > 0) {
+      k = (float)bubbleFade / (float)fadeTicks();
+      if (bubble == 8) k = 1.0f - k;
+    }
+    if (Tex* cry = g.img("IMAGE_MM_CRY")) g.draw(cry, 0xc2, 0xb2, Mode(k));
   }
 }
 
@@ -534,8 +540,9 @@ void MainMenu::drawLayer(Gfx& g) {
   if (Tex* bs = g.img("IMAGE_MM_BLANKSUN")) g.draw(bs, sunX + 0x13f, sunY + 0x133);
   if (Tex* fg = g.img("IMAGE_MM_FOREGROUND")) g.draw(fg, 15, 600 - fg->lh() - 0x3c);
   if (Tex* bj = g.img("IMAGE_MM_BJORN")) g.draw(bj, 15, 0x82);
-  if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, (1.0f - bubbleFade / 15.0f > 0 ? 1.0f : 1.0f) * (float)bubbleFade / 15.0f, true);
-  drawSpeechBubble(g, bubble, 1.0f - (bubbleFade > 0 ? (float)bubbleFade / 15.0f : 0.0f), bubbleFade == 0);
+  const float fade = (float)bubbleFade / (float)fadeTicks();
+  if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, fade, true);
+  drawSpeechBubble(g, bubble, 1.0f - fade, bubbleFade == 0);
   if (trophyTier > 0) {
     if (Tex* tr = g.img("IMAGE_MM_TROPHIES")) {
       int cel = std::clamp(trophyTier - 1, 0, 2);
