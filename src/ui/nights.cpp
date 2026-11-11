@@ -50,11 +50,10 @@ const DecalInfo* MainMenu::decalAt(App& app, float mx, float my, int* stageOut) 
   return nullptr;
 }
 
-static void drawLoungeScene(Gfx& g, int sunTick) {
-  const float ox = 15, oy = 11;
+static void drawLoungeScene(Gfx& g, int sunTick, float ox, float oy) {
   if (Tex* bg = g.img("IMAGE_MM_BACKGROUND")) g.draw(bg, ox, oy);
-  float flick = 0.55f + 0.12f * std::sin(sunTick * 0.05f) + 0.08f * std::sin(sunTick * 0.23f + 1.0f) + 0.05f * std::sin(sunTick * 0.61f);
-  if (Tex* fl = g.img("IMAGE_MM_FIRELIGHT")) g.draw(fl, ox + 505 - fl->lw() / 2, oy + 455 - fl->lh() / 2, Mode(std::clamp(flick, 0.0f, 1.0f)));
+  const int flick = ((sunTick / 13) * 773 + (sunTick / 16) * 1321) % 42 + 174;
+  if (Tex* fl = g.img("IMAGE_MM_FIRELIGHT")) g.draw(fl, ox + 64, oy + 224, Mode((float)flick / 255.0f, 0xffffff, true));
   static const char* kFlame[4] = {"IMAGE_MM_FLAME_01", "IMAGE_MM_FLAME_02", "IMAGE_MM_FLAME_03", "IMAGE_MM_FLAME_04"};
   int cel = (sunTick / 4) % 4;
   if (Tex* f = g.img(kFlame[cel])) g.draw(f, ox + 520 - f->lw() / 2, oy + 478 - f->lh(), Mode(0.9f));
@@ -172,7 +171,7 @@ void MainMenu::drawSparkles(Gfx& g) {
 }
 
 void MainMenu::drawNights(Gfx& g) {
-  drawLoungeScene(g, sunTick);
+  drawLoungeScene(g, sunTick, 0, 0);
   for (int id : {1, 3, 2, 0})
     if (mantelEarned(app, id))
       if (Tex* t = g.img(kMantel[id].image)) g.draw(t, (float)kMantel[id].sx, (float)kMantel[id].sy, Mode(fadeOf(trophyName(id))));
@@ -464,7 +463,7 @@ void IntroScreen::update() {
   if (t > 15 && typed < total && t % 2 == 0) { typed++; if (typed % 3 == 0) app.playSample("TYPING"); }
 }
 void IntroScreen::drawLayer(Gfx& g) {
-  drawLoungeScene(g, t);
+  drawLoungeScene(g, t, 15, 11);
   drawSpeechBox(g, 40, 50, 330, 120, std::min(1.0f, t / 15.0f), 1);
   std::string txt = kIntroText[pageNo - 1];
   txt = txt.substr(0, (size_t)typed);
