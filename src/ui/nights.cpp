@@ -307,7 +307,7 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     }
     Tex* hid = g.img("IMAGE_TROPHY_PORTRAIT_HIDDEN_" + std::to_string(i + 1));
     Tex* pic = g.img("IMAGE_TROPHY_PORTRAIT_" + std::to_string(i + 1));
-    if (hid && (!shown || a < 1)) g.draw(hid, (float)(kHiddenAt[i][0] - (int)hid->lw() / 2), (float)(kHiddenAt[i][1] - (int)hid->lh() / 2));
+    if (hid) g.draw(hid, (float)(kHiddenAt[i][0] - (int)hid->lw() / 2), (float)(kHiddenAt[i][1] - (int)hid->lh() / 2));
     if (pic && shown) g.draw(pic, (float)kPortraitAt[i][0], (float)kPortraitAt[i][1], Mode(a));
   }
   if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
