@@ -955,7 +955,7 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
   (void)p;
   bMenu = patchButton(1000, msgMode && m == ChallengeLose ? "New Challenge" : msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   bNext = patchButton(1001, next, "IMAGE_DLG_BUTTON3", 0, 0);
-  if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
+  if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, a.game == Game::Nights ? "Play New Level" : "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
   countUp = m == AdventureWin || m == AdventureComplete;
   tgt[0] = o.shotPoints; tgt[1] = o.feverPoints; tgt[2] = o.stylePoints; tgt[3] = o.tryBonus; tgt[4] = o.effBonus;
   levelTgt = o.totalScore;
