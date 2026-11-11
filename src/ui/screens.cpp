@@ -603,10 +603,8 @@ void MainMenu::onButton(int id) {
   if (id == 3) app.menuUnlocked = false;
   switch (id) {
     case 0:
-      app.gameMode = GameMode::Adventure;
-      app.curStage = advStage;
-      app.curLevel = advLevel;
-      startGame();
+      if (app.bothGames) app.doAdventureQuestion();
+      else startAdventure();
       break;
     case 1:
       app.gameMode = GameMode::QuickPlay;
@@ -639,6 +637,13 @@ void MainMenu::onButton(int id) {
       break;
     case 9: app.showAdventureScreen(); break;
   }
+}
+
+void MainMenu::startAdventure() {
+  app.gameMode = GameMode::Adventure;
+  app.curStage = advStage;
+  app.curLevel = advLevel;
+  startGame();
 }
 
 void MainMenu::startGame() {

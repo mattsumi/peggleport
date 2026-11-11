@@ -3,7 +3,7 @@
 
 namespace pp::ui {
 
-enum class StartPlace { MainMenu };
+enum class StartPlace { MainMenu, Adventure };
 
 struct StartTarget {
   StartPlace place = StartPlace::MainMenu;

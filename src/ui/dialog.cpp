@@ -203,9 +203,9 @@ bool Dialog::input(const Input& in) {
     if (in.key == SDLK_TAB && !scrollActive) { cycleFocus((in.mod & SDL_KMOD_SHIFT) ? -1 : 1); return true; }
     if (!scrollActive && focusKey(in.key)) return true;
     keyDown(in.key, in.mod);
-    if (in.key == SDLK_ESCAPE && noBtn) { onButton(ID_NO); return true; }
+    if (in.key == SDLK_ESCAPE && noBtn) { onButton(escapeButton); return true; }
     if (in.key == SDLK_ESCAPE && buttonMode == BUTTONS_FOOTER) { onButton(ID_FOOTER); return true; }
-    if ((in.key == SDLK_RETURN || in.key == SDLK_KP_ENTER) && yesBtn && buttonMode != BUTTONS_NONE && !focusW) { onButton(ID_YES); return true; }
+    if ((in.key == SDLK_RETURN || in.key == SDLK_KP_ENTER) && yesBtn && buttonMode != BUTTONS_NONE && !focusW) { onButton(returnButton); return true; }
   }
   return Panel::input(in);
 }

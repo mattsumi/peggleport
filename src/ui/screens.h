@@ -52,6 +52,7 @@ class MainMenu : public Screen {
   void keyDown(int key, int mod) override;
   void syncPlayerInfo();
   void startGame();
+  void startAdventure();
   void drawSpeechBubble(Gfx& g, int which, float alpha, bool fading);
   static bool mantelEarned(App& app, int id);
   static int mantelAt(App& app, float mx, float my);

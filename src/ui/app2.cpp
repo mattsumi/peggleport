@@ -260,6 +260,19 @@ void App::dialogButton(int dlg, int btn) {
         if (auto* as = dynamic_cast<AdventureScreen*>(cur_.get())) as->startGame();
       }
       return;
+    case D_WhichAdventure: {
+      off(dlg);
+      if (btn != ID_YES && btn != ID_NO) return;
+      const Game wanted = yes ? Game::Deluxe : Game::Nights;
+      if (wanted != game) {
+        StartTarget target;
+        target.place = StartPlace::Adventure;
+        requestGameSwitch(wanted, target);
+      } else if (auto* mm = dynamic_cast<MainMenu*>(cur_.get())) {
+        mm->startAdventure();
+      }
+      return;
+    }
     case D_CreateUser: finishCreateUserDialog(yes); return;
     case D_NameError: case D_NameErrorRename: finishNameErrorDialog(dlg); return;
     case D_ToMenu: off(dlg); return;
@@ -285,6 +298,14 @@ void App::alignQuestionWithMenu(Dialog* d) {
   if (!o || !o->fromGame) return;
   o->layout();
   d->scrollTarget = o->y + o->mainMenu->y + o->mainMenu->h - d->h;
+}
+
+void App::doAdventureQuestion() {
+  Dialog* d = doDialog(D_WhichAdventure, true, "Adventure", "Which adventure do you want to play?", "", BUTTONS_YES_NO);
+  d->setYesNo("Peggle Deluxe", "Peggle Nights");
+  d->escapeButton = ID_CLOSE;
+  d->returnButton = game == Game::Nights ? ID_NO : ID_YES;
+  positionDialog(d, 400);
 }
 
 void App::doConfirmMainMenuDialog() {

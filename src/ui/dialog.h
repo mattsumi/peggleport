@@ -7,7 +7,7 @@
 namespace pp::ui {
 
 enum ButtonMode { BUTTONS_NONE = 0, BUTTONS_OK_CANCEL = 1, BUTTONS_YES_NO = 2, BUTTONS_FOOTER = 3 };
-enum { ID_YES = 1000, ID_NO = 1001, ID_FOOTER = 1000 };
+enum { ID_YES = 1000, ID_NO = 1001, ID_FOOTER = 1000, ID_CLOSE = 1002 };
 
 class Dialog : public Panel {
  public:
@@ -17,6 +17,7 @@ class Dialog : public Panel {
   std::string header, lines, footer;
   int buttonMode;
   Button *yesBtn = nullptr, *noBtn = nullptr;
+  int escapeButton = ID_NO, returnButton = ID_YES;
   float insL = 35, insT = 20, insR = 35, insB = 26;
   float spaceAfterHeader = 32;
   std::string headerFont = "OVERLOAD24GRAD1", linesFont = "PLAINOUTLINE";
