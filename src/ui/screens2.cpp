@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "ui/character_dialog.h"
 #include "ui/dialog.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
@@ -505,8 +506,9 @@ void StoryScreen::drawLayer(Gfx& g) {
   std::string head = stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1);
   g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, 45 + g.fontAscent("OVERLOAD24OUTLINE"), head, 0xddddff);
   const float aX = 53, aY = first ? 200.0f : 135.0f;
-  int ci = stage % 10;
-  Tex* portrait = g.img("IMAGE_CHR_CHARACTER" + std::to_string(ci + 1));
+  const bool nights = app.game == Game::Nights;
+  int ci = nights ? CharacterDialog::masterMetAt(app.game, stage) : stage % 10;
+  Tex* portrait = g.img(std::string(nights ? "IMAGE_CHR_CHARACTER_ADV" : "IMAGE_CHR_CHARACTER") + std::to_string(ci + 1));
   float pw = portrait ? portrait->lw() : 184, ph = portrait ? portrait->lh() : 184;
   float fade = boxes == 0 ? 0.0f : (boxFade > 0 ? boxFade / 20.0f : 1.0f);
   if (boxes > 0) {
@@ -547,7 +549,7 @@ void StoryScreen::drawLayer(Gfx& g) {
       float cx = (float)(53 + 64 * i), cy = 342 + 14;
       bool open = i <= unlocked && i < 10;
       if (i < 10) {
-        if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, i, 0);
+        if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, nights ? CharacterDialog::masterMetAt(app.game, i) : i, 0);
         if (!open) {
           if (Tex* lk = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lk, cx, cy, Mode(120 / 255.0f));
           if (chars) g.fill(cx, cy, chars->cw(), chars->ch(), 0x000000, 110 / 255.0f);
@@ -556,7 +558,7 @@ void StoryScreen::drawLayer(Gfx& g) {
         g.draw(q, cx, cy);
       }
       float cw = chars ? chars->cw() : 52, chh = chars ? chars->ch() : 52;
-      if (Tex* fr = i == stage % 10 ? sel : frame) g.drawBox(fr, cx - 5, cy - 8, cw + 10 + 1, chh + 10 + 5);
+      if (Tex* fr = i == (nights ? stage : stage % 10) ? sel : frame) g.drawBox(fr, cx - 5, cy - 8, cw + 10 + 1, chh + 10 + 5);
     }
   }
 }
