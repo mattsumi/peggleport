@@ -1106,10 +1106,11 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     y += lh * n + 6;
   }
   float buttons = (bRetry ? 2 : 1) * 36 + (bRetry ? 6 : 0) + insB + 8;
-  bool room = y + buttons + 44 <= 535;
+  const float tipH = tip.empty() ? 0.0f : std::max(44.0f, g.wrappedHeight("PLAIN2", w - insL - insR, tip));
+  bool room = y + buttons + tipH <= 535;
   if (!tip.empty() && room) {
-    if (draw) g.drawWrapped("PLAIN2", {insL, y, w - insL - insR, 44}, tip, 0xfdfd87, 1, Align::Center);
-    y += 52;
+    if (draw) g.drawWrapped("PLAIN2", {insL, y, w - insL - insR, tipH}, tip, 0xfdfd87, 1, Align::Center);
+    y += tipH + 8;
   }
   return y + buttons;
 }
