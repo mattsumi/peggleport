@@ -68,7 +68,7 @@ class GameScreen : public Screen {
   void lostFocus() override;
   void onLeave() override;
   void startChallengeLevel();
-  void restartLevel();
+  void restartLevel(bool fromMenu = true);
   bool hasProgress() const;
   void masterChosen(bool picked);
   void nextLevel();
@@ -134,6 +134,7 @@ class GameScreen : public Screen {
   int chosenMaster();
   int hudStage_ = 0, hudLevel_ = 0;
   int boardResets_ = 0;
+  void countLevelStart();
   int stageDialogDelay_ = 0;
   bool tipPaused_ = false;
   bool focusPaused_ = false;

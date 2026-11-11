@@ -195,6 +195,24 @@ void PlayerInfo::restartAdventure() {
   dirty = true;
 }
 
+void PlayerInfo::countLevelStart() {
+  advLevelAttempts++;
+  if (advLevelAttempts > 1) advRetries++;
+  dirty = true;
+}
+
+void PlayerInfo::uncountLevelStart() {
+  if (advLevelAttempts > 1 && advRetries > 0) advRetries--;
+  if (advLevelAttempts > 0) advLevelAttempts--;
+  dirty = true;
+}
+
+void PlayerInfo::countFailedTry() {
+  advLevelAttempts++;
+  if (advLevelAttempts > 0) advRetries++;
+  dirty = true;
+}
+
 void PlayerInfo::addTotalStats(const GameStats& s, bool current) {
   if (current) statsA.add(s);
   statsB.add(s);

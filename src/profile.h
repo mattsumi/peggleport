@@ -108,6 +108,10 @@ struct PlayerInfo {
   bool justBeatAdventure() const { return advCompletions > 0 && advStage == advStages && advLevel == 0 && advLevelAttempts == 0; }
   bool justStartingAdventure() const { return advStage <= 0 && advLevel == 0 && advLevelAttempts == 0; }
   void restartAdventure();
+  void countLevelStart();
+  void uncountLevelStart();
+  void countFailedTry();
+  int tryNumber(bool nights) const { return nights ? advLevelAttempts + 1 : (advLevelAttempts < 1 ? 1 : advLevelAttempts); }
   int efficiencyBonus() const;
   void awardTrophy(int id) { if (trophies.insert(id).second) dirty = true; }
   void checkTrophyTopScore(int id, int score);

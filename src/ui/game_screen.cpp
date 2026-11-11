@@ -56,6 +56,7 @@ GameScreen::GameScreen(App& a, bool fromAdventure, bool newLevel) : Screen(a) {
   mouseBx_ = (int)std::floor(a.mouseX) - 75;
   mouseBy_ = (int)std::floor(a.mouseY) - 40;
   haveMouse_ = true;
+  countLevelStart();
   ready_ = startLevel(name);
   guide = true;
 }
@@ -117,7 +118,7 @@ bool GameScreen::startLevel(const std::string& name) {
   cfg.boardWidth = app.boardWidthForNewBoard();
   bool adv = app.gameMode == GameMode::Adventure;
   setRuleInputs(cfg, app.curProfile, adv ? 5 * app.curStage + app.curLevel : -1, app.game == Game::Nights,
-                adv && app.curProfile ? app.curProfile->advLevelAttempts + 1 : 1, 0);
+                adv && app.curProfile ? app.curProfile->tryNumber(app.game == Game::Nights) : 1, 0);
   hudStage_ = app.curStage;
   hudLevel_ = app.curLevel;
   if (app.gameMode == GameMode::Challenge)
@@ -246,13 +247,14 @@ void GameScreen::startChallengeLevel() {
   ready_ = startLevel(levelFile_);
 }
 
-void GameScreen::restartLevel() {
+void GameScreen::countLevelStart() {
+  if (app.game == Game::Deluxe && app.gameMode == GameMode::Adventure && app.curProfile) app.curProfile->countLevelStart();
+}
+
+void GameScreen::restartLevel(bool fromMenu) {
   boardResets_++;
-  if (app.gameMode == GameMode::Adventure && app.curProfile) {
-    app.curProfile->advLevelAttempts++;
-    app.curProfile->advRetries++;
-    app.curProfile->dirty = true;
-  }
+  if (app.game == Game::Nights && fromMenu && app.gameMode == GameMode::Adventure && app.curProfile) app.curProfile->countFailedTry();
+  countLevelStart();
   seed = app.rand();
   ready_ = startLevel(levelFile_);
 }
@@ -659,6 +661,12 @@ void GameScreen::submitStats() {
 }
 
 void GameScreen::onLeave() {
+  PlayerInfo* p = app.curProfile;
+  if (p && ready_ && statsMode_ == GameMode::Adventure && !done_ && !viewer_ && !demo_) {
+    const bool played = board_.result.shots > 0;
+    if (app.game == Game::Deluxe && !played) p->uncountLevelStart();
+    else if (app.game == Game::Nights && played) p->countFailedTry();
+  }
   submitStats();
   app.saveProfile();
 }
@@ -682,7 +690,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
     if (won && p) {
       rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
       o.prevTotal = p->advScore;
-      o.tryNumber = p->advLevelAttempts + 1;
+      o.tryNumber = p->tryNumber(app.game == Game::Nights);
       o.tryBonus = tryBonus(o.tryNumber);
       p->advScore += o.totalScore + o.tryBonus;
       if (o.cleared) p->clearedLevels.insert(levelFile_);
@@ -697,6 +705,8 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         mode = EndLevelDialog::AdventureComplete;
         if (app.boardRenderer) app.boardRenderer->masterBadge();
       }
+    } else if (!won && p && app.game == Game::Nights) {
+      p->countFailedTry();
     }
   } else {
     mode = won ? (app.gameMode == GameMode::Challenge ? EndLevelDialog::ChallengeWin : EndLevelDialog::QuickWin)
@@ -829,6 +839,7 @@ void GameScreen::nextLevel() {
   levelFile_.clear();
   if (const LevelInfo* li = app.curLevelInfo()) levelFile_ = li->file;
   seed = app.rand();
+  countLevelStart();
   ready_ = startLevel(levelFile_);
 }
 

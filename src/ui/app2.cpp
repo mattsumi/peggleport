@@ -392,7 +392,7 @@ void App::endLevelButton(int id, int mode) {
     challengeKeepLives = true;
     gs->startChallengeLevel();
   } else if (win || m == EndLevelDialog::ChallengeLevelDone) {
-    if (m == EndLevelDialog::QuickWin) gs->restartLevel();
+    if (m == EndLevelDialog::QuickWin) gs->restartLevel(false);
     else if (challengeMore) {
       challengeMore = false;
       const TrophyInfo* t = trophies.byId(curChallenge);
@@ -406,7 +406,7 @@ void App::endLevelButton(int id, int mode) {
     if (t && !t->levels.empty() && t->levels[0] != "pick") challengeLevel = resolveChallengeLevel(t->levels[0]);
     gs->startChallengeLevel();
   } else {
-    gs->restartLevel();
+    gs->restartLevel(false);
   }
 }
 
