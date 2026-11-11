@@ -78,8 +78,8 @@ class NetEdit : public EditBox {
     if (Tex* box = g.img("IMAGE_DLG_TEXTBOX")) g.drawBox(box, 0, 0, w, h);
     else g.fill(0, 0, w, h, 0x000000, 0.6f);
     float asc = g.fontAscent(font);
-    g.drawString(font, 14, (h + asc * 0.8f) / 2, value, 0x14204a);
-    if (focused && (tick / 40) % 2 == 0) g.fill(14 + g.textWidth(font, value.substr(0, caret)), 5, 1, h - 10, 0x14204a);
+    g.drawString(font, textPad, (h + asc * 0.8f) / 2, value, 0x14204a);
+    if (focused && (tick / 40) % 2 == 0) g.fill(textPad + g.textWidth(font, value.substr(0, caret)), 5, 1, h - 10, 0x14204a);
   }
 };
 
@@ -151,28 +151,30 @@ class OnlineScreen : public Screen {
         if (mods[k].key() == prefs_.masterMod) master_ = (a.game == Game::Nights ? 11 : 10) + (int)k;
     }
 
-    auto edit = [&](int id, float x, float y, float w, size_t maxChars) {
+    auto edit = [&](int id, float x, float y, float w, size_t maxChars, float pad, float room) {
       auto e = std::make_unique<NetEdit>();
       e->id = id;
       e->gfx = &a.gfx;
       e->font = e->widthFont = "PLAIN";
       e->maxChars = maxChars;
-      e->maxWidth = w - 30;
+      e->textPad = pad;
+      e->maxWidth = room;
       e->x = x; e->y = y - 4; e->w = w; e->h = 36;
       return add(std::move(e));
     };
-    lobbyEdit_ = edit(E_Lobby, 150, 82, 390, 64);
+    const float joinW = std::max(94.0f, capsWidth(a.gfx.img("IMAGE_DLG_BUTTON3")));
+    lobbyEdit_ = edit(E_Lobby, 150, 82, 390, 64, 14, 360);
     lobbyEdit_->value = prefs_.lobby.empty() ? "localhost:7770" : prefs_.lobby;
     lobbyEdit_->caret = (int)lobbyEdit_->value.size();
     lobbyEdit_->onEnter = [this] { held_ = false; startList(); };
-    codeEdit_ = edit(E_Code, 556, 176, 100, 5);
+    codeEdit_ = edit(E_Code, 556, 176, 204 - joinW, 5, 10, 204 - joinW - 20);
     codeEdit_->onEnter = [this] { onButton(B_Join); };
     focusW = lobbyEdit_;
     lobbyEdit_->focused = true;
 
     auto btn = [&](int id, const char* label, float x, float y, float w) {
       Button* b = patchButton(id, label, "IMAGE_DLG_BUTTON3", x, y);
-      b->w = w;
+      b->w = std::max(w, capsWidth(b->image));
       return b;
     };
     auto arrow = [&](int id, bool left, float y) {
@@ -190,7 +192,7 @@ class OnlineScreen : public Screen {
       return add(std::move(b));
     };
     bRefresh_ = btn(B_Refresh, "Refresh", 556, 80, 204);
-    bJoin_ = btn(B_Join, "Join", 666, 172, 94);
+    bJoin_ = btn(B_Join, "Join", 760 - joinW, 172, joinW);
     bPaste_ = btn(B_Paste, "Paste Invite", 556, 224, 204);
     bCreate_ = btn(B_Create, "Create Room", 556, 276, 204);
     bTest_ = btn(B_Test, "Test connection", 556, bCreate_->y + bCreate_->h + 14, 204);

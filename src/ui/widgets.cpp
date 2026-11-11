@@ -195,9 +195,9 @@ void EditBox::draw(Gfx& g) {
   }
   float asc = g.fontAscent(font);
   float ty = (h + asc * 0.8f) / 2;
-  g.drawString(font, 4, ty, value, ink);
+  g.drawString(font, textPad, ty, value, ink);
   if (focused && (tick / 40) % 2 == 0) {
-    float cx = 4 + g.textWidth(font, value.substr(0, caret));
+    float cx = textPad + g.textWidth(font, value.substr(0, caret));
     g.fill(cx, 3, 1, h - 6, ink);
   }
 }

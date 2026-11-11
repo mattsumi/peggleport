@@ -117,6 +117,7 @@ class EditBox : public Widget {
   float maxWidth = 190;
   std::string widthFont = "OVERLOAD24";
   int caret = 0, tick = 0;
+  float textPad = 4;
   bool paper = false;
   uint32_t ink = 0xffffff;
   bool wantsFocus() const override { return true; }
