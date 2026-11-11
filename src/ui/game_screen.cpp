@@ -138,7 +138,11 @@ bool GameScreen::startLevel(const std::string& name) {
         if (app.challengeStep == 0 && !app.challengeKeepLives) { app.challengeLives = std::max(1, t->lives); app.challengeScore = 0; }
         if (!ownChoice || charChosen_) app.challengeKeepLives = false;
         if (!t->scoreReset && app.challengeStep > 0) cfg.startScore = app.challengeScore;
-      } else if (ng != t->raw.end() && ng->second.find("true") != std::string::npos) cfg.greens = false;
+      } else {
+        if (ng != t->raw.end() && ng->second.find("true") != std::string::npos) cfg.greens = false;
+        if (app.challengeStep == 0) app.challengeScore = 0;
+        else if (!t->scoreReset) cfg.startScore = app.challengeScore;
+      }
       auto ch = t->raw.find("Characters");
       if (ch != t->raw.end()) {
         int k = masterIndexByName(ch->second);
@@ -606,7 +610,7 @@ void GameScreen::finishLevel() {
   bool won = o.won;
   if (app.gameMode == GameMode::Challenge)
     if (const TrophyInfo* t = app.trophies.byId(app.curChallenge))
-      if (!cfg_.ch.active && t->scoreReq > 0 && o.totalScore < t->scoreReq) { won = false; o.won = false; }
+      if (!cfg_.ch.active && t->scoreReq > 0 && app.challengeStep + 1 >= (int)t->levels.size() && o.totalScore < t->scoreReq) { won = false; o.won = false; }
   if (app.game == Game::Nights && app.gameMode == GameMode::Challenge && cfg_.ch.active && !won) {
     const ChallengeRules& c = cfg_.ch;
     const LevelResult& r = board_.result;
@@ -717,6 +721,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
       const TrophyInfo* ct = app.trophies.byId(app.curChallenge);
       const bool moreLevels = ct && app.challengeStep + 1 < (int)ct->levels.size();
       app.challengeMore = won && moreLevels;
+      if (app.challengeMore && !ct->scoreReset && !cfg_.ch.active && !duel_) app.challengeScore = o.totalScore;
       if (app.game == Game::Nights && ct && cfg_.ch.active && !duel_) {
         if (!ct->scoreReset && moreLevels) {
           mode = EndLevelDialog::ChallengeLevelDone;
