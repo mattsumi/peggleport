@@ -390,6 +390,7 @@ class OnlineScreen : public Screen {
     sess_.reset();
     room_ = false;
     setStatus(msg, kind);
+    held_ = kind == 1 && !msg.empty();
     layout();
     startList();
   }
@@ -489,6 +490,7 @@ class OnlineScreen : public Screen {
       else if (!j->ok) {
         sess_.reset();
         setStatus(jobKind_ == Host ? "Could not open a room: " + j->err : "Could not join: " + j->err, 1);
+        held_ = true;
         startList();
       } else enterRoom();
     }
@@ -500,14 +502,14 @@ class OnlineScreen : public Screen {
   void tickRoom() {
     sess_->poll();
     if (!sess_->notice.empty()) { setStatus(sess_->notice, 1); sess_->notice.clear(); }
-    if (sess_->failed()) { leaveRoom(sess_->error.empty() ? "The room was closed." : sess_->error, 1); return; }
+    if (sess_->failed()) { leaveRoom(sess_->error.empty() ? std::string("The room was closed.") : drawableText(cleanText(sess_->error, 240)), 1); return; }
     if (!isHost_ && sess_->welcomed() && !guestChecked_) {
       std::string err;
       const MatchInfo& mi = sess_->info();
       LevelBundle lb;
       pp::log::info("net", "the host chose the level " + levelLogName(app, mi.level));
       if (!mi.missingMaster.empty()) {
-        leaveRoom("The host picked the Master \"" + mi.missingMaster + "\" from a mod that you do not have, so you cannot join this room.", 1);
+        leaveRoom("The host picked the Master \"" + drawableText(cleanText(mi.missingMaster, 64)) + "\" from a mod that you do not have, so you cannot join this room.", 1);
         return;
       }
       if (!loadLevel(mi.level, &lb, &err)) {
