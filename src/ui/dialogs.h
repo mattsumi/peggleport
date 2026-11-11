@@ -73,6 +73,7 @@ class OptionsDialog : public Dialog {
   Button* visuals = nullptr;
   Button* widescreen;
   Button* homeBtn = nullptr;
+  Button* demoBtn = nullptr;
   float extraH = 0;
   void updateWidescreenLabel();
   void updateHomeLabel();

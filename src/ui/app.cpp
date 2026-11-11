@@ -625,6 +625,19 @@ void App::showBoard(bool fromAdventure, bool newLevel) {
   setScreen(std::make_unique<GameScreen>(*this, fromAdventure, newLevel), Left);
 }
 
+void App::startDemo() {
+  const PlayerInfo* p = curProfile;
+  if (p && p->maxStage < 2) {
+    doNotYet("^FFFF00^DEMO MODE LOCKED!^oldclr^\nThis mode shows how the Masters play.\n\n^FFFF00^To Unlock:^oldclr^\nFinish Stage 2 of Adventure Mode!");
+    return;
+  }
+  finishOptionsDialog(true, true);
+  gameMode = GameMode::Demo;
+  curStage = (int)(rand() % (unsigned)(std::min(p ? p->maxStage : 0, numStages() - 1) + 1));
+  curLevel = (int)(rand() % 5u);
+  showBoard(true, true);
+}
+
 void App::startAdventureGame() {
   if (curProfile && curProfile->justBeatAdventure()) {
     curProfile->restartAdventure();

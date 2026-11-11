@@ -185,6 +185,7 @@ class App : public WidgetHost {
   int modApplyCount() const { return modApplyCount_; }
   std::function<void()> modAssetsHook;
   void showBoard(bool fromAdventure, bool newLevel);
+  void startDemo();
   void startAdventureGame();
   void showIntroScreen();
   void showProgressScreen(int mode);

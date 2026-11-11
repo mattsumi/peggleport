@@ -600,7 +600,6 @@ void MainMenu::keyDown(int key, int) {
 
 void MainMenu::onButton(int id) {
   if (online::handleMenuButton(app, id)) return;
-  const PlayerInfo* p = app.curProfile;
   if (id >= 1 && id <= 3) app.menuNewLevels = false;
   if (id == 3) app.menuUnlocked = false;
   switch (id) {
@@ -622,16 +621,7 @@ void MainMenu::onButton(int id) {
       break;
     case 4: app.doReplaysDialog(); break;
     case 5: app.doOptionsDialog(); break;
-    case 6:
-      if (p && p->maxStage < 2) {
-        app.doNotYet("^FFFF00^DEMO MODE LOCKED!^oldclr^\nThis mode shows how the Masters play.\n\n^FFFF00^To Unlock:^oldclr^\nFinish Stage 2 of Adventure Mode!");
-        return;
-      }
-      app.gameMode = GameMode::Demo;
-      app.curStage = (int)(app.rand() % (unsigned)(std::min(p ? p->maxStage : 0, app.numStages() - 1) + 1));
-      app.curLevel = (int)(app.rand() % 5u);
-      app.showBoard(true, true);
-      break;
+    case 6: app.startDemo(); break;
     case 7: app.doConfirmQuitDialog(); break;
     case 8:
       app.playSample("BUTTON1");
