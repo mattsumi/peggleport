@@ -276,7 +276,7 @@ void ProgressScreen::update() {
   prevHovered = hovered;
 }
 
-void ProgressScreen::drawLayer(Gfx& g) {
+void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
   if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
   const PlayerInfo* p = app.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
@@ -308,6 +308,13 @@ void ProgressScreen::drawLayer(Gfx& g) {
     if (Tex* hole = g.img("IMAGE_TROPHY_HOLE")) g.draw(hole, 400 - hole->lw() / 2, 380, Mode(0.6f, 0xffffff, true));
     if (Tex* adv = g.img("IMAGE_TROPHY_ADV")) g.draw(adv, 400 - adv->lw() / 2, 392 - adv->lh() + 10);
   }
+}
+
+void ProgressScreen::drawLayer(Gfx& g) {
+  drawTrophyRoom(g, app, newest, t);
+  const PlayerInfo* p = app.curProfile;
+  int cleared = p ? std::min(p->maxStage, 11) : 0;
+  if (p && p->advCompletions > 0) cleared = 11;
   if (hovered >= 0 && hovered < cleared && !(hovered == newest && t < 100)) {
     const StageInfo* st = app.stages.stage(hovered);
     std::string txt;

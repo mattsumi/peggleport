@@ -93,7 +93,7 @@ class AdventureScreen : public Screen {
   void drawPersonalHighScores(Gfx& g, float x, float y);
   void drawStats(Gfx& g, float x, float y, bool current);
   void drawFrame(Gfx& g, float x, float y, float w, float h, const std::string& title);
-  bool hasSave = false;
+  bool hasSave = false, nights = false;
   Button *bContinue, *bRestart, *bMenu;
 };
 
@@ -219,5 +219,6 @@ class IntroScreen : public Screen {
 };
 
 void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha = 1.0f, int pointer = 0);
+void drawTrophyRoom(Gfx& g, App& app, int newest, int t);
 
 }

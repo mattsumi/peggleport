@@ -33,6 +33,14 @@ static uint32_t rankColor(int rank) {
 
 
 AdventureScreen::AdventureScreen(App& a) : Screen(a) {
+  nights = a.game == Game::Nights;
+  if (nights) {
+    a.playMusic("music/progress.ogg");
+    bContinue = patchButton(0, "Trophies", "IMAGE_DLG_BROWNBUTTON1", 0x1fc, 0x227);
+    bRestart = nullptr;
+    bMenu = patchButton(2, "Main Menu", "IMAGE_DLG_BROWNBUTTON1", 199, 0x227);
+    return;
+  }
   a.playMusic("fadeout");
   PlayerInfo* p = a.curProfile;
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BROWNBUTTON1", 0x1fc, 0x227);
@@ -126,15 +134,22 @@ void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
 
 void AdventureScreen::drawLayer(Gfx& g) {
   PlayerInfo* p = app.curProfile;
-  int st = p ? std::clamp(p->advStage, 0, std::max(0, app.numStages() - 1)) : 0, lv = p ? std::clamp(p->advLevel, 0, 5) : 0;
-  const StageInfo* si = app.stages.stage(st);
-  const LevelInfo* li = si ? si->level(std::min(lv, (int)si->levels.size() - 1)) : nullptr;
-  g.fill(0, 0, 800, 600, 0x000020);
-  if (li)
-    if (Tex* t = g.img("levels/" + li->file)) g.drawStretch(t, 0x41, 0x41, 800 - 0x5f - 0x41, 600 - 0x2d - 0x41);
+  std::string title;
+  if (nights) {
+    drawTrophyRoom(g, app, -1, 0);
+    title = (p ? p->name : std::string()) + "'s Stats";
+  } else {
+    int st = p ? std::clamp(p->advStage, 0, std::max(0, app.numStages() - 1)) : 0, lv = p ? std::clamp(p->advLevel, 0, 5) : 0;
+    const StageInfo* si = app.stages.stage(st);
+    const LevelInfo* li = si ? si->level(std::min(lv, (int)si->levels.size() - 1)) : nullptr;
+    g.fill(0, 0, 800, 600, 0x000020);
+    if (li)
+      if (Tex* t = g.img("levels/" + li->file)) g.draw(t, (float)((800 - (int)t->lw()) / 2), (float)((600 - (int)t->lh()) / 2));
+    int stg = p ? std::clamp(p->advStage + 1, 1, 11) : 1, lvl = p ? std::clamp(p->advLevel + 1, 1, 5) : 1;
+    title = "Adventure Stage " + std::to_string(stg) + "-" + std::to_string(lvl);
+  }
   if (Tex* fr = g.img("IMAGE_ADV_ADVENTURE")) g.draw(fr, 0, 0);
-  int stg = p ? std::clamp(p->advStage + 1, 0, 11) : 0, lvl = p ? std::clamp(p->advLevel + 1, 0, 5) : 0;
-  g.drawString("OVERLOAD24GRAD1", 400, 0x30, "Adventure Stage " + std::to_string(stg) + "-" + std::to_string(lvl), 0xaaffff, 1, Align::Center);
+  g.drawString("OVERLOAD24GRAD1", 400, 0x30, title, 0xaaffff, 1, Align::Center);
   drawHighScores(g, 100, 0x78);
   drawPersonalHighScores(g, 0x1a4, 0x78);
   drawStats(g, 100, 0x168, false);
@@ -142,7 +157,7 @@ void AdventureScreen::drawLayer(Gfx& g) {
 }
 
 void AdventureScreen::drawOverlay(Gfx& g) {
-  if (!bRestart->visible)
+  if (bRestart && !bRestart->visible)
     if (Tex* c = g.img("IMAGE_ADV_RESTART_COVER")) g.drawStretch(c, 0x131, 0x21b, 0xaa, c->lh());
 }
 
@@ -151,7 +166,8 @@ void AdventureScreen::startGame() {
 }
 
 void AdventureScreen::onButton(int id) {
-  if (id == 0) startGame();
+  if (id == 0 && nights) app.showProgressScreen(0);
+  else if (id == 0) startGame();
   else if (id == 1) app.doConfirmRestartAdventureDialog();
   else if (id == 2) app.showMainMenu();
 }

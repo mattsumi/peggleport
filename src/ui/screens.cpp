@@ -339,9 +339,9 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   };
   bReplay = brown(4, "Replays", 7);
   bOptions = brown(5, "Options", 9);
-  bDemo = brown(6, "Demos", 11);
+  bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demos", 11);
   bQuit = patchButton(7, "Quit", "IMAGE_DLG_PURPLEBUTTON", 7, 0x215);
-  bQuit->hoverPitch = 13;
+  bQuit->hoverPitch = isNights ? 12.0f : 13.0f;
   online::addMainMenuButton(*this);
   auto lk = std::make_unique<Button>();
   lk->id = 8;
@@ -445,13 +445,13 @@ void MainMenu::updateBubbles() {
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) any = any || b->over || b->down;
   if (app.getDialog(D_Locked) || app.hasModal()) {
   } else if (!any) {
-    if (trophyTier > 0 && app.mouseX >= 330 && app.mouseX < 490 && app.mouseY >= 200 && app.mouseY < 425) setBubble(trophyTier + 8, 50);
+    if (!isNights && trophyTier > 0 && app.mouseX >= 330 && app.mouseX < 490 && app.mouseY >= 200 && app.mouseY < 425) setBubble(trophyTier + 8, 50);
     else setBubble(0, 15);
   } else {
     if (bQuit->over) setBubble(8, 15);
     else if (bOptions->over) setBubble(7, 15);
     else if (bReplay->over) setBubble(6, 15);
-    else if (bDemo->over) setBubble(5, 15);
+    else if (bDemo->over) setBubble(isNights ? 9 : 5, 15);
     else if (bDuel->over) setBubble(3, 15);
     else if (bChal->over) setBubble(4, 15);
     else if (bSolo->over) setBubble(2, 15);
@@ -508,7 +508,7 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
       case 6: s = "View instant replays\nthat you've saved!"; break;
       case 7: s = "Set options like sound volume\nand colorblind mode.\nHelp is also available here."; break;
       case 8: s = "See you again soon!"; break;
-      case 9: s = "This trophy is awarded for completing Adventure Mode!"; break;
+      case 9: s = isNights ? "Check your progress\nthrough the game." : "This trophy is awarded for completing Adventure Mode!"; break;
       case 10: s = "This trophy is awarded for beating all of the challenges!"; break;
       case 11: s = "This trophy is awarded for beating all of the challenges and clearing all of the levels!"; break;
     }
@@ -637,6 +637,7 @@ void MainMenu::onButton(int id) {
       app.playSample("BUTTON1");
       app.doUserDialog();
       break;
+    case 9: app.showAdventureScreen(); break;
   }
 }
 
@@ -646,8 +647,10 @@ void MainMenu::startGame() {
     case GameMode::Adventure:
       if (p && p->advCompletions > 0) {
         if (p->justBeatAdventure()) p->restartAdventure();
-        app.showAdventureScreen();
-        return;
+        if (!isNights) {
+          app.showAdventureScreen();
+          return;
+        }
       }
       app.startAdventureGame();
       return;
