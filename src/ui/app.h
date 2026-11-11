@@ -81,6 +81,7 @@ class Screen : public Panel {
   virtual int canvasWidth() const { return 800; }
   virtual int canvasHeight() const { return 600; }
   virtual void lostFocus() {}
+  virtual void onLeave() {}
 };
 
 class App : public WidgetHost {

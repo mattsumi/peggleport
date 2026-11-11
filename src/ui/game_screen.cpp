@@ -80,6 +80,7 @@ template <class C>
 static void setRuleInputs(C&, const PlayerInfo*, int, bool, int, long) {}
 
 bool GameScreen::startLevel(const std::string& name) {
+  submitStats();
   if (app.game == Game::Nights) {
     app.mantelBefore = 0;
     for (int i = 0; i < 4; i++) app.mantelBefore |= MainMenu::mantelEarned(app, i) ? 1 << i : 0;
@@ -170,6 +171,8 @@ bool GameScreen::startLevel(const std::string& name) {
     return false;
   }
   done_ = endShown_ = false;
+  statsSent_ = false;
+  statsMode_ = app.gameMode;
   overTicks = 0;
   pauseCount_ = pauseFade_ = 0;
   focusPaused_ = false;
@@ -471,7 +474,7 @@ LevelOutcome GameScreen::collectOutcome() const {
   o.shotPoints = r.shotPoints;
   o.feverPoints = r.feverPoints;
   o.stylePoints = r.stylePoints;
-  o.freeBalls = r.freeBalls;
+  o.freeBalls = r.freeBallTotal();
   o.ballsLeft = r.finished ? r.ballsLeft : b.ballsLeft[0];
   o.orangeTotal = r.orangeTotal ? r.orangeTotal : b.orangeTotal;
   o.orangeHit = r.orangeTotal ? r.orangeHit : b.orangeTotal - b.orangeLeft;
@@ -596,6 +599,26 @@ void GameScreen::finishLevel() {
   applyProgress(o, won);
 }
 
+void GameScreen::submitStats() {
+  PlayerInfo* p = app.curProfile;
+  const LevelResult& r = board_.result;
+  if (statsSent_ || !p || duel_ || demo_ || viewer_ || r.shots <= 0) return;
+  if (statsMode_ != GameMode::Adventure && statsMode_ != GameMode::QuickPlay && statsMode_ != GameMode::Challenge) return;
+  statsSent_ = true;
+  GameStats s;
+  s.shots = r.shots;
+  s.bestShot = r.bestShot;
+  s.bestFever = r.bestFever;
+  for (int i = 0; i < 4; i++) s.freeBalls[i] = r.freeBalls[i];
+  for (int i = 0; i < 20; i++) s.styleShots[i] = r.styleCount[i];
+  p->addTotalStats(s, app.game == Game::Deluxe || statsMode_ == GameMode::Adventure);
+}
+
+void GameScreen::onLeave() {
+  submitStats();
+  app.saveProfile();
+}
+
 static int tryBonus(int tryNumber) {
   return tryNumber == 1 ? 100000 : tryNumber == 2 ? 50000 : tryNumber == 3 ? 25000 : 0;
 }
@@ -608,11 +631,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   EndLevelDialog::Mode mode = EndLevelDialog::QuickLose;
   const LevelInfo* li = app.curLevelInfo();
   std::string title = li ? li->title : levelFile_;
-  if (p) {
-    p->statsA.a0 += o.shots;
-    p->statsB.a0 += o.shots;
-    if (o.bestShot > p->statsB.bestShot) p->statsB.bestShot = o.bestShot;
-  }
+  submitStats();
   if (app.gameMode == GameMode::Adventure) {
     mode = won ? EndLevelDialog::AdventureWin : EndLevelDialog::AdventureLose;
     if (won && p) {

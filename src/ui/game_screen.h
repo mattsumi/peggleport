@@ -66,6 +66,7 @@ class GameScreen : public Screen {
   bool input(const Input& in) override;
   void keyDown(int key, int mod) override;
   void lostFocus() override;
+  void onLeave() override;
   void startChallengeLevel();
   void restartLevel();
   void nextLevel();
@@ -93,6 +94,9 @@ class GameScreen : public Screen {
   bool startLevel(const std::string& name);
   void finishLevel();
   void applyProgress(const LevelOutcome& o, bool won);
+  void submitStats();
+  bool statsSent_ = false;
+  GameMode statsMode_ = GameMode::None;
   void pushMouse();
   bool duel_ = false;
   int aiWait_ = 0, aiState_ = 0, aiTick_ = 0;

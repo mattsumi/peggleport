@@ -105,26 +105,31 @@ static bool ieq(const std::string& a, const std::string& b) {
 
 
 void GameStats::add(const GameStats& o) {
-  a0 += o.a0;
+  shots += o.shots;
   bestShot = std::max(bestShot, o.bestShot);
-  a8 = std::max(a8, o.a8);
+  bestFever = std::max(bestFever, o.bestFever);
   for (int i = 0; i < 4; i++) freeBalls[i] += o.freeBalls[i];
   for (int i = 0; i < 20; i++) styleShots[i] += o.styleShots[i];
 }
+int GameStats::totalStyleShots() const {
+  int n = 0;
+  for (int v : styleShots) n += v;
+  return n;
+}
 void GameStats::write(DataWriter& w) const {
   w.u8(version);
-  w.i32(a0);
+  w.i32(shots);
   w.i32(bestShot);
-  w.i32(a8);
+  w.i32(bestFever);
   for (int v : freeBalls) w.i32(v);
   w.i32(20);
   for (int v : styleShots) w.i32(v);
 }
 bool GameStats::read(DataReader& r) {
   version = r.u8();
-  a0 = r.i32();
+  shots = r.i32();
   bestShot = r.i32();
-  a8 = r.i32();
+  bestFever = r.i32();
   for (int& v : freeBalls) v = r.i32();
   int count = r.i32();
   if (count != 20) return false;
@@ -186,6 +191,13 @@ void PlayerInfo::restartAdventure() {
   advStage = 0;
   advLevel = 0;
   storyPending = true;
+  statsA.reset();
+  dirty = true;
+}
+
+void PlayerInfo::addTotalStats(const GameStats& s, bool current) {
+  if (current) statsA.add(s);
+  statsB.add(s);
   dirty = true;
 }
 

@@ -84,9 +84,9 @@ bool readVecInt(DataReader& r) {
 
 bool readStats(DataReader& r, GameStats& g, uint32_t styleCount) {
   g.version = r.u8();
-  g.a0 = r.i32();
+  g.shots = r.i32();
   g.bestShot = r.i32();
-  g.a8 = r.i32();
+  g.bestFever = r.i32();
   for (int& v : g.freeBalls) v = r.i32();
   uint32_t count = r.u32();
   if (!r.ok() || count != styleCount) return false;

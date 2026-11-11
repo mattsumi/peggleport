@@ -213,14 +213,15 @@ struct BoardConfig {
 struct LevelResult {
   bool finished = false, won = false, cleared = false;
   int totalScore = 0;
-  int shots = 0, pegsHit = 0, bestShot = 0;
+  int shots = 0, pegsHit = 0, bestShot = 0, bestFever = 0;
   int shotPoints = 0, feverPoints = 0, stylePoints = 0;
-  int freeBalls = 0;
+  int freeBalls[4]{};
   int styleCount[24]{};
   int ballsLeft = 0;
   int orangeTotal = 0, orangeHit = 0, pegsTotal = 0, pegsCleared = 0;
   int ticks = 0;
   int percentCleared() const { return pegsTotal ? pegsCleared * 100 / pegsTotal : 0; }
+  int freeBallTotal() const { return freeBalls[0] + freeBalls[1] + freeBalls[2] + freeBalls[3]; }
 };
 
 class AIMgr;

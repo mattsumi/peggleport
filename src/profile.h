@@ -58,11 +58,13 @@ class DataReader {
 
 struct GameStats {
   uint8_t version = 1;
-  int32_t a0 = 0, bestShot = 0, a8 = 0;
+  int32_t shots = 0, bestShot = 0, bestFever = 0;
   int32_t freeBalls[4]{};
   int32_t styleShots[20]{};
   void reset() { *this = GameStats(); }
   void add(const GameStats& o);
+  int totalFreeBalls() const { return freeBalls[0] + freeBalls[1] + freeBalls[2] + freeBalls[3]; }
+  int totalStyleShots() const;
   void write(DataWriter& w) const;
   bool read(DataReader& r);
 };
@@ -111,7 +113,7 @@ struct PlayerInfo {
   void checkTrophyTopScore(int id, int score);
   int trophyTopScore(int id) const { auto it = trophyTop.find(id); return it == trophyTop.end() ? 0 : it->second; }
   void submitAdventureScore(int score);
-  void addTotalStats(const GameStats& s) { statsA.add(s); statsB.add(s); dirty = true; }
+  void addTotalStats(const GameStats& s, bool current);
   bool tipSet(int id) const { return (tipsMask & (1 << (id & 31))) != 0; }
   void setTip(int id) { tipsMask |= 1 << (id & 31); dirty = true; }
   void incTip(int id);

@@ -264,7 +264,10 @@ void App::saveAll() {
   settings.save(userDir.parent_path() / "settings.ini");
 }
 
-void App::shutdown() { saveAll(); }
+void App::shutdown() {
+  if (cur_) cur_->onLeave();
+  saveAll();
+}
 
 void App::incLevel(int delta) {
   const StageInfo* st = stages.stage(curStage);
@@ -389,6 +392,7 @@ void App::setScreen(std::unique_ptr<Screen> s, Dir offDir) {
   scrollDir = 0;
   if (cur_) {
     Screen* old = cur_.get();
+    old->onLeave();
     scrollOff(old, offDir, true);
     movers_.back().owned = std::move(cur_);
   } else if (offDir == Down) {

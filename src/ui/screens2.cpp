@@ -48,14 +48,16 @@ AdventureScreen::AdventureScreen(App& a) : Screen(a) {
 
 void AdventureScreen::drawFrame(Gfx& g, float x, float y, float w, float h, const std::string& title) {
   g.fill(x, y, w, h, 0x000000, 128 / 255.0f);
-  g.frame(x, y, w, h, 0xffd605, 0.8f);
-  g.drawString("OVERLOAD16OUTLINE", x + w / 2, y + 20 + 0, title, 0xffd605, 1, Align::Center);
+  g.fill(x, y - 20, w, 20, 0x000000, 128 / 255.0f);
+  const float tw = g.textWidth("OVERLOAD16OUTLINE", title);
+  g.drawString("OVERLOAD16OUTLINE", x + std::floor((w - tw) / 2), y + 5, title, app.game == Game::Nights ? 0xd375ffu : 0xffd305u);
+  if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, x - 8, y - 28, w + 16, h + 36);
 }
 
 void AdventureScreen::drawHighScores(Gfx& g, float x, float y) {
   drawFrame(g, x, y, 0x118, 0xbe, "High Scores");
   const auto& hs = app.highScores.scores("_adventure");
-  float rowH = g.fontHeight("OVERLOAD12OUTLINE") + 0, ay = y + 0x19 + 18;
+  float rowH = g.fontHeight("OVERLOAD12OUTLINE"), ay = y + 0x19;
   float ax = x + 10, nameX = ax + 0x28, scoreR = nameX + 0xdc;
   for (int r = 1; r <= 10; r++) {
     uint32_t col = 0xffffff;
@@ -73,7 +75,7 @@ void AdventureScreen::drawHighScores(Gfx& g, float x, float y) {
 void AdventureScreen::drawPersonalHighScores(Gfx& g, float x, float y) {
   drawFrame(g, x, y, 0x118, 0xbe, "Your Best Scores");
   PlayerInfo* p = app.curProfile;
-  float rowH = g.fontHeight("OVERLOAD12OUTLINE"), ay = y + 0x19 + 18;
+  float rowH = g.fontHeight("OVERLOAD12OUTLINE"), ay = y + 0x19;
   float ax = x + 10, nameX = ax + 0x28, scoreR = nameX + 0xdc;
   std::vector<int> sc;
   if (p) for (auto it = p->advScores.rbegin(); it != p->advScores.rend(); ++it) sc.push_back(*it);
@@ -89,20 +91,37 @@ void AdventureScreen::drawPersonalHighScores(Gfx& g, float x, float y) {
   }
 }
 
-void AdventureScreen::drawStats(Gfx& g, float x, float y, bool lifetime) {
-  drawFrame(g, x, y, 280, 140, lifetime ? "Lifetime Stats" : "Adventure Stats");
+void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
+  const bool nights = app.game == Game::Nights;
+  const float w = 280, h = nights ? 150.0f : 140.0f;
+  drawFrame(g, x, y, w, h, !current ? "Your All-Time Stats" : nights ? "Current Adventure Stats" : "Your Current Stats");
   PlayerInfo* p = app.curProfile;
   if (!p) return;
-  const GameStats& s = lifetime ? p->statsB : p->statsA;
-  float ay = y + 48;
-  auto row = [&](const char* l, const std::string& v) {
-    g.drawString("OVERLOAD12OUTLINE", x + 14, ay, l, 0xffffff);
-    g.drawString("OVERLOADMONO12", x + 266 - g.textWidth("OVERLOADMONO12", v), ay, v, 0xffffaa);
-    ay += g.fontHeight("OVERLOAD12OUTLINE") + 4;
+  const GameStats& s = current ? p->statsA : p->statsB;
+  const char* font = "OVERLOAD12OUTLINE";
+  const float step = g.fontHeight(font);
+  float ay = y + 25;
+  auto row = [&](const char* label, long long value, long long total = 0) {
+    std::string v = commas(value);
+    if (total > 0) v += " / " + std::to_string(total);
+    g.drawString(font, x + 10, ay, label, nights ? 0x00ffffu : 0xffff00u);
+    g.drawString(font, x + w - 10 - g.textWidth(font, v), ay, v, 0x88ff88);
+    ay += step;
   };
-  row("Shots Taken:", commas(s.a0));
-  row("Best Shot:", commas(s.bestShot));
-  row("Free Balls:", commas(s.freeBalls[0] + s.freeBalls[1] + s.freeBalls[2] + s.freeBalls[3]));
+  row("Shots:", s.shots);
+  row("Free Balls:", s.totalFreeBalls());
+  row("Style Shots:", s.totalStyleShots());
+  row("Best Shot:", s.bestShot);
+  row("Best Fever:", s.bestFever);
+  if (current) {
+    row("Total Score:", p->advScore);
+    row("Retries:", p->advRetries);
+  } else {
+    const long long levels = (long long)app.stages.numLevels();
+    row("Challenges Finished:", (long long)p->trophies.size(), (long long)app.trophies.numTrophies());
+    row("Levels 100% Cleared:", (long long)p->clearedLevels.size(), levels);
+    if (nights) row("Levels Aced:", (long long)p->acedLevels.size(), levels);
+  }
 }
 
 void AdventureScreen::drawLayer(Gfx& g) {

@@ -90,7 +90,7 @@ class AdventureScreen : public Screen {
   void startGame();
   void drawHighScores(Gfx& g, float x, float y);
   void drawPersonalHighScores(Gfx& g, float x, float y);
-  void drawStats(Gfx& g, float x, float y, bool lifetime);
+  void drawStats(Gfx& g, float x, float y, bool current);
   void drawFrame(Gfx& g, float x, float y, float w, float h, const std::string& title);
   bool hasSave = false;
   Button *bContinue, *bRestart, *bMenu;

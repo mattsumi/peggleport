@@ -347,10 +347,7 @@ int Board::multiplier(int n) {
 void Board::addBalls(int n, bool fromBucket) {
   ballsLeft[cur] += n;
   if (ballsLeft[cur] < 0) ballsLeft[cur] = 0;
-  if (n > 0) {
-    result.freeBalls += n;
-    (void)fromBucket;
-  }
+  (void)fromBucket;
 }
 
 void Board::incShotScore(int n) {
@@ -367,6 +364,7 @@ void Board::incShotScore(int n) {
       } else {
         awardStyle(19);
       }
+      if (!(cfg.ch.active && cfg.ch.noFreeballs)) result.freeBalls[1 + i]++;
       ev(Event::ExtraBall, i);
       extraFlag = true;
     }
@@ -727,6 +725,7 @@ void Board::freeBallHit(Ball& b, const Obj& h) {
   }
   if (plain) say(b.touchedBumper ? "Free Ball! (bumper)" : "Free Ball!", 120);
   bucketShot = true;
+  result.freeBalls[0]++;
   if (!duel) addBalls(1, true);
   ev(Event::FreeBall, plain ? 1 : 0);
   (void)h;
@@ -935,9 +934,13 @@ void Board::updatePostShot() {
   shotBanked = true;
   lastShotScore = shotScore;
   lastShotPegs = pegsHitShot;
-  if (fever) result.feverPoints = shotScore;
-  else result.shotPoints += shotScore;
-  result.bestShot = std::max(result.bestShot, shotScore);
+  if (fever) {
+    result.feverPoints = shotScore;
+    result.bestFever = shotScore;
+  } else {
+    result.shotPoints += shotScore;
+    result.bestShot = std::max(result.bestShot, shotScore);
+  }
   ev(Event::ShotEnd, shotScore, style[cur]);
   setLState(6);
 }
@@ -1352,7 +1355,7 @@ void Board::finishSlotMachine(int outcome, Ball* ball, int pegIdx) {
     say("Magic Hat!", 120);
   } else if (outcome == 3) {
     addBalls(1, false);
-    result.styleCount[0] += 0;
+    result.freeBalls[0]++;
     say("Extra Ball!", 120);
   } else if (outcome == 2) {
     say("Score Tripler!", 120);
