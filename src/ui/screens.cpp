@@ -330,8 +330,8 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   };
   bAdv = emb(0, "IMAGE_MM_ADVENTURE", 0);
   bSolo = emb(1, "IMAGE_MM_SOLO", 2);
-  bDuel = emb(2, "IMAGE_MM_DUEL", 5);
-  bChal = emb(3, "IMAGE_MM_CHALLENGE", 4);
+  bDuel = emb(2, "IMAGE_MM_DUEL", isNights ? 4.0f : 5.0f);
+  bChal = emb(3, "IMAGE_MM_CHALLENGE", isNights ? 5.0f : 4.0f);
   auto brown = [&](int id, const char* label, float pitch) {
     Button* b = patchButton(id, label, "IMAGE_DLG_BROWNBUTTON1", 0, 0);
     b->hoverPitch = pitch;
