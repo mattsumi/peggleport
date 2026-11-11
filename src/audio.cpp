@@ -397,6 +397,9 @@ void Audio::playMusic(const std::string& path, bool loop, int startOrder, float 
     return;
   }
   { std::lock_guard<std::mutex> lk(mu_); lvlBase_ = -1; }
+  duck_ = 1.0f;
+  duckRate_ = 0.01f;
+  duckHold_ = 0;
   auto m = std::make_unique<Music>();
   m->loop = loop;
   m->gain = gain;
