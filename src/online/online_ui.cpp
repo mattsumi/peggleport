@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -89,6 +90,30 @@ struct RoomRow {
 };
 
 constexpr float kColCode = 52, kColGame = 122, kColSeats = 200, kColLevel = 248, kColRoom = 386, kRowEnd = 532;
+constexpr float kDlgX = 130, kDlgY = 100, kDlgW = 540, kDlgH = 340, kDlgPad = 24;
+constexpr float kPickL = 250, kPickR = kDlgX + kDlgW - kDlgPad, kPickMid = (kPickL + kPickR) / 2, kPickGap = 8;
+constexpr int kArrowHalf = 6;
+
+float capsWidth(const Tex* t) { return t ? 2.0f * std::floor(t->lw() / 3.0f) : 0.0f; }
+
+class ArrowButton : public Button {
+ public:
+  bool left = true;
+  void draw(Gfx& g) override {
+    Button::draw(g);
+    if (!visible || !image) return;
+    const float cx = std::floor(w / 2), cy = std::floor(h / 2) - 1;
+    auto shape = [&](float ox, float oy, uint32_t rgb, float a) {
+      for (int i = -kArrowHalf; i <= kArrowHalf; i++) {
+        const float len = (float)(kArrowHalf + 1 - std::abs(i)) * 2.0f;
+        const float x0 = left ? cx + (float)(kArrowHalf + 1) - len : cx - (float)(kArrowHalf + 1);
+        g.fill(x0 + ox, cy + (float)i + oy, len, 1, rgb, a);
+      }
+    };
+    shape(1, 1, 0x2a0e00, 0.7f * alpha);
+    shape(0, 0, over ? 0xffffff : 0xfff2c4, alpha);
+  }
+};
 
 struct Job {
   std::thread th;
@@ -150,6 +175,20 @@ class OnlineScreen : public Screen {
       b->w = w;
       return b;
     };
+    auto arrow = [&](int id, bool left, float y) {
+      auto b = std::make_unique<ArrowButton>();
+      b->id = id;
+      b->kind = Button::Kind::Patch;
+      b->image = a.gfx.img("IMAGE_DLG_BROWNBUTTON1");
+      if (!b->image) b->image = a.gfx.img("IMAGE_DLG_BUTTON3");
+      b->tickRef = &updateCount;
+      b->left = left;
+      b->w = std::max(40.0f, capsWidth(b->image));
+      b->h = b->image ? b->image->lh() / 3 : 34.0f;
+      b->x = left ? kPickL : kPickR - b->w;
+      b->y = y;
+      return add(std::move(b));
+    };
     bRefresh_ = btn(B_Refresh, "Refresh", 556, 80, 204);
     bJoin_ = btn(B_Join, "Join", 666, 172, 94);
     bPaste_ = btn(B_Paste, "Paste Invite", 556, 224, 204);
@@ -163,13 +202,14 @@ class OnlineScreen : public Screen {
     bReady_ = btn(B_Ready, "Ready", 300, 520, 200);
     bStart_ = btn(B_Start, "Start Match", 300, 520, 200);
     bLeave_ = btn(B_Leave, "Leave Room", 580, 520, 180);
-    bMode_ = btn(B_Mode, "", 330, 160, 280);
-    bLvlPrev_ = btn(B_LvlPrev, "<", 330, 214, 64);
-    bLvlNext_ = btn(B_LvlNext, ">", 546, 214, 64);
-    bMasPrev_ = btn(B_MasPrev, "<", 330, 268, 64);
-    bMasNext_ = btn(B_MasNext, ">", 546, 268, 64);
-    bGo_ = btn(B_Go, "Open Room", 250, 390, 150);
-    bCancel_ = btn(B_Cancel, "Cancel", 410, 390, 150);
+    bMode_ = btn(B_Mode, "", kPickL, 160, kPickR - kPickL);
+    bLvlPrev_ = arrow(B_LvlPrev, true, 214);
+    bLvlNext_ = arrow(B_LvlNext, false, 214);
+    bMasPrev_ = arrow(B_MasPrev, true, 268);
+    bMasNext_ = arrow(B_MasNext, false, 268);
+    pickW_ = bLvlNext_->x - (bLvlPrev_->x + bLvlPrev_->w) - 2 * kPickGap;
+    bGo_ = btn(B_Go, "Open Room", kDlgX + kDlgW / 2 - 155, 390, 150);
+    bCancel_ = btn(B_Cancel, "Cancel", kDlgX + kDlgW / 2 + 5, 390, 150);
     layout();
     if (!invite.empty()) applyInvite(invite);
     else startList();
@@ -616,19 +656,20 @@ class OnlineScreen : public Screen {
   }
 
   void drawCreate(Gfx& g) {
+    const float labelX = kDlgX + kDlgPad;
     g.fill(0, 72, 800, 528, 0x000000, 0.6f);
-    g.fill(190, 100, 440 + 20, 340, 0x0a1230, 1);
-    panel(g, 190, 100, 460, 340, "Create a Room");
-    g.drawString("PLAIN", 214, 182, "Game", 0xffffff, 1);
-    g.drawString("PLAIN", 214, 236, "Level", 0xffffff, 1);
-    g.drawString("PLAIN", 214, 290, "Master", 0xffffff, 1);
-    if (levels_.empty()) g.drawString("PLAIN", 470, 237, "-", 0xffff88, 1, Align::Center);
+    g.fill(kDlgX, kDlgY, kDlgW, kDlgH, 0x0a1230, 1);
+    panel(g, kDlgX, kDlgY, kDlgW, kDlgH, "Create a Room");
+    g.drawString("PLAIN", labelX, 182, "Game", 0xffffff, 1);
+    g.drawString("PLAIN", labelX, 236, "Level", 0xffffff, 1);
+    g.drawString("PLAIN", labelX, 290, "Master", 0xffffff, 1);
+    if (levels_.empty()) g.drawString("PLAIN", kPickMid, 237, "-", 0xffff88, 1, Align::Center);
     else {
       const LevelChoice& lc = levels_[levelIdx_];
-      g.drawString("PLAIN", 470, 237, fitText(g, "PLAIN", lc.title, 144), 0xffff88, 1, Align::Center);
-      g.drawString("PLAIN", 470, 257, fitText(g, "PLAIN", lc.group, 144), 0xaaaaaa, 1, Align::Center);
+      g.drawString("PLAIN", kPickMid, 237, fitText(g, "PLAIN", lc.title, pickW_), 0xffff88, 1, Align::Center);
+      g.drawString("PLAIN", kPickMid, 257, fitText(g, "PLAIN", lc.group, pickW_), 0xaaaaaa, 1, Align::Center);
     }
-    g.drawString("PLAIN", 470, 291, masterNameAt(app.game == Game::Nights, master_), 0xffff88, 1, Align::Center);
+    g.drawString("PLAIN", kPickMid, 291, fitText(g, "PLAIN", masterNameAt(app.game == Game::Nights, master_), pickW_), 0xffff88, 1, Align::Center);
     if (const auto& mods = masters::all(); !mods.empty()) {
       const int nb = app.game == Game::Nights ? 11 : 10;
       std::string line = std::to_string(master_ + 1) + " of " + std::to_string(nMasters_);
@@ -638,9 +679,9 @@ class OnlineScreen : public Screen {
         line = m.powerName + "  -  mod " + m.modId;
         col = 0x88ff88;
       }
-      g.drawString("PLAIN", 470, 311, line.substr(0, 48), col, 1, Align::Center);
+      g.drawString("PLAIN", kPickMid, 311, fitText(g, "PLAIN", line, kPickR - kPickL), col, 1, Align::Center);
     }
-    g.drawWrapped("PLAIN", {214, 330, 410, 40}, "Friends join with the room code or the invite link. You can start once everybody is ready.", 0xcccccc);
+    g.drawWrapped("PLAIN", {labelX, 330, kDlgW - 2 * kDlgPad, 40}, "Friends join with the room code or the invite link. You can start once everybody is ready.", 0xcccccc);
   }
 
   void drawRoom(Gfx& g) {
@@ -679,6 +720,7 @@ class OnlineScreen : public Screen {
   std::string roomTitleFor_, roomTitle_;
   bool roomTitleSet_ = false;
   int levelIdx_ = 0, mode_ = 0, master_ = 0, nMasters_ = 10;
+  float pickW_ = 0;
   bool create_ = false, room_ = false, isHost_ = false, guestChecked_ = false, readySent_ = false;
   int lastRefresh_ = 0, copiedAt_ = -1000;
   std::vector<RoomRow> rooms_;
