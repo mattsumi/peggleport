@@ -235,7 +235,7 @@ void App::dialogButton(int dlg, int btn) {
     case D_RestartLevel:
       off(dlg);
       if (yes) {
-        finishOptionsDialog(false, true);
+        finishOptionsDialog(true, true);
         if (gameMode == GameMode::QuickPlay || gameMode == GameMode::Duel) showLevelScreen(false);
         else if (gameMode == GameMode::Challenge) restartChallenge();
         else if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
