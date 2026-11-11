@@ -215,9 +215,108 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
 
 App::~App() = default;
 
+namespace {
+
+class LastPicture : public Screen {
+ public:
+  LastPicture(App& a, SDL_Surface* picture, bool fillsWindow) : Screen(a), fillsWindow_(fillsWindow) {
+    SDL_Renderer* r = a.gfx.renderer();
+    if (!r || !picture) return;
+    SDL_Surface* opaque = SDL_ConvertSurface(picture, SDL_PIXELFORMAT_XRGB8888);
+    if (!opaque) return;
+    tex_.t = SDL_CreateTextureFromSurface(r, opaque);
+    if (tex_.t) {
+      tex_.w = opaque->w;
+      tex_.h = opaque->h;
+    }
+    SDL_DestroySurface(opaque);
+  }
+  ~LastPicture() override {
+    if (tex_.t) SDL_DestroyTexture(tex_.t);
+  }
+  const char* name() const override { return "lastpicture"; }
+  void drawOverWindow() {
+    SDL_Renderer* r = app.gfx.renderer();
+    if (!fillsWindow_ || !tex_.t || !r) return;
+    int ow = 0, oh = 0;
+    app.gfx.outputSize(ow, oh);
+    SDL_FRect to{std::round(x / 800.0f * (float)ow), std::round(y / 600.0f * (float)oh), (float)ow, (float)oh};
+    SDL_SetTextureAlphaMod(tex_.t, 255);
+    SDL_SetTextureColorMod(tex_.t, 255, 255, 255);
+    SDL_SetTextureBlendMode(tex_.t, SDL_BLENDMODE_NONE);
+    SDL_RenderTexture(r, tex_.t, nullptr, &to);
+  }
+  void drawLayer(Gfx& g) override {
+    if (fillsWindow_ && tex_.t) return;
+    if (!tex_.t) {
+      g.fill(0, 0, 800, 600, 0x000000);
+      return;
+    }
+    int ow = 0, oh = 0;
+    g.outputSize(ow, oh);
+    const float k = g.scale();
+    if (ow == tex_.w && oh == tex_.h && k > 0) {
+      float left = g.offX(), top = g.offY();
+      const float wide = std::round(800.0f * k);
+      if (left == 0 && top == 0 && (float)tex_.w > wide) left = std::floor(((float)tex_.w - wide) * 0.5f);
+      g.drawStretch(&tex_, -left / k, -top / k, (float)tex_.w / k, (float)tex_.h / k);
+      return;
+    }
+    const float fit = std::min((float)tex_.w / 800.0f, (float)tex_.h / 600.0f);
+    const float pw = std::round(800.0f * fit), ph = std::round(600.0f * fit);
+    g.drawStretchSrc(&tex_, std::floor(((float)tex_.w - pw) * 0.5f), std::floor(((float)tex_.h - ph) * 0.5f), pw, ph, 0, 0, 800, 600);
+  }
+
+ private:
+  Tex tex_;
+  bool fillsWindow_ = false;
+};
+
+}
+
+void App::requestGameSwitch(Game g, StartTarget start) {
+  start.handOver = true;
+  start.askedAt = SDL_GetTicksNS();
+  switchTo_.game = g;
+  switchTo_.start = start;
+  switchWanted_ = true;
+  switchWait_ = 0;
+}
+
+bool App::takeGameSwitchRequest(GameRequest& r) {
+  if (!switchWanted_) return false;
+  if (anyDialog() && switchWait_ < 40) return false;
+  switchWanted_ = false;
+  r = switchTo_;
+  return true;
+}
+
 void App::setHomeGame(Game g) {
   homeGame = g;
   if (homeHook) homeHook(g);
+}
+
+void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow) {
+  stopMusic();
+  cur_ = std::make_unique<LastPicture>(*this, lastPicture, pictureFillsWindow);
+  scrollDir = 0;
+  if (start.place == StartPlace::Adventure && curProfile) enterAdventure();
+  else showMainMenu();
+}
+
+void App::enterAdventure() {
+  PlayerInfo* p = curProfile;
+  gameMode = GameMode::Adventure;
+  curStage = p ? std::max(0, p->advStage) : 0;
+  curLevel = p ? std::max(0, p->advLevel) : 0;
+  if (p && p->advCompletions > 0) {
+    if (p->justBeatAdventure()) p->restartAdventure();
+    if (game != Game::Nights) {
+      showAdventureScreen();
+      return;
+    }
+  }
+  startAdventureGame();
 }
 
 std::string App::titleText() const { return game == Game::Deluxe ? "Peggle Deluxe" : "Peggle Nights"; }
@@ -596,6 +695,7 @@ void App::doConfirmRestartAdventureDialog() {
 
 void App::tick() {
   updates_++;
+  if (switchWanted_) switchWait_++;
   if (audio) audio->tickMusic();
   serviceModApply();
   updateMovers();
@@ -623,6 +723,7 @@ void App::input(const Input& in) {
     return;
   }
   if (in.type == Input::FocusGained) { windowFocused = true; return; }
+  if (switchWanted_) return;
   Input din = in;
   din.x -= (canvasW_ - 800) * 0.5f;
   if (overlay_ && overlay_->mouseVisible) {
@@ -667,6 +768,9 @@ void App::frame(int canvasW) {
   gfx.popOrigin();
   if (logView_) logView_->drawView(gfx);
   if (backdrop) gfx.endBackdrop();
+  for (auto& m : movers_)
+    if (auto* last = dynamic_cast<LastPicture*>(m.owned.get())) last->drawOverWindow();
+  if (auto* last = dynamic_cast<LastPicture*>(cur_.get())) last->drawOverWindow();
 }
 
 }

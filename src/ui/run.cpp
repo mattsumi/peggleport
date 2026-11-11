@@ -14,6 +14,8 @@
 
 #include "audio.h"
 #include "gamefind.h"
+#include "gamepaths.h"
+#include "log.h"
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "render.h"
@@ -29,6 +31,8 @@ struct Live {
   Gfx* gfx = nullptr;
   std::vector<SDL_Gamepad*> pads;
   bool hidden = false;
+  GameWindow* window = nullptr;
+  int leftTicks = 0;
 };
 
 static bool handleGamepad(Live& L, const SDL_Event& e) {
@@ -148,6 +152,10 @@ static void paceOnce(Live& L, Pacer& P) {
   while (P.acc >= 10.0 && !L.app->wantsQuit()) {
     P.acc -= 10.0;
     L.app->tick();
+    if (L.leftTicks > 0) {
+      if (Audio* left = L.window->leftSound()) left->tickMusic();
+      if (--L.leftTicks == 0) L.window->dropLeftGame();
+    }
   }
   if (L.hidden) {
     SDL_Delay(16);
@@ -210,14 +218,16 @@ static bool bothInstalled(const RunOptions& o) { return o.hasGame && o.hasGame(o
 
 static Game homeOf(const RunOptions& o) { return bothInstalled(o) && o.home ? o.home() : o.game; }
 
-static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_Renderer* ren, bool freshWindow, GameRequest& next) {
+static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, bool freshWindow, GameRequest& next) {
+  SDL_Window* win = window.window();
+  SDL_Renderer* ren = window.renderer();
   RunResult result = RunResult::Quit;
   SDL_Cursor* customCursor = nullptr;
+  std::unique_ptr<Audio> audio = std::make_unique<Audio>(vfs);
+  if (!audio->openDevice()) audio.reset();
   {
     Renderer board(ren, vfs);
     Gfx gfx(ren, vfs);
-    std::unique_ptr<Audio> audio = std::make_unique<Audio>(vfs);
-    if (!audio->openDevice()) audio.reset();
     App::Config cfg;
     cfg.game = o.game;
     cfg.start = o.start;
@@ -232,6 +242,7 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_
     customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
     app.showCursorHook = [&](bool custom) { SDL_SetCursor(custom && customCursor ? customCursor : SDL_GetDefaultCursor()); };
     app.showCursorHook(app.settings.customCursors);
+    window.dropCursor();
     app.modAssetsHook = [&] {
       SDL_Cursor* old = customCursor;
       customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
@@ -240,21 +251,40 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_
     };
     if (!freshWindow) app.settings.fullscreen = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0;
     else if (app.settings.fullscreen) SDL_SetWindowFullscreen(win, true);
-    app.showLoadingScreen();
+    bool pictureFillsWindow = false;
+    SDL_Surface* picture = window.takePicture(pictureFillsWindow);
+    if (o.start.handOver) {
+      app.startAt(o.start, picture, pictureFillsWindow);
+      app.frame();
+    } else {
+      app.showLoadingScreen();
+    }
+    if (picture) SDL_DestroySurface(picture);
 
     Live L;
     L.win = win;
     L.ren = ren;
     L.app = &app;
     L.gfx = &gfx;
+    L.window = &window;
+    L.leftTicks = window.leftSound() ? 110 : 0;
+    if (!L.leftTicks) window.dropLeftGame();
     Pacer P;
+    bool told = !(o.start.handOver && o.start.askedAt);
     while (!app.wantsQuit()) {
       paceOnce(L, P);
+      if (!told) {
+        told = true;
+        log::info("start", "Switched to " + app.titleText() + " in " + std::to_string((SDL_GetTicksNS() - o.start.askedAt) / 1000000) + " ms");
+      }
       GameRequest wanted;
       if (app.takeGameSwitchRequest(wanted)) {
         if (!o.canOpen || o.canOpen(wanted.game)) {
           next = wanted;
           result = RunResult::SwitchGame;
+          app.frame();
+          window.keepPicture(SDL_RenderReadPixels(ren, nullptr), app.pictureFillsWindow());
+          app.playMusic("fadeout");
           app.requestQuit();
         }
         P.last = 0;
@@ -277,8 +307,14 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_
     app.shutdown();
     for (SDL_Gamepad* g : L.pads) SDL_CloseGamepad(g);
   }
-  SDL_SetCursor(SDL_GetDefaultCursor());
-  if (customCursor) SDL_DestroyCursor(customCursor);
+  window.dropLeftGame();
+  if (result == RunResult::SwitchGame && next.start.handOver) {
+    window.keepSound(std::move(audio));
+    window.keepCursor(customCursor);
+  } else {
+    SDL_SetCursor(SDL_GetDefaultCursor());
+    if (customCursor) SDL_DestroyCursor(customCursor);
+  }
   return result;
 }
 
@@ -289,7 +325,7 @@ static void keepPendingInvites() {
     if (e.drop.data && pp::online::isInviteLike(e.drop.data)) pp::ui::online::setPendingInvite(e.drop.data);
 }
 
-bool GameWindow::open(Game game, int w, int h, std::string& error) {
+bool GameWindow::open(Game game, int w, int h, bool keepPicture, std::string& error) {
   const char* title = game == Game::Deluxe ? "Peggle Deluxe (PegglePort)" : "Peggle Nights (PegglePort)";
   if (!win_) {
     SDL_Rect area;
@@ -307,15 +343,54 @@ bool GameWindow::open(Game game, int w, int h, std::string& error) {
     SDL_StartTextInput(win_);
   } else {
     SDL_SetWindowTitle(win_, title);
-    SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);
-    SDL_RenderClear(ren_);
-    SDL_RenderPresent(ren_);
+    if (!keepPicture) {
+      SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);
+      SDL_RenderClear(ren_);
+      SDL_RenderPresent(ren_);
+    }
   }
   if (SDL_Surface* icon = makeWindowIcon(game)) { SDL_SetWindowIcon(win_, icon); SDL_DestroySurface(icon); }
   return true;
 }
 
+void GameWindow::keepPicture(SDL_Surface* picture, bool fillsWindow) {
+  if (picture_) SDL_DestroySurface(picture_);
+  picture_ = picture;
+  pictureFillsWindow_ = fillsWindow;
+}
+
+SDL_Surface* GameWindow::takePicture(bool& fillsWindow) {
+  SDL_Surface* picture = picture_;
+  fillsWindow = pictureFillsWindow_;
+  picture_ = nullptr;
+  return picture;
+}
+
+void GameWindow::keepSound(std::unique_ptr<Audio> sound) { leftSound_ = std::move(sound); }
+
+void GameWindow::keepFiles(std::shared_ptr<Vfs> files) { leftFiles_ = std::move(files); }
+
+void GameWindow::dropLeftGame() {
+  leftSound_.reset();
+  leftFiles_.reset();
+}
+
+void GameWindow::keepCursor(SDL_Cursor* cursor) {
+  dropCursor();
+  leftCursor_ = cursor;
+}
+
+void GameWindow::dropCursor() {
+  if (!leftCursor_) return;
+  if (SDL_GetCursor() == leftCursor_) SDL_SetCursor(SDL_GetDefaultCursor());
+  SDL_DestroyCursor(leftCursor_);
+  leftCursor_ = nullptr;
+}
+
 void GameWindow::close() {
+  dropLeftGame();
+  dropCursor();
+  keepPicture(nullptr);
   if (ren_) SDL_DestroyRenderer(ren_);
   if (win_) SDL_DestroyWindow(win_);
   ren_ = nullptr;
@@ -332,9 +407,9 @@ RunResult runApp(const RunOptions& o, Vfs& vfs, GameWindow& window, GameRequest&
   keepPendingInvites();
   SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
   bool freshWindow = !window.isOpen();
-  if (!window.open(homeOf(o), w, h, error)) return RunResult::Failed;
+  if (!window.open(homeOf(o), w, h, o.start.handOver, error)) return RunResult::Failed;
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);
-  RunResult result = playWindow(o, vfs, window.window(), window.renderer(), freshWindow, next);
+  RunResult result = playWindow(o, vfs, window, freshWindow, next);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
   return result;
 }

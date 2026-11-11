@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 
 #include <filesystem>
+#include <memory>
 #include <string>
 
 #include "gamefind.h"
@@ -74,9 +75,10 @@ int main(int argc, char** argv) {
     while (play) {
       folders.setWindow(window.window());
       const std::filesystem::path dir = folders.dir(request.game);
-      pp::Vfs vfs;
+      std::shared_ptr<pp::Vfs> vfs = std::make_shared<pp::Vfs>();
       std::string reason;
-      if (!vfs.mountGame(dir, &reason)) {
+      if (!vfs->mountGame(dir, &reason)) {
+        window.dropLeftGame();
         std::string problem = std::string("The game files in ") + pp::pathToUtf8(dir) + " could not be loaded: " + reason;
         folders.drop(request.game);
         request = pp::ui::GameRequest();
@@ -91,13 +93,14 @@ int main(int argc, char** argv) {
       pp::log::info("start", std::string("Opening ") + pp::gameTitle(request.game) + " from " + pp::pathToUtf8(dir));
       std::string error;
       pp::ui::GameRequest next;
-      pp::ui::RunResult result = playGame(request, vfs, folders, window, next, error);
+      pp::ui::RunResult result = playGame(request, *vfs, folders, window, next, error);
       if (result == pp::ui::RunResult::Failed) {
         showProblem(error);
         exitCode = 1;
         break;
       }
       if (result != pp::ui::RunResult::SwitchGame) break;
+      window.keepFiles(vfs);
       request = next;
     }
   }

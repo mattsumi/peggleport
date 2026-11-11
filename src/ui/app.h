@@ -111,21 +111,16 @@ class App : public WidgetHost {
   void shutdown();
   bool wantsQuit() const { return quit_; }
   void requestQuit() { quit_ = true; }
-  void requestGameSwitch(Game g, StartTarget start = {}) {
-    switchTo_.game = g;
-    switchTo_.start = start;
-    switchWanted_ = true;
-  }
-  bool takeGameSwitchRequest(GameRequest& r) {
-    if (!switchWanted_) return false;
-    switchWanted_ = false;
-    r = switchTo_;
-    return true;
-  }
+  void requestGameSwitch(Game g, StartTarget start = {});
+  bool takeGameSwitchRequest(GameRequest& r);
+  bool gameSwitchPending() const { return switchWanted_; }
+  void startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow);
+  bool pictureFillsWindow() const { return cur_ && (cur_->isGame() || cur_->canvasWidth() != 800); }
   bool bothGames = false;
   Game homeGame = Game::Deluxe;
   std::function<void(Game)> homeHook;
   void setHomeGame(Game g);
+  void enterAdventure();
   void doAdventureQuestion();
   void requestGameFolders() { foldersWanted_ = true; }
   bool takeGameFoldersRequest() {
@@ -314,6 +309,7 @@ class App : public WidgetHost {
   int updates_ = 0;
   bool quit_ = false;
   bool switchWanted_ = false;
+  int switchWait_ = 0;
   bool foldersWanted_ = false;
   GameRequest switchTo_;
   float canvasW_ = 800;

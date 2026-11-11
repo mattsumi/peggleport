@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "ui/app.h"
@@ -7,6 +8,7 @@
 
 struct SDL_Window;
 struct SDL_Renderer;
+struct SDL_Cursor;
 
 namespace pp::ui {
 
@@ -30,8 +32,16 @@ class GameWindow {
   GameWindow& operator=(const GameWindow&) = delete;
   ~GameWindow() { close(); }
 
-  bool open(Game game, int w, int h, std::string& error);
+  bool open(Game game, int w, int h, bool keepPicture, std::string& error);
   void close();
+  void keepPicture(SDL_Surface* picture, bool fillsWindow = false);
+  SDL_Surface* takePicture(bool& fillsWindow);
+  void keepSound(std::unique_ptr<Audio> sound);
+  void keepFiles(std::shared_ptr<Vfs> files);
+  Audio* leftSound() const { return leftSound_.get(); }
+  void dropLeftGame();
+  void keepCursor(SDL_Cursor* cursor);
+  void dropCursor();
   bool isOpen() const { return win_ != nullptr; }
   SDL_Window* window() const { return win_; }
   SDL_Renderer* renderer() const { return ren_; }
@@ -39,6 +49,11 @@ class GameWindow {
  private:
   SDL_Window* win_ = nullptr;
   SDL_Renderer* ren_ = nullptr;
+  SDL_Surface* picture_ = nullptr;
+  bool pictureFillsWindow_ = false;
+  SDL_Cursor* leftCursor_ = nullptr;
+  std::shared_ptr<Vfs> leftFiles_;
+  std::unique_ptr<Audio> leftSound_;
 };
 
 RunResult runApp(const RunOptions& o, Vfs& vfs, GameWindow& window, GameRequest& next, std::string& error);
