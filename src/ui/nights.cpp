@@ -222,6 +222,7 @@ static const int kFrames[11][4] = {{574, 85, 54, 102}, {178, 94, 47, 89},  {77, 
                                    {650, 254, 55, 88}, {90, 405, 42, 82},  {196, 396, 52, 67}, {545, 377, 61, 80}, {676, 402, 41, 81}};
 static const int kMasterFrame[11] = {2, 9, 7, 1, 0, 3, 4, 5, 8, 6, 10};
 static const int kHiddenAt[11][2] = {{101, 310}, {575, 418}, {114, 440}, {202, 136}, {603, 133}, {192, 287}, {276, 304}, {569, 288}, {224, 428}, {679, 296}, {699, 436}};
+static const int kPortraitAt[11][2] = {{73, 264}, {544, 378}, {80, 398}, {167, 92}, {565, 81}, {165, 244}, {245, 268}, {540, 251}, {192, 386}, {631, 254}, {670, 402}};
 
 static int stageOfMaster(int master) {
   for (int s = 0; s < 11; s++)
@@ -297,8 +298,6 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
   for (int i = 0; i < 11; i++) {
-    const int* f = kFrames[kMasterFrame[i]];
-    float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
     const int met = stageOfMaster(i);
     bool shown = met < cleared;
     float a = 1;
@@ -309,7 +308,7 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     Tex* hid = g.img("IMAGE_TROPHY_PORTRAIT_HIDDEN_" + std::to_string(i + 1));
     Tex* pic = g.img("IMAGE_TROPHY_PORTRAIT_" + std::to_string(i + 1));
     if (hid && (!shown || a < 1)) g.draw(hid, (float)(kHiddenAt[i][0] - (int)hid->lw() / 2), (float)(kHiddenAt[i][1] - (int)hid->lh() / 2));
-    if (pic && shown) g.draw(pic, cx - pic->lw() / 2, cy - pic->lh() / 2, Mode(a));
+    if (pic && shown) g.draw(pic, (float)kPortraitAt[i][0], (float)kPortraitAt[i][1], Mode(a));
   }
   if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
   Tex* frameL = g.img("IMAGE_SCREENFRAMELEFT");
