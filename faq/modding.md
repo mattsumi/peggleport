@@ -364,9 +364,9 @@ One mod can add up to 16 Masters and all mods together up to 48. A mod with `det
 
 ### Choosing a mod Master
 
-* In the character choice (Duel) the original Masters come first. When mods add Masters, a **Mods >** button appears under each grid. It pages through the mod Masters, ten to a page, and **< Back** returns to the originals. Mod Masters are always unlocked. Point at one to read its name, power and description.
+* In the character choice the original Masters come first. When mods add Masters, a **Mods >** button appears under the grid, in Duel under each of the two grids. It pages through the mod Masters, ten to a page, and **< Back** returns to the originals. Mod Masters are always unlocked. In Duel, point at one to read its name, power and description. In the choice for one player, click it.
 * Your pick is stored in `mod-masters.ini` in your `userdata` folder, next to your profile. The profile file itself is not touched and keeps the last original Master you picked. If the mod is removed or switched off, you play with that original Master again, and the pick comes back when the mod does. Picking an original Master clears it.
-* Where the game uses your own character, a mod Master you picked works too: Duel, and the Quick Play stages that use your character (level packs and mod levels).
+* Wherever you choose your Master, a mod Master works too: Quick Play, Duel, the Challenges that let you choose, and Adventure once you have reached the Master levels.
 * A level can name a Master in its `.ini`: `master = frost` or `master = modid:frost`. It is used for single player when the level is played.
 * The computer player can play a mod Master. When it plans a shot it treats the power as no power at all.
 
