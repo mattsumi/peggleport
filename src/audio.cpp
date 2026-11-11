@@ -282,9 +282,10 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
     }
   }
   int ph = (int)b.phase;
+  if (b.fireHeld && !prevHeld_ && ph == (int)Phase::Aim) play("CANNONCOCK", 0, 1, 1);
+  prevHeld_ = b.fireHeld;
   if (prevPhase_ >= 0 && ph != prevPhase_) {
-    if (ph == (int)Phase::Aim) play("CANNONCOCK");
-    else if (prevPhase_ == (int)Phase::Aim && ph == (int)Phase::Shot) play(!b.balls.empty() && b.balls[0].fire ? "FIREBALLSHOT" : "CANNONSHOT");
+    if (prevPhase_ == (int)Phase::Aim && ph == (int)Phase::Shot) play(!b.balls.empty() && b.balls[0].fire ? "FIREBALLSHOT" : "CANNONSHOT");
   }
   prevPhase_ = ph;
   {
