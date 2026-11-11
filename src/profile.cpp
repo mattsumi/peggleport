@@ -109,7 +109,7 @@ void GameStats::add(const GameStats& o) {
   bestShot = std::max(bestShot, o.bestShot);
   bestFever = std::max(bestFever, o.bestFever);
   for (int i = 0; i < 4; i++) freeBalls[i] += o.freeBalls[i];
-  for (int i = 0; i < 20; i++) styleShots[i] += o.styleShots[i];
+  for (int i = 0; i < 24; i++) styleShots[i] += o.styleShots[i];
 }
 int GameStats::totalStyleShots() const {
   int n = 0;
@@ -123,7 +123,7 @@ void GameStats::write(DataWriter& w) const {
   w.i32(bestFever);
   for (int v : freeBalls) w.i32(v);
   w.i32(20);
-  for (int v : styleShots) w.i32(v);
+  for (int i = 0; i < 20; i++) w.i32(styleShots[i]);
 }
 bool GameStats::read(DataReader& r) {
   version = r.u8();
@@ -133,7 +133,8 @@ bool GameStats::read(DataReader& r) {
   for (int& v : freeBalls) v = r.i32();
   int count = r.i32();
   if (count != 20) return false;
-  for (int& v : styleShots) v = r.i32();
+  for (int i = 0; i < 20; i++) styleShots[i] = r.i32();
+  for (int i = 20; i < 24; i++) styleShots[i] = 0;
   return r.ok();
 }
 
@@ -309,6 +310,14 @@ std::vector<uint8_t> PlayerInfo::serialize(int version) const {
     w.u32((uint32_t)mantelSeen.size());
     for (auto& s : mantelSeen) w.str(s);
   }
+  bool moreStyles = false;
+  for (int i = 20; i < 24; i++) moreStyles = moreStyles || statsA.styleShots[i] != 0 || statsB.styleShots[i] != 0;
+  if (moreStyles) {
+    w.u32(0x31535050);
+    w.u32(8);
+    for (int i = 20; i < 24; i++) w.i32(statsA.styleShots[i]);
+    for (int i = 20; i < 24; i++) w.i32(statsB.styleShots[i]);
+  }
   return w.bytes();
 }
 
@@ -380,6 +389,12 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
     } else if (magic == 0x314d5050) {
       for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) mantelSeen.insert(r.str());
       mantelSeenKnown = true;
+    } else if (magic == 0x31535050) {
+      for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) {
+        const int32_t v = r.i32();
+        if (i < 4) statsA.styleShots[20 + i] = v;
+        else if (i < 8) statsB.styleShots[16 + i] = v;
+      }
     } else {
       break;
     }

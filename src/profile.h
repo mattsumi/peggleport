@@ -60,7 +60,7 @@ struct GameStats {
   uint8_t version = 1;
   int32_t shots = 0, bestShot = 0, bestFever = 0;
   int32_t freeBalls[4]{};
-  int32_t styleShots[20]{};
+  int32_t styleShots[24]{};
   void reset() { *this = GameStats(); }
   void add(const GameStats& o);
   int totalFreeBalls() const { return freeBalls[0] + freeBalls[1] + freeBalls[2] + freeBalls[3]; }

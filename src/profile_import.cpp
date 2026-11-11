@@ -92,7 +92,7 @@ bool readStats(DataReader& r, GameStats& g, uint32_t styleCount) {
   if (!r.ok() || count != styleCount) return false;
   for (uint32_t i = 0; i < count; i++) {
     int v = r.i32();
-    if (i < 20) g.styleShots[i] = v;
+    if (i < 24) g.styleShots[i] = v;
   }
   return r.ok();
 }

@@ -658,7 +658,7 @@ void GameScreen::submitStats() {
   s.bestShot = r.bestShot;
   s.bestFever = r.bestFever;
   for (int i = 0; i < 4; i++) s.freeBalls[i] = r.freeBalls[i];
-  for (int i = 0; i < 20; i++) s.styleShots[i] = r.styleCount[i];
+  for (int i = 0; i < 24; i++) s.styleShots[i] = r.styleCount[i];
   p->addTotalStats(s, app.game == Game::Deluxe || statsMode_ == GameMode::Adventure);
 }
 
