@@ -318,6 +318,24 @@ bool App::goHome() {
   return true;
 }
 
+bool App::goHomeList(StartPlace place) {
+  if (!bothGames || homeGame == game) return false;
+  if (switchWanted_) return true;
+  StartTarget t;
+  t.place = place;
+  t.mode = gameMode;
+  t.duel = duelSes;
+  if (place == StartPlace::ChallengeList) {
+    if (const TrophyInfo* c = trophies.byId(curChallenge)) t.page = c->page;
+    t.newTrophies.assign(newTrophies.begin(), newTrophies.end());
+  } else {
+    t.page = curStage;
+  }
+  requestGameSwitch(homeGame, t);
+  switchHome_ = true;
+  return true;
+}
+
 OtherGame* App::otherLevels() {
   if (!bothGames || game != homeGame || cfg.otherDir.empty()) return nullptr;
   if (!other_) {
@@ -699,9 +717,13 @@ void App::showAdventureScreen() {
   setScreen(std::make_unique<AdventureScreen>(*this), Left);
 }
 void App::showLevelScreen(bool fromTrophy) {
+  if (goHomeList(fromTrophy || gameMode == GameMode::Challenge ? StartPlace::ChallengeList : StartPlace::LevelList)) return;
   setScreen(std::make_unique<LevelScreen>(*this), Left);
 }
-void App::showTrophyScreen() { setScreen(std::make_unique<TrophyScreen>(*this), Left); }
+void App::showTrophyScreen() {
+  if (goHomeList(StartPlace::ChallengeList)) return;
+  setScreen(std::make_unique<TrophyScreen>(*this), Left);
+}
 void App::showStoryScreen(bool reveal, bool easter) {
   if (curProfile) {
     curProfile->storyPending = false;
