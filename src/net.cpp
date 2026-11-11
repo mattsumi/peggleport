@@ -1,6 +1,7 @@
 #include "net.h"
 
 #include <algorithm>
+#include <chrono>
 #include <sstream>
 #include <cstdio>
 #include <cstdint>
@@ -207,7 +208,8 @@ bool Session::join(const std::string& h, int port, std::string* err) {
 std::vector<uint8_t> Session::helloBody() const { return W().u32(PROTOCOL).str(name_).b; }
 
 static bool readLineBlocking(sock_t s, std::string& buf, std::string& line, int timeoutMs) {
-  for (int waited = 0; waited <= timeoutMs; waited += 2) {
+  const auto giveUp = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  for (;;) {
     size_t nl = buf.find('\n');
     if (nl != std::string::npos) {
       line = buf.substr(0, nl);
@@ -220,6 +222,7 @@ static bool readLineBlocking(sock_t s, std::string& buf, std::string& line, int 
     if (n > 0) buf.append(tmp, (size_t)n);
     else if (n == 0 || !wouldBlock()) return false;
     else {
+      if (std::chrono::steady_clock::now() >= giveUp) return false;
 #ifdef _WIN32
       Sleep(2);
 #else
@@ -227,7 +230,6 @@ static bool readLineBlocking(sock_t s, std::string& buf, std::string& line, int 
 #endif
     }
   }
-  return false;
 }
 
 bool Session::hostViaLobby(const std::string& lh, int lp, const std::string& roomName, const MatchInfo& mi, std::string* err) {
