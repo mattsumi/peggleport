@@ -472,6 +472,7 @@ void Board::pegHit(int oi, bool byPower) {
   o.litAge = 1;
   o.flash = 1;
   if (ball && ball->fire) o.collidable = o.visible = false;
+  result.pegsCleared++;
   eraseFromSets(oi);
   if (o.pegType == 2) {
     orangeHit = true;
@@ -838,6 +839,9 @@ void Board::endShot() {
   }
   setLState(3);
   endText = (pegSum != 0 || (cfg.duel && players > 1)) && !fever;
+  result.pegsCleared = 0;
+  for (const Obj& o : objs)
+    if (o.pegType != 0 && (o.lit || !o.visible)) result.pegsCleared++;
   if (clearedLevel()) {
     for (int i : otherSet_) hitList_.push_back(i);
     otherSet_.clear();
@@ -1012,9 +1016,6 @@ void Board::levelDone() {
   result.totalScore = score[0];
   result.ballsLeft = ballsLeft[cur];
   result.ticks = tick;
-  int cl = 0;
-  for (auto& o : objs) cl += o.pegType != 0 && (o.lit || o.gone);
-  result.pegsCleared = won && !cfg.clearLevel ? result.pegsTotal : cl;
   if (won) say("LEVEL CLEARED", 100000);
   else say(cfg.duel && players > 1 ? "GAME OVER" : "OUT OF BALLS", 100000);
   ev(Event::LevelDone, won ? 1 : 0);

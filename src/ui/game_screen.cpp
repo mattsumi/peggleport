@@ -1069,7 +1069,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   };
   row(L, L + 140, "Shots:", std::to_string(out.shots));
   row(L, L + 140, "Free Balls:", std::to_string(out.freeBalls));
-  row(L, L + 140, "% Cleared:", std::to_string(out.percentCleared()) + "%");
+  row(L, L + 140, "% Cleared:", std::to_string(out.percentCleared()));
   sy = y;
   row(L + 170, R, "Shot Points:", commas(out.shotPoints));
   row(L + 170, R, "Fever Points:", commas(out.feverPoints));
