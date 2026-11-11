@@ -857,6 +857,10 @@ void HelpScreen::drawLayer(Gfx& g) {
 TrophyScreen::TrophyScreen(App& a) : Screen(a) {
   a.playMusic("fadeout");
   page = a.curProfile ? std::clamp(a.curProfile->i38, 0, std::max(0, (int)a.trophies.pages().size() - 1)) : 0;
+  og = a.otherLevels();
+  a.pickOther = false;
+  if (og && a.listPage >= 0 && !og->trophies.pages().empty()) page = (int)a.trophies.pages().size() + std::min(a.listPage, (int)og->trophies.pages().size() - 1);
+  a.listPage = -1;
   bBack = embeddedButton(100, "IMAGE_LS_MAINMENUBUTTON", 6, 541);
   bPrev = embeddedButton(101, "IMAGE_LS_BACKBUTTON", 284, 546);
   bNext = embeddedButton(102, "IMAGE_LS_NEXTBUTTON", 399, 546);
@@ -870,11 +874,28 @@ TrophyScreen::TrophyScreen(App& a) : Screen(a) {
   }
   syncPage();
 }
+const TrophyPage* TrophyScreen::pageShown(bool& theirs) const {
+  const auto& mine = app.trophies.pages();
+  theirs = false;
+  if (page >= 0 && page < (int)mine.size()) return &mine[(size_t)page];
+  if (!og) return nullptr;
+  const auto& more = og->trophies.pages();
+  const int at = page - (int)mine.size();
+  theirs = true;
+  return at >= 0 && at < (int)more.size() ? &more[(size_t)at] : nullptr;
+}
 void TrophyScreen::syncPage() {
   bPrev->visible = page > 0;
-  bNext->visible = page + 1 < (int)app.trophies.pages().size();
-  if (app.curProfile) { app.curProfile->i38 = page; app.curProfile->dirty = true; }
+  bNext->visible = page + 1 < (int)app.trophies.pages().size() + (og ? (int)og->trophies.pages().size() : 0);
   badgeTicks = applauseTicks = 0;
+  if (page >= (int)app.trophies.pages().size()) {
+    bool theirs = false;
+    if (const TrophyPage* pg = pageShown(theirs))
+      for (int i = 0; i < 5 && i < (int)pg->trophies.size(); i++)
+        if (og->newTrophies.erase(pg->trophies[(size_t)i].id)) badgeTicks = 100;
+    return;
+  }
+  if (app.curProfile) { app.curProfile->i38 = page; app.curProfile->dirty = true; }
   const auto& pages = app.trophies.pages();
   if (page >= 0 && page < (int)pages.size())
     for (int i = 0; i < 5 && i < (int)pages[page].trophies.size(); i++)
@@ -893,6 +914,34 @@ void TrophyScreen::onButtonEnter(int id) { if (id >= 0 && id < 5) { hovered = id
 void TrophyScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id; hoverTicks = 10; } }
 void TrophyScreen::doPlay(int slot) {
   const auto& pages = app.trophies.pages();
+  if (og) {
+    bool theirs = false;
+    const TrophyPage* pg = pageShown(theirs);
+    if (!pg || slot >= (int)pg->trophies.size()) return;
+    if (!(theirs ? og->challengesOpen() : app.modeOpen(GameMode::Challenge))) {
+      app.doNotYet(challengesLockedText(theirs ? og->game : app.game, theirs ? og->trophies.numTrophies() : app.trophies.numTrophies()));
+      return;
+    }
+    if (theirs) {
+      const TrophyInfo& t = pg->trophies[(size_t)slot];
+      if (t.levels.empty()) return;
+      app.curChallenge = t.id;
+      app.gameMode = GameMode::Challenge;
+      app.challengeStep = 0;
+      if (t.levels[0] == "pick") {
+        app.pickOther = true;
+        app.listPage = page - (int)pages.size();
+        app.showLevelScreen(true);
+        return;
+      }
+      StartTarget target;
+      target.place = StartPlace::Challenge;
+      target.mode = GameMode::Challenge;
+      target.challenge = t.id;
+      app.requestGameSwitch(og->game, target);
+      return;
+    }
+  }
   if (page >= (int)pages.size() || slot >= (int)pages[page].trophies.size()) return;
   const TrophyInfo& t = pages[page].trophies[slot];
   app.curChallenge = t.id;
@@ -925,23 +974,28 @@ void TrophyScreen::keyDown(int key, int) {
 }
 void TrophyScreen::drawLayer(Gfx& g) {
   g.fill(0, 0, 800, 600, 0x000020);
-  const auto& pages = app.trophies.pages();
-  if (page >= (int)pages.size()) {
+  bool theirs = false;
+  const TrophyPage* shown = pageShown(theirs);
+  if (!shown) {
     if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
     return;
   }
-  const TrophyPage& pg = pages[page];
+  const TrophyPage& pg = *shown;
+  const bool open = !og || (theirs ? og->challengesOpen() : app.modeOpen(GameMode::Challenge));
+  const PlayerInfo* marks = theirs ? og->player : app.curProfile;
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
     float sx = kSlot[i][0], sy = kSlot[i][1];
-    Tex* th = t.levels.empty() ? nullptr : g.img("levels/cached_thumbnails/" + t.levels[0]);
+    Tex* th = t.levels.empty() ? nullptr : theirs ? og->picture("levels/cached_thumbnails/" + t.levels[0]) : g.img("levels/cached_thumbnails/" + t.levels[0]);
     if (th && th->valid()) {
       float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
       g.drawStretch(th, cx, cy, 200, 177, Mode(1, 0x969696));
-      if (hovered == i) g.drawStretch(th, cx, cy, 200, 177, Mode(1));
+      if (hovered == i && open) g.drawStretch(th, cx, cy, 200, 177, Mode(1));
     } else {
       g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
     }
+    if (!open)
+      if (Tex* lk = g.img("IMAGE_LS_LOCK")) g.draw(lk, sx + (kSlotW - lk->lw()) / 2, sy + (kSlotH - lk->lh()) / 2);
   }
   if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
   g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, pg.name, 0xb7ffff, 1, Align::Center);
@@ -949,7 +1003,7 @@ void TrophyScreen::drawLayer(Gfx& g) {
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
     float sx = kSlot[i][0], sy = kSlot[i][1];
-    bool won = app.curProfile && app.curProfile->trophies.count(t.id);
+    bool won = marks && marks->trophies.count(t.id);
     g.fill(sx + 4, sy + 4, kSlotW - 8, 42, 0x000000, 0.6f);
     g.drawWrapped("OVERLOAD16OUTLINE", {sx + 6, sy + 8, kSlotW - 12, 40}, t.name, won ? 0xffff80 : 0xffffff, 1, Align::Center);
     const std::string& d = t.smallDesc.empty() ? t.desc : t.smallDesc;
@@ -962,6 +1016,10 @@ void TrophyScreen::drawLayer(Gfx& g) {
   }
   if (hovered >= 0 && hovered < 5 && hovered < (int)pg.trophies.size())
     g.drawWrapped("PLAIN", {304, 335, 190, 170}, pg.trophies[hovered].desc, 0xffffff, 1, Align::Center);
+  else if (og) {
+    const std::string name = gameTitle(theirs ? og->game : app.game);
+    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", name) / 2, 365, name, 0xffff00);
+  }
 }
 
 }

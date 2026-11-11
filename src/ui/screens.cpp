@@ -672,7 +672,7 @@ void MainMenu::startGame() {
       app.showLevelScreen(false);
       return;
     case GameMode::Challenge:
-      if (p && (app.game == Game::Nights ? p->maxStage < 3 : p->advCompletions <= 0)) {
+      if (p && (app.game == Game::Nights ? p->maxStage < 3 : p->advCompletions <= 0) && !app.otherOpen(GameMode::Challenge)) {
         app.doNotYet("^FFFF00^CHALLENGE MODE LOCKED!^oldclr^\nThis mode presents " + std::to_string(app.trophies.numTrophies()) + " challenges for advanced players.\n\n^FFFF00^To Unlock:^oldclr^\n" +
                      (app.game == Game::Nights ? "Finish Stage 3 of Adventure Mode!" : "Complete Adventure Mode!"));
         return;

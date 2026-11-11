@@ -174,9 +174,11 @@ class TrophyScreen : public Screen {
   void keyDown(int key, int mod) override;
   void syncPage();
   void doPlay(int slot);
+  const TrophyPage* pageShown(bool& theirs) const;
   int page = 0, hovered = -1, hoverTicks = 0, badgeTicks = 0, applauseTicks = 0;
   Button* bSlot[5];
   Button *bBack, *bPrev, *bNext;
+  OtherGame* og = nullptr;
 };
 
 class ProgressScreen : public Screen {
