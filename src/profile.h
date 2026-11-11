@@ -188,7 +188,7 @@ class ProfileMgr {
 
 struct Settings {
   VisualOptions vis;
-  float music = 0.7f, sfx = 0.85f, fever = 0.85f;
+  float music = 0.85f, sfx = 0.85f, fever = 0.85f;
   bool muted = false, fullscreen = false, customCursors = true, vsync = true;
   std::string curUser;
   int maxStage = 0, maxLevel = 0;
