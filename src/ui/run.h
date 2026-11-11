@@ -16,6 +16,9 @@ struct RunOptions {
   int winW = 1024, winH = 768;
   std::function<bool(Game)> canOpen;
   std::function<bool(Game)> chooseFolders;
+  std::function<bool(Game)> hasGame;
+  std::function<Game()> home;
+  std::function<void(Game)> setHome;
 };
 
 enum class RunResult { Quit, SwitchGame, Failed };

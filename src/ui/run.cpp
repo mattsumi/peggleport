@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio.h"
+#include "gamefind.h"
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "render.h"
@@ -205,6 +206,10 @@ static SDL_Surface* makeWindowIcon(Game game) {
   return s;
 }
 
+static bool bothInstalled(const RunOptions& o) { return o.hasGame && o.hasGame(o.game) && o.hasGame(otherGame(o.game)); }
+
+static Game homeOf(const RunOptions& o) { return bothInstalled(o) && o.home ? o.home() : o.game; }
+
 static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_Renderer* ren, bool freshWindow, GameRequest& next) {
   RunResult result = RunResult::Quit;
   SDL_Cursor* customCursor = nullptr;
@@ -216,8 +221,13 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_
     App::Config cfg;
     cfg.game = o.game;
     cfg.start = o.start;
+    cfg.bothGames = bothInstalled(o);
+    cfg.home = homeOf(o);
     cfg.seed = (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count();
     App app(gfx, vfs, audio.get(), &board, cfg);
+    app.homeHook = [&](Game g) {
+      if (o.setHome) o.setHome(g);
+    };
     app.setFullscreenHook = [&](bool on) { SDL_SetWindowFullscreen(win, on); };
     customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
     app.showCursorHook = [&](bool custom) { SDL_SetCursor(custom && customCursor ? customCursor : SDL_GetDefaultCursor()); };
@@ -255,6 +265,9 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, SDL_Window* win, SDL_
           next.game = o.game;
           result = RunResult::SwitchGame;
           app.requestQuit();
+        } else {
+          app.bothGames = bothInstalled(o);
+          app.homeGame = homeOf(o);
         }
         P.last = 0;
       }
@@ -319,7 +332,7 @@ RunResult runApp(const RunOptions& o, Vfs& vfs, GameWindow& window, GameRequest&
   keepPendingInvites();
   SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
   bool freshWindow = !window.isOpen();
-  if (!window.open(o.game, w, h, error)) return RunResult::Failed;
+  if (!window.open(homeOf(o), w, h, error)) return RunResult::Failed;
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);
   RunResult result = playWindow(o, vfs, window.window(), window.renderer(), freshWindow, next);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);

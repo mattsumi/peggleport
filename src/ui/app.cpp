@@ -209,9 +209,16 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
   if (curProfile) colorblind = curProfile->colorblind;
   checkMaxStage();
   applySettings();
+  bothGames = cfg.bothGames;
+  homeGame = bothGames ? cfg.home : game;
 }
 
 App::~App() = default;
+
+void App::setHomeGame(Game g) {
+  homeGame = g;
+  if (homeHook) homeHook(g);
+}
 
 std::string App::titleText() const { return game == Game::Deluxe ? "Peggle Deluxe" : "Peggle Nights"; }
 

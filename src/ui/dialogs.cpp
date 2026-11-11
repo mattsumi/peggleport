@@ -311,7 +311,10 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   gamesBtn->visible = !fg;
   widescreen = patchButton(11, "Widescreen", "IMAGE_DLG_BUTTON3", 0, 0);
   visuals = patchButton(14, "Enhanced Visuals...", "IMAGE_DLG_BUTTON3", 0, 0);
+  homeBtn = patchButton(16, "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
+  homeBtn->visible = !fg && a.bothGames;
   updateWidescreenLabel();
+  updateHomeLabel();
   if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
     yesBtn->image = pb;
     yesBtn->kind = Button::Kind::Embedded;
@@ -333,10 +336,13 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   widescreen->visible = !fg;
   extraH = (float)(0xdc + (fg ? 0x24 : 0x3c));
   if (editor->visible) extraH += 0x20;
+  if (homeBtn->visible) extraH += 0x20;
   if (mainMenu->visible) extraH += 0x20;
   if (help->visible) extraH += 0x20;
   if (fg && chal) extraH += 0x20;
 }
+
+void OptionsDialog::updateHomeLabel() { homeBtn->label = std::string("Main Menu: ") + (app.homeGame == Game::Nights ? "Peggle Nights" : "Peggle Deluxe"); }
 
 void OptionsDialog::updateWidescreenLabel() { widescreen->label = std::string("Widescreen: ") + widescreenName(app.widescreenMode()); }
 
@@ -355,6 +361,7 @@ void OptionsDialog::layout() {
   colorblind->x = vsync->x;  colorblind->y = cursors->y;  colorblind->w = 0xb6;
   widescreen->x = left;   widescreen->y = cursors->y + cursors->h + 6;   widescreen->w = W;   widescreen->h = help->h;
   visuals->x = left;      visuals->y = fromGame ? widescreen->y : widescreen->y + help->h + 2;   visuals->w = W;   visuals->h = help->h;
+  homeBtn->x = left;      homeBtn->y = visuals->y + help->h + 2;   homeBtn->w = W;   homeBtn->h = help->h;
   if (yesBtn) {
     yesBtn->x = (w - yesBtn->w) / 2;
     yesBtn->y = h - insB - yesBtn->h - 6;
@@ -414,6 +421,10 @@ void OptionsDialog::onButton(int id) {
     case 13: app.finishOptionsDialog(true, true); app.showEditor(); break;
     case 14: app.doVisualsDialog(); break;
     case 15: app.finishOptionsDialog(true, true); app.requestGameFolders(); break;
+    case 16:
+      app.setHomeGame(app.homeGame == Game::Nights ? Game::Deluxe : Game::Nights);
+      updateHomeLabel();
+      break;
     case 11:
       app.settings.widescreen = (app.settings.widescreen + 1) % kWidescreenModes;
       updateWidescreenLabel();

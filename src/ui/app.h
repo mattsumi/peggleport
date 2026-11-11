@@ -90,6 +90,8 @@ class App : public WidgetHost {
   struct Config {
     Game game = Game::Deluxe;
     StartTarget start;
+    bool bothGames = false;
+    Game home = Game::Deluxe;
     std::filesystem::path userDir;
     bool fastBoot = false;
     int boardWidth = 0;
@@ -120,6 +122,10 @@ class App : public WidgetHost {
     r = switchTo_;
     return true;
   }
+  bool bothGames = false;
+  Game homeGame = Game::Deluxe;
+  std::function<void(Game)> homeHook;
+  void setHomeGame(Game g);
   void requestGameFolders() { foldersWanted_ = true; }
   bool takeGameFoldersRequest() {
     bool wanted = foldersWanted_;

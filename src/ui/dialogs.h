@@ -72,8 +72,10 @@ class OptionsDialog : public Dialog {
   Button* gamesBtn = nullptr;
   Button* visuals = nullptr;
   Button* widescreen;
+  Button* homeBtn = nullptr;
   float extraH = 0;
   void updateWidescreenLabel();
+  void updateHomeLabel();
   void layout();
   void drawLayer(Gfx& g) override;
   float preferredHeight(float width) override;
