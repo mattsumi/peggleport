@@ -145,7 +145,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
       fs::remove_all(cache, ec);
       std::string e;
       bool unpacked = extractZip(srcIn, cache, &e);
-      if (!unpacked && !fs::exists(cache, ec)) {
+      if (!unpacked) {
         failMod(mods_, std::move(m), zid, srcIn.stem().string(), "zip: " + e);
         return;
       }
