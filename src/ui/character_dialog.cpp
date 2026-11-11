@@ -58,8 +58,9 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
   }
   count = a.game == Game::Nights ? 11 : 10;
   if (two && a.curProfile) {
-    sel[0] = std::clamp(a.curProfile->char1, 0, 10);
-    sel[1] = std::clamp(a.curProfile->char2, 0, 10);
+    const int last = a.game == Game::Nights ? count - 1 : 10;
+    sel[0] = a.curProfile->char1 > last ? 0 : std::clamp(a.curProfile->char1, 0, 10);
+    sel[1] = a.curProfile->char2 > last ? 0 : std::clamp(a.curProfile->char2, 0, 10);
   }
   if (!two) {
     sel[0] = 0;
