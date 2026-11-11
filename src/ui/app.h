@@ -190,6 +190,7 @@ class App : public WidgetHost {
   void doConfirmMainMenuDialog();
   void doConfirmRestartLevelDialog();
   void restartChallenge();
+  void alignQuestionWithMenu(Dialog* d);
   void doToMenu();
   void doConfirmDeleteUserDialog(const std::string& name);
   void finishUserDialog(bool accepted);

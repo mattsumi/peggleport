@@ -280,8 +280,16 @@ void App::dialogButton(int dlg, int btn) {
   }
 }
 
+void App::alignQuestionWithMenu(Dialog* d) {
+  auto* o = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
+  if (!o || !o->fromGame) return;
+  o->layout();
+  d->scrollTarget = o->y + o->mainMenu->y + o->mainMenu->h - d->h;
+}
+
 void App::doConfirmMainMenuDialog() {
-  doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
+  Dialog* d = doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
+  alignQuestionWithMenu(d);
 }
 void App::doConfirmRestartLevelDialog() {
   const char* title = "New Level?";
@@ -301,6 +309,7 @@ void App::doConfirmRestartLevelDialog() {
   }
   Dialog* d = doDialog(D_RestartLevel, true, title, text, "", BUTTONS_YES_NO);
   d->setYesNo(yes, "NO");
+  alignQuestionWithMenu(d);
 }
 
 void App::restartChallenge() {
