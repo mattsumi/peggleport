@@ -707,7 +707,7 @@ void App::showMainMenu() {
 
 void App::keepFaeries() {
   if (!curProfile || faeriesCaught <= 0) return;
-  curProfile->faeries += faeriesCaught;
+  curProfile->faeries = (int)((uint32_t)curProfile->faeries + (uint32_t)faeriesCaught);
   curProfile->dirty = true;
   faeriesCaught = 0;
   saveProfile();
