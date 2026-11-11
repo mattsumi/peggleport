@@ -371,7 +371,7 @@ void App::endLevelButton(int id, int mode) {
   if (auto* d = getDialog(D_EndLevel)) d->doScrollOff();
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   auto m = (EndLevelDialog::Mode)mode;
-  if (id == 1000 && gs && game == Game::Nights && (m == EndLevelDialog::ChallengeLevelDone || m == EndLevelDialog::ChallengeLives)) {
+  if (id == 1000 && gs && (m == EndLevelDialog::ChallengeLevelDone || m == EndLevelDialog::ChallengeLives)) {
     restartChallenge();
     return;
   }

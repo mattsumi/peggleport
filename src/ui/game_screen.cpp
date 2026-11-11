@@ -732,6 +732,11 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         }
         if (mode != EndLevelDialog::ChallengeLose) app.endBodyOverride.clear();
       }
+      if (app.game == Game::Deluxe && ct && !ct->scoreReset && moreLevels && !duel_) {
+        mode = EndLevelDialog::ChallengeLevelDone;
+        app.challengeMore = true;
+        app.challengeScore = o.totalScore;
+      }
       if (p && won && ct && !app.challengeMore) {
         p->awardTrophy(ct->id);
         app.newTrophies.insert(ct->id);
@@ -958,7 +963,7 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     header = "Try Again!";
     next = m == ChallengeLose ? "Retry Challenge" : "Retry Level";
   }
-  if (a.game == Game::Nights && (m == ChallengeWin || m == ChallengeLose || m == ChallengeLevelDone || m == ChallengeLives)) {
+  if (m == ChallengeLevelDone || (a.game == Game::Nights && (m == ChallengeWin || m == ChallengeLose || m == ChallengeLives))) {
     msgMode = true;
     if (m == ChallengeLevelDone) {
       const TrophyInfo* t = a.trophies.byId(a.curChallenge);
@@ -1050,6 +1055,11 @@ float EndLevelDialog::paintDuel(Gfx& g, bool draw) {
 
 float EndLevelDialog::paint(Gfx& g, bool draw) {
   if (duelEnd) return paintDuel(g, draw);
+  if (msgMode && app.game == Game::Deluxe) {
+    const float tw = w - insL - insR - 4;
+    if (draw) g.drawWrapped(linesFont, {insL + 2, contentTop(g), tw, 0}, msgBody, 0xffff88, 1, Align::Center);
+    return insT + insB + g.fontHeight(headerFont) + 8 + 36 + 8 + g.wrappedHeight(linesFont, tw, msgBody) + 30;
+  }
   if (msgMode) {
     float y = insT + g.fontHeight(headerFont) + 16;
     Rect r{insL, y, w - insL - insR, 400};
