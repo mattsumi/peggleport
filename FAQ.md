@@ -37,7 +37,7 @@ The same way as always: **Main Menu** in the level's menu, on the screen after a
 Yes. Open **Options** on the main menu and press the row **Main Menu: Peggle Deluxe**. It changes to **Main Menu: Peggle Nights**. Press **Done** and the Peggle Nights menu comes up, and it is the one that opens from now on. Press the row again to go back. The row is only there when both games are installed.
 
 **What about Quick Play, Duel and Challenge?**
-They belong to the menu that is open, so they show that game's levels. To play them with the other game's levels, change the **Main Menu** row in Options.
+They list the levels of both games. The list starts with the levels of the menu that is open. Keep pressing the right arrow and the other game's pages follow, and every page shows the name of its game. A level or a challenge of the other game is played in that game, with its own rules, Masters and music, and its scores and progress are kept there. What is still locked in that game is locked in the list too. **New Level** and **New Challenge** bring you back to the list you picked it from.
 
 **Where does it look for my game?**
 First in the folders it remembers from last time. Then it asks Steam: on Windows it reads the Steam folder from the registry, and on every system it reads Steam's list of library folders and Steam's own records of Peggle Deluxe and Peggle Nights, so a library on another drive or a folder with an unusual name is found too. After that it tries the usual Steam folders on every drive, the Origin, EA app and PopCap folders, and a `Games` folder next to PegglePort or in your home folder. A folder only counts when `main.pak` is in it.
