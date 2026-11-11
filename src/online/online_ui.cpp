@@ -280,8 +280,10 @@ class OnlineScreen : public Screen {
       int party = 0;
       is >> tag >> r.code >> r.players >> r.joined >> party >> r.level >> r.hash;
       std::getline(is >> std::ws, r.name);
-      if (tag != "ROOM") continue;
+      if (tag != "ROOM" || !plainCode(r.code)) continue;
       r.party = party != 0;
+      r.players = std::clamp(r.players, 2, 4);
+      r.joined = std::clamp(r.joined, 0, r.players);
       r.haveLevel = levelInstalled(app, r.level);
       for (auto& c : r.name) if (c == '_') c = ' ';
       r.levelShown = fitText(app.gfx, "PLAIN", r.haveLevel ? levelTitle(app, r.level) : cleanText(r.level, 64), kColRoom - kColLevel - 8);
@@ -290,6 +292,13 @@ class OnlineScreen : public Screen {
     }
     if (!held_) setStatus(rooms_.empty() ? "Connected. No open rooms - create one and send your friends the invite." : std::to_string(rooms_.size()) + " open room(s). Click one to select it, double-click to join.", 0);
     lastRefresh_ = app.updateCount();
+  }
+
+  static bool plainCode(const std::string& code) {
+    if (code.size() != 5) return false;
+    for (unsigned char c : code)
+      if (c <= 32 || c >= 127) return false;
+    return true;
   }
 
   bool loadLevel(const std::string& name, LevelBundle* lb, std::string* err) { return loadLevelBundle(app.vfs, name, *lb, err); }
