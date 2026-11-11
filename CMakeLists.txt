@@ -186,7 +186,7 @@ add_library(pp_ui STATIC
   src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/launcher.cpp src/ui/nights.cpp src/ui/sparkle.cpp src/ui/fireworks.cpp src/ui/fairies.cpp src/ui/nights_loading.cpp src/ui/storywin.cpp
   src/ui/character_dialog.cpp src/ui/slot_dialog.cpp src/ui/replay.cpp src/ui/replay_ui.cpp src/ui/import_dialog.cpp src/ui/hooks.cpp src/ui/visuals_dialog.cpp
   src/ui/mods_screen.cpp src/ui/mod_apply.cpp src/ui/consent_dialog.cpp src/ui/log_view.cpp
-  src/online/online_ui.cpp src/online/online_match.cpp)
+  src/online/online_ui.cpp src/online/online_match.cpp src/online/level_names.cpp)
 target_include_directories(pp_ui PUBLIC src third_party)
 target_compile_definitions(pp_ui PUBLIC PP_UI_HAVE_FONT)
 target_link_libraries(pp_ui PUBLIC pp_core pp_audio pp_mods SDL3::SDL3)

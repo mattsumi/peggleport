@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -23,6 +24,16 @@ int masterTotal(bool nights);
 std::string masterNameAt(bool nights, int i);
 std::string masterKeyAt(bool nights, int i);
 std::string masterNameForPower(int power);
+
+struct LevelChoice {
+  std::string file, title, group;
+};
+std::vector<LevelChoice> levelChoices(const App& app);
+std::string levelTitle(const App& app, const std::string& file);
+bool levelInstalled(const App& app, const std::string& file);
+std::string cleanText(const std::string& s, size_t maxBytes);
+std::string drawableText(const std::string& s);
+std::string fitText(Gfx& g, const std::string& font, const std::string& s, float width);
 
 struct Prefs {
   std::string lobby;

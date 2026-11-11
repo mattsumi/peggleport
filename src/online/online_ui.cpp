@@ -12,7 +12,6 @@
 #include <atomic>
 #include <cstdio>
 #include <fstream>
-#include <set>
 #include <sstream>
 #include <thread>
 
@@ -83,10 +82,12 @@ class NetEdit : public EditBox {
 };
 
 struct RoomRow {
-  std::string code, level, name, hash;
+  std::string code, level, name, hash, levelShown, nameShown;
   int players = 2, joined = 1;
   bool party = false, haveLevel = true;
 };
+
+constexpr float kColCode = 52, kColGame = 122, kColSeats = 200, kColLevel = 248, kColRoom = 386, kRowEnd = 532;
 
 struct Job {
   std::thread th;
@@ -111,10 +112,9 @@ class OnlineScreen : public Screen {
   OnlineScreen(App& a, const std::string& invite) : Screen(a) {
     prefsFile_ = a.userDir.parent_path() / "online.ini";
     if (!a.cfg.noSave) prefs_.load(prefsFile_);
-    levels_ = listStageLevels(a.vfs);
-    for (auto& l : levels_) haveLevels_.insert(l.name);
+    levels_ = levelChoices(a);
     for (size_t i = 0; i < levels_.size(); i++)
-      if (levels_[i].name == prefs_.level) levelIdx_ = (int)i;
+      if (levels_[i].file == prefs_.level) { levelIdx_ = (int)i; break; }
     mode_ = prefs_.mode;
     master_ = prefs_.master;
     nMasters_ = masterTotal(a.game == Game::Nights);
@@ -188,7 +188,7 @@ class OnlineScreen : public Screen {
     const int nb = app.game == Game::Nights ? 11 : 10;
     prefs_.master = std::min(master_, nb - 1);
     prefs_.masterMod = master_ >= nb ? masterKeyAt(app.game == Game::Nights, master_) : std::string();
-    if (!levels_.empty()) prefs_.level = levels_[levelIdx_].name;
+    if (!levels_.empty()) prefs_.level = levels_[levelIdx_].file;
     if (!app.cfg.noSave) {
       std::error_code ec;
       std::filesystem::create_directories(prefsFile_.parent_path(), ec);
@@ -282,8 +282,10 @@ class OnlineScreen : public Screen {
       std::getline(is >> std::ws, r.name);
       if (tag != "ROOM") continue;
       r.party = party != 0;
-      r.haveLevel = haveLevels_.count(r.level) > 0;
+      r.haveLevel = levelInstalled(app, r.level);
       for (auto& c : r.name) if (c == '_') c = ' ';
+      r.levelShown = fitText(app.gfx, "PLAIN", r.haveLevel ? levelTitle(app, r.level) : cleanText(r.level, 64), kColRoom - kColLevel - 8);
+      r.nameShown = r.haveLevel ? fitText(app.gfx, "PLAIN", cleanText(r.name, 40), kRowEnd - kColRoom) : std::string("level not installed");
       rooms_.push_back(r);
     }
     if (!held_) setStatus(rooms_.empty() ? "Connected. No open rooms - create one and send your friends the invite." : std::to_string(rooms_.size()) + " open room(s). Click one to select it, double-click to join.", 0);
@@ -292,13 +294,22 @@ class OnlineScreen : public Screen {
 
   bool loadLevel(const std::string& name, LevelBundle* lb, std::string* err) { return loadLevelBundle(app.vfs, name, *lb, err); }
 
+  const std::string& roomLevelTitle(const std::string& file) {
+    if (!roomTitleSet_ || file != roomTitleFor_) {
+      roomTitleFor_ = file;
+      roomTitle_ = file.empty() ? std::string("?") : levelTitle(app, file);
+      roomTitleSet_ = true;
+    }
+    return roomTitle_;
+  }
+
   void startHost() {
     if (levels_.empty()) { setStatus("No levels found in the game data.", 1); return; }
     std::string host, err;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
     LevelBundle lb;
-    if (!loadLevel(levels_[levelIdx_].name, &lb, &err)) { setStatus("Cannot load the level: " + err, 1); return; }
+    if (!loadLevel(levels_[levelIdx_].file, &lb, &err)) { setStatus("Cannot load the level: " + err, 1); return; }
     int players = mode_ == 0 ? 2 : mode_ + 2;
     MatchInfo mi;
     mi.players = players;
@@ -488,9 +499,12 @@ class OnlineScreen : public Screen {
         leaveRoom("The host picked the Master \"" + mi.missingMaster + "\" from a mod that you do not have, so you cannot join this room.", 1);
         return;
       }
-      if (!loadLevel(mi.level, &lb, &err)) { leaveRoom("You do not have the level \"" + mi.level + "\" that the host chose (" + err + ").", 1); return; }
+      if (!loadLevel(mi.level, &lb, &err)) {
+        leaveRoom("You do not have the level \"" + drawableText(cleanText(mi.level, 64)) + "\" that the host chose (" + drawableText(cleanText(err, 160)) + ").", 1);
+        return;
+      }
       if (pp::online::matchContentHash(lb) != mi.contentHash) {
-        leaveRoom("Your copy of \"" + mi.level + "\" (or your mods) differs from the host's, so the game would not stay in sync.", 1);
+        leaveRoom("Your copy of \"" + drawableText(levelTitle(app, mi.level)) + "\" (or your mods) differs from the host's, so the game would not stay in sync.", 1);
         return;
       }
       lb_ = lb;
@@ -550,7 +564,11 @@ class OnlineScreen : public Screen {
     else {
       g.drawString("PLAIN", 40, 101, "Lobby server", 0xffffff, 1);
       panel(g, 40, 130, 500, 330, "Open Rooms");
-      g.drawString("PLAIN", 52, 160, "Code    Game        Seats   Level                Room", 0xaaaaff, 1);
+      g.drawString("PLAIN", kColCode, 160, "Code", 0xaaaaff, 1);
+      g.drawString("PLAIN", kColGame, 160, "Game", 0xaaaaff, 1);
+      g.drawString("PLAIN", kColSeats, 160, "Seats", 0xaaaaff, 1);
+      g.drawString("PLAIN", kColLevel, 160, "Level", 0xaaaaff, 1);
+      g.drawString("PLAIN", kColRoom, 160, "Room", 0xaaaaff, 1);
       for (int i = 0; i < (int)rooms_.size() && i < 10; i++) {
         const RoomRow& r = rooms_[i];
         float y = (float)(166 + i * 26);
@@ -559,12 +577,11 @@ class OnlineScreen : public Screen {
         uint32_t col = r.haveLevel && r.joined < r.players ? 0xffffff : 0x888888;
         char seats[16];
         std::snprintf(seats, sizeof seats, "%d/%d", r.joined, r.players);
-        g.drawString("PLAIN", 52, y + 17, r.code, col);
-        g.drawString("PLAIN", 112, y + 17, r.party ? "Peg Party" : "Duel", col);
-        g.drawString("PLAIN", 200, y + 17, seats, col);
-        std::string lvl = r.level + (r.haveLevel ? "" : " (not installed)");
-        g.drawString("PLAIN", 252, y + 17, lvl.substr(0, 18), col);
-        g.drawString("PLAIN", 378, y + 17, r.name.substr(0, 20), col);
+        g.drawString("PLAIN", kColCode, y + 17, r.code, col);
+        g.drawString("PLAIN", kColGame, y + 17, r.party ? "Peg Party" : "Duel", col);
+        g.drawString("PLAIN", kColSeats, y + 17, seats, col);
+        g.drawString("PLAIN", kColLevel, y + 17, r.levelShown, col);
+        g.drawString("PLAIN", kColRoom, y + 17, r.nameShown, col);
       }
       g.drawString("PLAIN", 556, 166, "Join with a room code", 0xffffff, 1);
       if (job_) g.drawString("PLAIN", 556, 450, "working...", 0xffe070);
@@ -592,8 +609,12 @@ class OnlineScreen : public Screen {
     g.drawString("PLAIN", 214, 182, "Game", 0xffffff, 1);
     g.drawString("PLAIN", 214, 236, "Level", 0xffffff, 1);
     g.drawString("PLAIN", 214, 290, "Master", 0xffffff, 1);
-    std::string lvl = levels_.empty() ? "-" : levels_[levelIdx_].title.empty() ? levels_[levelIdx_].name : levels_[levelIdx_].title;
-    g.drawString("PLAIN", 470, 237, lvl.substr(0, 22), 0xffff88, 1, Align::Center);
+    if (levels_.empty()) g.drawString("PLAIN", 470, 237, "-", 0xffff88, 1, Align::Center);
+    else {
+      const LevelChoice& lc = levels_[levelIdx_];
+      g.drawString("PLAIN", 470, 237, fitText(g, "PLAIN", lc.title, 144), 0xffff88, 1, Align::Center);
+      g.drawString("PLAIN", 470, 257, fitText(g, "PLAIN", lc.group, 144), 0xaaaaaa, 1, Align::Center);
+    }
     g.drawString("PLAIN", 470, 291, masterNameAt(app.game == Game::Nights, master_), 0xffff88, 1, Align::Center);
     if (const auto& mods = masters::all(); !mods.empty()) {
       const int nb = app.game == Game::Nights ? 11 : 10;
@@ -615,8 +636,8 @@ class OnlineScreen : public Screen {
     g.drawString("OVERLOAD24GRAD1", 400, 160, roomCode_, 0xffffff, 1, Align::Center);
     std::string inv = makeInvite(lobbyHost_, lobbyPort_, roomCode_);
     g.drawWrapped("PLAIN", {60, 176, 680, 30}, inv, 0x9fb8ff, 1, Align::Center);
-    std::string what = std::string(mi.party ? "Peg Party" : "Duel") + " - " + std::to_string(mi.players) + " players - level " + (mi.level.empty() ? "?" : mi.level);
-    g.drawString("PLAIN", 400, 222, what, 0xffe070, 1, Align::Center);
+    std::string what = std::string(mi.party ? "Peg Party" : "Duel") + " - " + std::to_string(mi.players) + " players - level " + roomLevelTitle(mi.level);
+    g.drawString("PLAIN", 400, 222, fitText(g, "PLAIN", what, 680), 0xffe070, 1, Align::Center);
     const auto& roster = sess_->roster();
     for (int i = 0; i < mi.players; i++) {
       float y = (float)(252 + i * 34);
@@ -641,8 +662,9 @@ class OnlineScreen : public Screen {
  private:
   Prefs prefs_;
   std::filesystem::path prefsFile_;
-  std::vector<StageLevel> levels_;
-  std::set<std::string> haveLevels_;
+  std::vector<LevelChoice> levels_;
+  std::string roomTitleFor_, roomTitle_;
+  bool roomTitleSet_ = false;
   int levelIdx_ = 0, mode_ = 0, master_ = 0, nMasters_ = 10;
   bool create_ = false, room_ = false, isHost_ = false, guestChecked_ = false, readySent_ = false;
   int lastRefresh_ = 0, copiedAt_ = -1000;
