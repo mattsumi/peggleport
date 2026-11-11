@@ -147,6 +147,7 @@ void PlayerInfo::reset(bool keepLists) {
   storyPending = true;
   fEf = false;
   tipsMask = 0;
+  faeries = 0;
   tipCount = 0;
   tipOther = 0;
   computerSkill = -1;
@@ -318,6 +319,10 @@ std::vector<uint8_t> PlayerInfo::serialize(int version) const {
     for (int i = 20; i < 24; i++) w.i32(statsA.styleShots[i]);
     for (int i = 20; i < 24; i++) w.i32(statsB.styleShots[i]);
   }
+  if (faeries != 0) {
+    w.u32(0x31465050);
+    w.i32(faeries);
+  }
   return w.bytes();
 }
 
@@ -386,6 +391,8 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
     uint32_t magic = r.u32();
     if (magic == 0x314e5050) {
       for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) acedLevels.insert(r.str());
+    } else if (magic == 0x31465050) {
+      faeries = r.i32();
     } else if (magic == 0x314d5050) {
       for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) mantelSeen.insert(r.str());
       mantelSeenKnown = true;

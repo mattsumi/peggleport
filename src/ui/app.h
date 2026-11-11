@@ -154,6 +154,8 @@ class App : public WidgetHost {
   int maxStage = 0, maxLevel = 0;
   bool colorblind = false;
   bool menuNewLevels = false, menuUnlocked = false;
+  int faeriesCaught = 0;
+  void keepFaeries();
   bool trialDisabled = true;
   std::string titleText() const;
   int numStages() const { return stages.numStages(); }

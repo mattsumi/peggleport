@@ -125,6 +125,7 @@ void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
   if (current) {
     row("Total Score:", p->advScore);
     row("Retries:", p->advRetries);
+    if (nights) row("Faeries Captured:", p->faeries);
   } else {
     const long long levels = (long long)app.stages.numAllLevels();
     row("Challenges Finished:", (long long)p->trophies.size(), (long long)app.trophies.numTrophies());

@@ -206,7 +206,7 @@ bool parseNights(DataReader& r, PlayerInfo& p, std::string& why) {
   p.advCompletions = r.i32();
   p.b58 = r.u8();
   p.tipsMask = r.i32();
-  r.i32();
+  p.faeries = r.i32();
   p.advScore = r.i32();
   p.advLevelAttempts = r.i32();
   p.advRetries = r.i32();

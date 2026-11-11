@@ -130,6 +130,7 @@ void App::finishCreateUserDialog(bool accepted) {
   if (!cfg.noSave) profiles.save();
   if (curProfile) saveProfile();
   curProfile = p;
+  keepFaeries();
   colorblind = p->colorblind;
   checkMaxStage();
   if (!d->certificate) {

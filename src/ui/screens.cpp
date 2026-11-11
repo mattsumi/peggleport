@@ -304,6 +304,7 @@ bool LoadingScreen::input(const Input& in) {
   if (nights && !used && in.type == Input::MouseDown && mouseVisible) {
     int popped = nights->click(mouseX, mouseY);
     for (int i = 0; i < popped; i++) app.playSample("FAIRY_POP");
+    app.faeriesCaught += popped;
   }
   return used;
 }

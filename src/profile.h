@@ -94,6 +94,7 @@ struct PlayerInfo {
   uint8_t tipCounts[10]{};
   uint16_t tipOther = 0, trophyLevelSeen = 0;
   std::set<std::string> acedLevels;
+  int faeries = 0;
   std::set<std::string> mantelSeen;
   bool mantelSeenKnown = false;
   bool dirty = false;

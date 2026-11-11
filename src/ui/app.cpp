@@ -592,8 +592,17 @@ void App::showMainMenu() {
   (void)old;
   setScreen(std::make_unique<MainMenu>(*this), leave);
   if (leave == Right) {   }
+  keepFaeries();
   if (!curProfile) doCreateUserDialog();
   else offerModConsent();
+}
+
+void App::keepFaeries() {
+  if (!curProfile || faeriesCaught <= 0) return;
+  curProfile->faeries += faeriesCaught;
+  curProfile->dirty = true;
+  faeriesCaught = 0;
+  saveProfile();
 }
 
 void App::showAdventureScreen() {
