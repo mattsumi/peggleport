@@ -276,6 +276,8 @@ class LastPicture : public Screen {
 
 void App::requestGameSwitch(Game g, StartTarget start) {
   start.handOver = true;
+  start.player = curProfile ? curProfile->name : std::string();
+  start.colorblind = colorblind;
   start.askedAt = SDL_GetTicksNS();
   switchTo_.game = g;
   switchTo_.start = start;
@@ -314,6 +316,21 @@ bool App::goHome() {
 }
 
 void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow) {
+  if (!start.player.empty()) {
+    PlayerInfo* p = profiles.get(start.player);
+    if (!p) p = profiles.add(start.player);
+    if (p) {
+      if (curProfile && curProfile != p) saveProfile();
+      curProfile = p;
+      if (p->colorblind != start.colorblind) {
+        p->colorblind = start.colorblind;
+        p->dirty = true;
+      }
+      colorblind = p->colorblind;
+      checkMaxStage();
+      saveAll();
+    }
+  }
   stopMusic();
   cur_ = std::make_unique<LastPicture>(*this, lastPicture, pictureFillsWindow);
   scrollDir = 0;
