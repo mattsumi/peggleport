@@ -29,7 +29,7 @@ int CharacterDialog::mastersMet(Game g, const PlayerInfo* p) {
 }
 
 int CharacterDialog::masterMetAt(Game g, int k) {
-  return g == Game::Nights ? kNightsOrder[std::clamp(k, 0, 11)] : k;
+  return g == Game::Nights ? (k >= 0 && k < 12 ? kNightsOrder[k] : 0) : k;
 }
 
 CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
