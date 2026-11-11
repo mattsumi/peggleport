@@ -422,9 +422,14 @@ void Session::poll() {
         if (!l.empty() && l.back() == '\r') l.pop_back();
         p->awaitOk = false;
         if (l != "OK" && l.rfind("OK U ", 0) != 0) {
+          p->dead = true;
+          if (host_) {
+            p->bye = true;
+            pp::log::info("net", "a player gave up before the lobby connected them (the lobby said: " + l + ")");
+            continue;
+          }
           error = "lobby: " + l;
           pp::log::error("net", error);
-          p->dead = true;
           continue;
         }
         if (l.size() > 5 && udpEnabled) {
@@ -437,7 +442,10 @@ void Session::poll() {
         if (!host_) send(*p, HELLO, helloBody());
       }
     } else if (p->awaitOk) {
-      if (p->dead && error.empty()) {
+      if (p->dead && host_ && !p->bye) {
+        p->bye = true;
+        pp::log::info("net", "the lobby closed the connection for an incoming player without an answer");
+      } else if (p->dead && !host_ && error.empty()) {
         error = "lobby: connection closed";
         pp::log::error("net", "the lobby closed the connection without an answer");
       }
