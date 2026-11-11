@@ -123,7 +123,7 @@ bool GameScreen::startLevel(const std::string& name) {
   hudLevel_ = app.curLevel;
   if (app.gameMode == GameMode::Challenge)
     if (const TrophyInfo* t = app.trophies.byId(app.curChallenge)) {
-      if (t->balls > 0) cfg.balls = t->balls;
+      if (t->balls > 0) cfg.balls = app.challengeStep == 0 ? t->balls : std::max(app.challengeBalls, 1);
       if (t->numOrange > 0) cfg.orange = t->numOrange;
       cfg.clearLevel = t->clearLevel;
       auto ng = t->raw.find("NoGreens");
@@ -721,6 +721,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
       const TrophyInfo* ct = app.trophies.byId(app.curChallenge);
       const bool moreLevels = ct && app.challengeStep + 1 < (int)ct->levels.size();
       app.challengeMore = won && moreLevels;
+      app.challengeBalls = o.ballsLeft;
       if (app.challengeMore && !ct->scoreReset && !cfg_.ch.active && !duel_) app.challengeScore = o.totalScore;
       if (app.game == Game::Nights && ct && cfg_.ch.active && !duel_) {
         if (!ct->scoreReset && moreLevels) {
