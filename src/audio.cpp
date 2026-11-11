@@ -288,7 +288,7 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
   }
   prevPhase_ = ph;
   {
-    bool fireAlive = false;
+    bool fireAlive = b.phase == Phase::Aim && b.pturn[b.cur][Board::P_FIREBALL] > 0;
     for (const auto& bl : b.balls) fireAlive = fireAlive || (bl.fire && bl.alive);
     if (fireAlive && updates_ >= fireLoopEnd_) {
       play("FIREBALLLOOP", 0, 1, 0, true);
