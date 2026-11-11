@@ -19,7 +19,7 @@ struct Tex {
   SDL_Texture* t = nullptr;
   int w = 0, h = 0, cols = 1, rows = 1;
   float scale = 1;
-  std::string path;
+  std::string path, mask;
   bool valid() const { return w > 0; }
   float lw() const { return w / scale; }
   float lh() const { return h / scale; }

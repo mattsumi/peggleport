@@ -176,17 +176,19 @@ void Gfx::popClip() {
 void Gfx::fillTex(Tex& T, const std::string& idOrPath) {
   if (T.t) SDL_DestroyTexture(T.t);
   T = Tex();
-  std::string path = idOrPath;
+  std::string path = idOrPath, mask;
   if (const ResImage* ri = man_.image(idOrPath)) {
     path = ri->path;
+    mask = ri->alphaImage.empty() ? ri->alphaGrid : ri->alphaImage;
     T.cols = ri->cols;
     T.rows = ri->rows;
   }
-  if (auto im = loadGameImage(vfs_, path)) {
+  if (auto im = loadGameImage(vfs_, path, mask)) {
     T.w = im->w;
     T.h = im->h;
     T.scale = im->scale;
     T.path = path;
+    T.mask = mask;
     if (r_) {
       T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im->w, im->h);
       if (T.t) {
@@ -340,7 +342,7 @@ Tex* Gfx::boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int 
   if (it != boxCache_.end()) return it->second.valid() ? &it->second : nullptr;
   auto rit = rgbaCache_.find(t);
   if (rit == rgbaCache_.end()) {
-    auto im = loadGameImage(vfs_, t->path);
+    auto im = loadGameImage(vfs_, t->path, t->mask);
     if (!im || im->w != t->w || im->h != t->h) return nullptr;
     rit = rgbaCache_.emplace(t, std::vector<uint8_t>(im->rgba.begin(), im->rgba.end())).first;
   }
