@@ -36,6 +36,11 @@ std::string cleanText(const std::string& s, size_t maxBytes);
 std::string drawableText(const std::string& s);
 std::string fitText(Gfx& g, const std::string& font, const std::string& s, float width);
 
+enum class Where { List, Open, Join, Room, Match };
+std::string troubleText(const std::string& raw, Where where, bool host, const std::string& lobby, const std::string& code, bool* known = nullptr);
+std::string linkText(const std::string& note, bool brief);
+std::string probeText(const pp::online::LobbyProbe& r, const std::string& host);
+
 struct Prefs {
   std::string lobby;
   int mode = 0;

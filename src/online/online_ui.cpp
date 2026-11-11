@@ -96,6 +96,8 @@ constexpr float kColCode = 52, kColGame = 122, kColSeats = 200, kColLevel = 248,
 constexpr float kDlgX = 130, kDlgY = 100, kDlgW = 540, kDlgH = 340, kDlgPad = 24;
 constexpr float kPickL = 250, kPickR = kDlgX + kDlgW - kDlgPad, kPickMid = (kPickL + kPickR) / 2, kPickGap = 8;
 constexpr int kArrowHalf = 6;
+constexpr int kHoldTicks = 1000, kNoticeTicks = 800;
+constexpr float kAddrWidth = 300;
 
 float capsWidth(const Tex* t) { return t ? 2.0f * std::floor(t->lw() / 3.0f) : 0.0f; }
 
@@ -170,7 +172,7 @@ class OnlineScreen : public Screen {
     lobbyEdit_ = edit(E_Lobby, 150, 82, 390, 64, 14, 360);
     lobbyEdit_->value = prefs_.lobby.empty() ? "localhost:7770" : prefs_.lobby;
     lobbyEdit_->caret = (int)lobbyEdit_->value.size();
-    lobbyEdit_->onEnter = [this] { held_ = false; startList(); };
+    lobbyEdit_->onEnter = [this] { if (!job_) { held_ = false; startList(); } };
     codeEdit_ = edit(E_Code, 556, 176, 204 - joinW, 5, 10, 204 - joinW - 20);
     codeEdit_->onEnter = [this] { onButton(B_Join); };
     focusW = lobbyEdit_;
@@ -217,7 +219,7 @@ class OnlineScreen : public Screen {
     bGo_ = btn(B_Go, "Open Room", kDlgX + kDlgW / 2 - 155, 390, 150);
     bCancel_ = btn(B_Cancel, "Cancel", kDlgX + kDlgW / 2 + 5, 390, 150);
     layout();
-    if (!invite.empty()) applyInvite(invite);
+    if (!invite.empty()) applyInvite(invite, false);
     else startList();
   }
 
@@ -243,18 +245,54 @@ class OnlineScreen : public Screen {
     }
   }
 
-  void setStatus(const std::string& s, int kind = 0) { status_ = s; statusKind_ = kind; held_ = false; }
+  void say(const std::string& s, int kind = 0) { status_ = s; statusKind_ = kind; held_ = false; }
+
+  void hold(const std::string& s, int kind, bool untilAction = false) {
+    status_ = s;
+    statusKind_ = kind;
+    held_ = !s.empty();
+    heldTimed_ = !untilAction;
+    heldAt_ = app.updateCount();
+  }
+
+  void release() {
+    if (listKnown_) say(listLine_, listKind_);
+    else if (held_ || statusKind_ != 0) say("");
+  }
+
+  void setCode(const std::string& code) {
+    codeEdit_->value = code;
+    codeEdit_->caret = (int)code.size();
+    codeSeen_ = code;
+  }
+
+  std::string addrShown(const std::string& host, int port) {
+    const std::string a = (host.find(':') != std::string::npos ? "[" + host + "]" : host) + ":" + std::to_string(port);
+    return fitText(app.gfx, "PLAIN", cleanText(a, 300), kAddrWidth);
+  }
+
+  std::string codeShown(const std::string& code) const { return drawableText(cleanText(code, 8)); }
+
+  std::string trouble(const std::string& raw, Where where) {
+    bool known = true;
+    std::string text = troubleText(raw, where, isHost_, jobAddr_, codeShown(roomCode_), &known);
+    if (!known) pp::log::warn("net", "no plain message for this answer: " + cleanText(raw, 240));
+    return text;
+  }
 
   std::string playerName() const { return app.curProfile && !app.curProfile->name.empty() ? app.curProfile->name : "Player"; }
 
-  void applyInvite(const std::string& text) {
+  void applyInvite(const std::string& text, bool pasted) {
     Invite iv;
-    if (!extractInvite(text, &iv)) { setStatus("That does not look like a PegglePort invite link.", 1); return; }
+    if (!extractInvite(text, &iv)) {
+      hold(pasted ? "There is no invite link on the clipboard. Copy the whole link (it starts with peggleport://) and press Paste Invite again."
+                  : "That invite link is not complete. Ask your friend to send it again.", 1);
+      return;
+    }
     lobbyEdit_->value = iv.host.find(':') != std::string::npos ? "[" + iv.host + "]:" + std::to_string(iv.port) : iv.host + ":" + std::to_string(iv.port);
     lobbyEdit_->caret = (int)lobbyEdit_->value.size();
-    codeEdit_->value = iv.code;
-    codeEdit_->caret = 5;
-    setStatus("Invite for room " + iv.code + " on " + lobbyEdit_->value + ". Press Join to connect.", 2);
+    setCode(iv.code);
+    hold("Invite for room " + iv.code + " on " + addrShown(iv.host, iv.port) + ". Press Join to connect.", 2, true);
     startList();
   }
 
@@ -263,15 +301,16 @@ class OnlineScreen : public Screen {
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
-    if (host.empty()) { setStatus("Enter the lobby server address first.", 1); return; }
+    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
     job_ = std::make_unique<Job>();
     jobKind_ = List;
+    jobAddr_ = addrShown(host, port);
     Job* j = job_.get();
     j->th = std::thread([j, host, port] {
       j->ok = Session::listRooms(host, port, &j->lines, &j->err);
       j->done = true;
     });
-    if (!held_) setStatus("Contacting " + host + ":" + std::to_string(port) + " ...");
+    if (!held_) say("Contacting " + jobAddr_ + " ...");
   }
 
   void startProbe() {
@@ -279,17 +318,20 @@ class OnlineScreen : public Screen {
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
-    if (host.empty()) { setStatus("Enter the lobby server address first.", 1); return; }
+    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
     job_ = std::make_unique<Job>();
     jobKind_ = Probe;
+    jobAddr_ = addrShown(host, port);
     Job* j = job_.get();
     j->th = std::thread([j, host, port] {
       bool reachable = false;
-      j->text = pp::online::probeLobbyUdp(host, port, &reachable);
+      pp::online::LobbyProbe seen;
+      pp::online::probeLobbyUdp(host, port, &reachable, &seen);
+      j->text = probeText(seen, host);
       j->ok = reachable;
       j->done = true;
     });
-    setStatus("Testing the connection to " + host + ":" + std::to_string(port) + " ...");
+    say("Testing the connection to " + jobAddr_ + " ...");
   }
 
   void startRegister() {
@@ -300,24 +342,26 @@ class OnlineScreen : public Screen {
     j->th = std::thread([j] {
       std::string report;
       j->ok = pp::online::registerUrlHandler(pp::online::selfExePath(nullptr), &report);
-      j->text = report;
+      pp::log::write(j->ok ? pp::log::Level::Info : pp::log::Level::Warn, "net", "registering invite links: " + report);
+      if (!j->ok) j->text = "Invite links could not be registered. Press F10 for the details.";
+      else if (report.find("xdg-mime was not available") != std::string::npos) j->text = "The entry for invite links was written, but xdg-mime is missing, so links may not open the game yet. F10 shows the command to run.";
+      else j->text = "Invite links are registered. Opening one now starts PegglePort.";
       j->done = true;
     });
-    setStatus("Registering invite links ...");
+    say("Registering invite links ...");
   }
 
-  void finishReport(const Job& j) {
-    std::string text = j.text;
-    while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
-    setStatus(text.empty() ? std::string(j.ok ? "Done." : "No answer.") : text, j.ok ? 2 : 1);
-    held_ = true;
-  }
+  void finishReport(const Job& j) { hold(j.text, j.ok ? 2 : 1, true); }
 
   void finishList() {
     rooms_.clear();
+    listKnown_ = true;
+    lastRefresh_ = app.updateCount();
+    const bool show = !held_ || (heldTimed_ && app.updateCount() - heldAt_ >= kHoldTicks);
     if (!job_->ok) {
-      if (!held_) setStatus("Could not reach the lobby: " + (job_->err.empty() ? std::string("no answer") : job_->err), 1);
-      lastRefresh_ = app.updateCount();
+      listLine_ = trouble(job_->err, Where::List);
+      listKind_ = 1;
+      if (show) say(listLine_, listKind_);
       return;
     }
     for (auto& l : job_->lines) {
@@ -337,8 +381,9 @@ class OnlineScreen : public Screen {
       r.nameShown = r.haveLevel ? fitText(app.gfx, "PLAIN", cleanText(r.name, 40), kRowEnd - kColRoom) : std::string("level not installed");
       rooms_.push_back(r);
     }
-    if (!held_) setStatus(rooms_.empty() ? "Connected. No open rooms - create one and send your friends the invite." : std::to_string(rooms_.size()) + " open room(s). Click one to select it, double-click to join.", 0);
-    lastRefresh_ = app.updateCount();
+    listLine_ = rooms_.empty() ? "Connected. No open rooms - create one and send your friends the invite." : std::to_string(rooms_.size()) + " open room(s). Click one to select it, double-click to join.";
+    listKind_ = 0;
+    if (show) say(listLine_, listKind_);
   }
 
   static bool plainCode(const std::string& code) {
@@ -360,12 +405,17 @@ class OnlineScreen : public Screen {
   }
 
   void startHost() {
-    if (levels_.empty()) { setStatus("No levels found in the game data.", 1); return; }
+    if (levels_.empty()) { hold("No levels were found in the game files.", 1); return; }
     std::string host, err;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
+    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
     LevelBundle lb;
-    if (!loadLevel(levels_[levelIdx_].file, &lb, &err)) { setStatus("Cannot load the level: " + err, 1); return; }
+    if (!loadLevel(levels_[levelIdx_].file, &lb, &err)) {
+      pp::log::error("net", "cannot load the level " + levelLogName(app, levels_[levelIdx_].file) + " for a room: " + err);
+      hold("This level could not be loaded. Pick another one.", 1);
+      return;
+    }
     int players = mode_ == 0 ? 2 : mode_ + 2;
     MatchInfo mi;
     mi.players = players;
@@ -386,6 +436,7 @@ class OnlineScreen : public Screen {
     lobbyPort_ = port;
     job_ = std::make_unique<Job>();
     jobKind_ = Host;
+    jobAddr_ = addrShown(host, port);
     Job* j = job_.get();
     Session* sp = sess_.get();
     std::string roomName = playerName() + "'s " + (mi.party ? "party" : "duel");
@@ -394,15 +445,16 @@ class OnlineScreen : public Screen {
       j->done = true;
     });
     savePrefs();
-    setStatus("Opening a room on " + host + ":" + std::to_string(port) + " ...");
+    say("Opening a room on " + jobAddr_ + " ...");
     layout();
   }
 
   void startJoin(const std::string& code) {
-    if (code.size() != 5) { setStatus("A room code has 5 characters.", 1); return; }
+    if (code.size() != 5) { say("A room code has 5 letters or digits. Type it, or click a room in the list.", 1); return; }
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
+    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
     isHost_ = false;
     sess_ = std::make_unique<Session>();
     sess_->setName(playerName());
@@ -411,6 +463,7 @@ class OnlineScreen : public Screen {
     roomCode_ = code;
     job_ = std::make_unique<Job>();
     jobKind_ = Join;
+    jobAddr_ = addrShown(host, port);
     Job* j = job_.get();
     Session* sp = sess_.get();
     j->th = std::thread([j, sp, host, port, code] {
@@ -418,11 +471,12 @@ class OnlineScreen : public Screen {
       j->done = true;
     });
     savePrefs();
-    setStatus("Joining room " + code + " ...");
+    say("Joining room " + codeShown(code) + " ...");
   }
 
   void enterRoom() {
-    setStatus("");
+    say("");
+    seated_ = 0;
     room_ = true;
     if (isHost_) pp::online::steam::setPresence("In a PegglePort room", makeInvite(lobbyHost_, lobbyPort_, sess_->roomCode()));
     guestChecked_ = readySent_ = false;
@@ -435,8 +489,8 @@ class OnlineScreen : public Screen {
     if (sess_) sess_->leave();
     sess_.reset();
     room_ = false;
-    setStatus(msg, kind);
-    held_ = kind == 1 && !msg.empty();
+    if (kind == 1) hold(msg, kind);
+    else say(msg, kind);
     layout();
     startList();
   }
@@ -469,13 +523,13 @@ class OnlineScreen : public Screen {
         char* t = SDL_GetClipboardText();
         std::string text = t ? t : "";
         SDL_free(t);
-        applyInvite(text);
+        applyInvite(text, true);
         break;
       }
-      case B_Create: create_ = true; layout(); break;
+      case B_Create: create_ = true; release(); layout(); break;
       case B_Back: app.showMainMenu(); break;
       case B_Cancel: create_ = false; layout(); break;
-      case B_Go: create_ = false; startHost(); break;
+      case B_Go: create_ = false; layout(); startHost(); break;
       case B_Mode: mode_ = (mode_ + 1) % 3; layout(); break;
       case B_LvlPrev: if (!levels_.empty()) levelIdx_ = (levelIdx_ + (int)levels_.size() - 1) % (int)levels_.size(); break;
       case B_LvlNext: if (!levels_.empty()) levelIdx_ = (levelIdx_ + 1) % (int)levels_.size(); break;
@@ -515,7 +569,7 @@ class OnlineScreen : public Screen {
       std::string text = t ? t : "";
       SDL_free(t);
       Invite iv;
-      if (extractInvite(text, &iv)) applyInvite(text);
+      if (extractInvite(text, &iv)) applyInvite(text, true);
       else if (focusW) focusW->text(text.substr(0, 64));
     }
   }
@@ -524,10 +578,14 @@ class OnlineScreen : public Screen {
     Panel::update();
     pp::online::steam::pump();
     std::string joinLink;
-    if (!room_ && !create_ && !job_ && pp::online::steam::takeJoinRequest(&joinLink)) applyInvite(joinLink);
+    if (!room_ && !create_ && !job_ && pp::online::steam::takeJoinRequest(&joinLink)) applyInvite(joinLink, false);
     std::string up;
     for (char c : codeEdit_->value) up.push_back((char)std::toupper((unsigned char)c));
     if (up != codeEdit_->value) codeEdit_->value = up;
+    if (codeEdit_->value != codeSeen_) {
+      codeSeen_ = codeEdit_->value;
+      if (!job_ && !room_ && !create_) release();
+    }
     if (job_ && job_->done) {
       std::unique_ptr<Job> j = std::move(job_);
       if (j->th.joinable()) j->th.join();
@@ -535,8 +593,7 @@ class OnlineScreen : public Screen {
       else if (jobKind_ == Probe || jobKind_ == Register) finishReport(*j);
       else if (!j->ok) {
         sess_.reset();
-        setStatus(jobKind_ == Host ? "Could not open a room: " + j->err : "Could not join: " + j->err, 1);
-        held_ = true;
+        hold(trouble(j->err, jobKind_ == Host ? Where::Open : Where::Join), 1);
         startList();
       } else enterRoom();
     }
@@ -547,8 +604,16 @@ class OnlineScreen : public Screen {
 
   void tickRoom() {
     sess_->poll();
-    if (!sess_->notice.empty()) { setStatus(sess_->notice, 1); sess_->notice.clear(); }
-    if (sess_->failed()) { leaveRoom(sess_->error.empty() ? std::string("The room was closed.") : drawableText(cleanText(sess_->error, 240)), 1); return; }
+    int seated = 0;
+    for (const auto& seat : sess_->roster()) seated += seat.connected ? 1 : 0;
+    if (!status_.empty() && (seated > seated_ || app.updateCount() - noticeAt_ >= kNoticeTicks)) say("");
+    seated_ = seated;
+    if (!sess_->notice.empty()) {
+      say(trouble(sess_->notice, Where::Room));
+      noticeAt_ = app.updateCount();
+      sess_->notice.clear();
+    }
+    if (sess_->failed()) { leaveRoom(trouble(sess_->error, Where::Room), 1); return; }
     if (!isHost_ && sess_->welcomed() && !guestChecked_) {
       std::string err;
       const MatchInfo& mi = sess_->info();
@@ -559,7 +624,8 @@ class OnlineScreen : public Screen {
         return;
       }
       if (!loadLevel(mi.level, &lb, &err)) {
-        leaveRoom("You do not have the level \"" + drawableText(cleanText(mi.level, 64)) + "\" that the host chose (" + drawableText(cleanText(err, 160)) + ").", 1);
+        pp::log::error("net", "cannot load the host's level " + levelLogName(app, mi.level) + ": " + cleanText(err, 160));
+        leaveRoom("You do not have the level \"" + drawableText(cleanText(mi.level, 64)) + "\" that the host chose. It may come from a mod or from the other Peggle game.", 1);
         return;
       }
       if (pp::online::matchContentHash(lb) != mi.contentHash) {
@@ -593,8 +659,8 @@ class OnlineScreen : public Screen {
     if (!used && in.type == Input::MouseDown && in.button == 1 && !room_ && !create_ && !job_) {
       int i = rowAt(in.x, in.y);
       if (i >= 0) {
-        codeEdit_->value = rooms_[i].code;
-        codeEdit_->caret = 5;
+        setCode(rooms_[i].code);
+        release();
         if (in.clicks >= 2) onButton(B_Join);
         used = true;
       }
@@ -651,7 +717,7 @@ class OnlineScreen : public Screen {
 
   void drawStatus(Gfx& g, float x, float y) {
     uint32_t col = statusKind_ == 1 ? 0xff8080 : statusKind_ == 2 ? 0x90ff90 : 0xffe070;
-    bool report = held_ && !room_ && !create_;
+    bool report = (held_ || statusKind_ != 0) && !room_ && !create_;
     float bx = report ? 236 : x, bw = report ? 524.0f : 720.0f, yy = report ? 470 : y;
     for (size_t p = 0; p <= status_.size();) {
       size_t e = status_.find('\n', p);
@@ -711,7 +777,7 @@ class OnlineScreen : public Screen {
       std::string st = i == 0 ? "host" : !known ? "waiting" : roster[i].ready ? "ready" : "not ready";
       g.drawString("PLAIN", 668, y + 19, st, st == "ready" || st == "host" ? 0x90ff90 : 0xffe070, 1, Align::Right);
     }
-    std::string link = sess_->linkNote();
+    std::string link = linkText(sess_->linkNote(), false);
     if (!link.empty()) g.drawWrapped("PLAIN", {60, (float)(252 + mi.players * 34 + 6), 680, 30}, link, 0xaaaaaa, 1, Align::Center);
     std::string hint = isHost_ ? (sess_->allReady() ? "Everybody is ready - press Start Match." : "Waiting for the other players to join and press Ready...")
                                : (readySent_ ? "Waiting for the host to start..." : guestChecked_ ? "Press Ready when you are." : "Checking the host's game files...");
@@ -730,8 +796,9 @@ class OnlineScreen : public Screen {
   bool create_ = false, room_ = false, isHost_ = false, guestChecked_ = false, readySent_ = false;
   int lastRefresh_ = 0, copiedAt_ = -1000;
   std::vector<RoomRow> rooms_;
-  std::string status_;
-  int statusKind_ = 0;
+  std::string status_, listLine_, jobAddr_, codeSeen_;
+  int statusKind_ = 0, listKind_ = 0, heldAt_ = 0, noticeAt_ = 0, seated_ = 0;
+  bool listKnown_ = false, heldTimed_ = false;
   std::unique_ptr<Job> job_;
   enum JobKind { None, List, Host, Join, Probe, Register } jobKind_ = None;
   bool held_ = false;

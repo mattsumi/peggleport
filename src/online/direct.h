@@ -64,6 +64,11 @@ class DirectLink {
   void raw(const uint8_t* d, size_t n) { if (port_ && peer_.valid()) port_->sendTo(peer_, d, n); }
 };
 
-std::string probeLobbyUdp(const std::string& host, int port, bool* reachable);
+struct LobbyProbe {
+  bool resolved = false, opened = false, answered = false, natKnown = false, samePort = false;
+  int port = 0;
+};
+
+std::string probeLobbyUdp(const std::string& host, int port, bool* reachable, LobbyProbe* detail = nullptr);
 
 }

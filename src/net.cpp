@@ -289,14 +289,24 @@ bool Session::listRooms(const std::string& lh, int lp, std::vector<std::string>*
   sock_t s = connectTo(lh, lp, err);
   if (s == BAD_SOCK) return false;
   std::string buf, ln;
-  bool ok = sendAllBlocking(s, "LIST\n");
-  while (ok && readLineBlocking(s, buf, ln, 3000)) {
-    if (ln == "END") break;
-    lines->push_back(ln);
+  bool ok = sendAllBlocking(s, "LIST\n"), ended = false;
+  while (ok && !ended && readLineBlocking(s, buf, ln, 3000)) {
+    if (ln == "END") ended = true;
+    else lines->push_back(ln);
   }
   closeSock(s);
   if (!ok && err) *err = "lobby connection failed";
   if (!ok) pp::log::warn("net", "lobby connection failed while listing rooms");
+  if (ok && !ended) {
+    if (err) *err = "no room list";
+    std::string head;
+    if (!lines->empty())
+      for (unsigned char c : lines->front())
+        if (c >= 32 && c < 127 && head.size() < 80) head.push_back((char)c);
+    pp::log::warn("net", "no complete room list came from " + lh + ":" + std::to_string(lp) + (head.empty() ? std::string() : ", the answer began with: " + head));
+    lines->clear();
+    return false;
+  }
   return ok;
 }
 
@@ -425,7 +435,10 @@ void Session::poll() {
         if (!host_) send(*p, HELLO, helloBody());
       }
     } else if (p->awaitOk) {
-      if (p->dead && error.empty()) error = "lobby: connection closed";
+      if (p->dead && error.empty()) {
+        error = "lobby: connection closed";
+        pp::log::error("net", "the lobby closed the connection without an answer");
+      }
       continue;
     }
     for (;;) {
