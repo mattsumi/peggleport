@@ -745,8 +745,9 @@ void App::doNotYet(const std::string& text) {
 }
 
 void App::doConfirmQuitDialog() {
-  Dialog* d = doDialog(D_Quit, true, "Quit Peggle?", "Are you sure you want to\nquit the game?", "", BUTTONS_OK_CANCEL);
-  d->resize(d->x, d->y, 235, 280);
+  Dialog* d = doDialog(D_Quit, true, game == Game::Nights ? "Quit?" : "Quit Peggle?", "Are you sure you want to\nquit the game?", "", BUTTONS_YES_NO);
+  d->x = 235;
+  d->scrollTarget = 280;
 }
 void App::doConfirmNewChallengeDialog() {
   Dialog* d = doDialog(D_NewChallenge, true, "New Challenge?", "Are you sure that you want to choose a new challenge? Your progress on this challenge will be lost.", "", BUTTONS_YES_NO);
