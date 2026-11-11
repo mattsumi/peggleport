@@ -734,7 +734,7 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
       mi_.players = r.u8();
       mi_.party = r.u8() != 0;
       mi_.seed = r.u32();
-      mi_.boardWidth = (int)r.u32();
+      mi_.boardWidth = (int)std::clamp<uint32_t>(r.u32(), 650u, 1400u);
       mi_.contentHash = r.u64();
       mi_.level = r.str();
       for (int i = 0; i < 4; i++) mi_.master[i] = r.u8();
