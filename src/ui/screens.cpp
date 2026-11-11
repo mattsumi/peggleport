@@ -330,8 +330,8 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   };
   bAdv = emb(0, "IMAGE_MM_ADVENTURE", 0);
   bSolo = emb(1, "IMAGE_MM_SOLO", 2);
-  bDuel = emb(2, "IMAGE_MM_DUEL", isNights ? 4.0f : 5.0f);
-  bChal = emb(3, "IMAGE_MM_CHALLENGE", isNights ? 5.0f : 4.0f);
+  bDuel = emb(2, "IMAGE_MM_DUEL", 4);
+  bChal = emb(3, "IMAGE_MM_CHALLENGE", 5);
   auto brown = [&](int id, const char* label, float pitch) {
     Button* b = patchButton(id, label, "IMAGE_DLG_BROWNBUTTON1", 0, 0);
     b->hoverPitch = pitch;
@@ -341,7 +341,7 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   bOptions = brown(5, "Options", 9);
   bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demos", 11);
   bQuit = patchButton(7, "Quit", "IMAGE_DLG_PURPLEBUTTON", 7, 0x215);
-  bQuit->hoverPitch = isNights ? 12.0f : 13.0f;
+  bQuit->hoverPitch = 12;
   online::addMainMenuButton(*this);
   auto lk = std::make_unique<Button>();
   lk->id = 8;
