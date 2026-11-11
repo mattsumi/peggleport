@@ -47,6 +47,30 @@ bool Button::mouseUp(float lx, float ly, int button) {
   return true;
 }
 
+static void drawStyledLabel(Gfx& g, const std::string& font, float x, float y, const std::string& text, uint32_t rgb, float alpha, float styleAlpha, uint32_t outline, uint32_t main, uint32_t gradient, bool fullGradient) {
+  FontProvider& fp = g.fontProvider();
+  uint32_t mult[3] = {0, 0, 0}, add[3] = {0, 0, 0};
+  bool have = true;
+  for (size_t i = 0; i < 3; i++) have = fp.layerColors(font, i, mult[i], add[i]) && have;
+  if (have) {
+    fp.setLayerColors(font, 0, outline, add[0]);
+    fp.setLayerColors(font, 1, main, add[1]);
+    if (fullGradient) fp.setLayerColors(font, 2, mult[2], gradient | 0xffu);
+    else fp.setLayerColors(font, 2, mult[2] & 0xffffff00u, gradient | (uint32_t)std::clamp((int)(90.0f * styleAlpha), 0, 255));
+  }
+  g.drawString(font, x, y, text, rgb, alpha);
+  if (have)
+    for (size_t i = 0; i < 3; i++) fp.setLayerColors(font, i, mult[i], add[i]);
+}
+
+static void drawControlLabel(Gfx& g, const Widget& w, const std::string& font, float x, float y, const std::string& text, float styleAlpha) {
+  if (font != "BUTTON") {
+    g.drawString(font, x, y, text, 0xffffff, w.alpha);
+    return;
+  }
+  drawStyledLabel(g, font, x, y, text, 0xffffff, w.alpha, styleAlpha, w.down ? 0x1a3bd6ffu : 0x1333d8ffu, w.down ? 0xffffffffu : 0x65f3f8ffu, w.down ? 0xd2f7ff00u : 0x4cc4f700u, w.host && w.host->labelFullGradient());
+}
+
 static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
   const uint32_t rgb = b.over ? b.labelOver : b.labelColor;
   if ((b.labelStyle != 0 && b.labelStyle != 6 && b.labelStyle != 9 && b.labelStyle != 16) || b.font != "BUTTON") {
@@ -61,19 +85,7 @@ static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
   const uint32_t* kMain = kMains[set];
   const uint32_t* kGradient = kGradients[set];
   const int state = (b.down && b.over) ? 2 : ((b.down || b.over) ? 1 : 0);
-  FontProvider& fp = g.fontProvider();
-  uint32_t mult[3] = {0, 0, 0}, add[3] = {0, 0, 0};
-  bool have = true;
-  for (size_t i = 0; i < 3; i++) have = fp.layerColors(b.font, i, mult[i], add[i]) && have;
-  if (have) {
-    fp.setLayerColors(b.font, 0, kOutline[state], add[0]);
-    fp.setLayerColors(b.font, 1, kMain[state], add[1]);
-    if (b.labelFullGradient) fp.setLayerColors(b.font, 2, mult[2], kGradient[state] | 0xffu);
-    else fp.setLayerColors(b.font, 2, mult[2] & 0xffffff00u, kGradient[state] | (uint32_t)std::clamp((int)(90.0f * b.alpha), 0, 255));
-  }
-  g.drawString(b.font, x, y, b.label, rgb, b.alpha);
-  if (have)
-    for (size_t i = 0; i < 3; i++) fp.setLayerColors(b.font, i, mult[i], add[i]);
+  drawStyledLabel(g, b.font, x, y, b.label, rgb, b.alpha, b.alpha, kOutline[state], kMain[state], kGradient[state], b.labelFullGradient);
 }
 
 void Button::draw(Gfx& g) {
@@ -136,7 +148,7 @@ void Checkbox::draw(Gfx& g) {
   if (style == 0) row = checked ? (over ? 3 : 0) : (over ? 1 : 2);
   else row = checked ? 0 : (over ? 1 : 2);
   g.drawBoxSrc(image, 0, ch * row, image->lw(), ch, 0, 0, w, h, Mode(alpha));
-  if (!label.empty()) g.drawString(font, labelX, (h + g.fontAscent(font) * 0.8f) / 2 + labelY, label, 0xffffff, alpha);
+  if (!label.empty()) drawControlLabel(g, *this, font, labelX, (h + g.fontAscent(font) * 0.8f) / 2 + labelY, label, alpha);
 }
 bool Checkbox::mouseDown(float lx, float ly, int button, int clicks) {
   if (!enabled || button != 1) return false;
@@ -174,7 +186,7 @@ void Slider::draw(Gfx& g) {
   Tex* orb = thumb ? thumb : g.img("IMAGE_DLG_SLIDERORB");
   float bx = -170, by = -2;
   if (bar) g.draw(bar, bx, by);
-  if (!label.empty()) g.drawString("BUTTON", bx + 18, by + 31, label, 0xffffff, alpha);
+  if (!label.empty()) drawControlLabel(g, *this, "BUTTON", bx + 18, by + 31, label, 1.0f);
   if (hi && orb) {
     float tw = orb->lw();
     float cw = std::clamp((float)((hi->lw() + tw) * value), 0.0f, hi->lw());

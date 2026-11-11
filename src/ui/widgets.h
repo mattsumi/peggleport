@@ -33,6 +33,7 @@ struct WidgetHost {
   virtual void checkboxChanged(int id, bool checked) {}
   virtual void sliderChanged(int id, double v) {}
   virtual void playSound(const std::string& id, float pitchSemis = 0) {}
+  virtual bool labelFullGradient() const { return false; }
 };
 
 class Widget {

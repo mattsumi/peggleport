@@ -116,6 +116,8 @@ Widget* Panel::findWidget(int id) {
 
 void Panel::playSound(const std::string& id, float pitch) { app.playSample(id, pitch); }
 
+bool Panel::labelFullGradient() const { return app.game != Game::Nights; }
+
 void Panel::update() {
   updateCount++;
   for (auto& w : widgets) w->update();

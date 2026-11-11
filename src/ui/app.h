@@ -66,6 +66,7 @@ class Panel : public WidgetHost {
   void buttonEnter(int id) override { onButtonEnter(id); }
   void buttonLeave(int id) override { onButtonLeave(id); }
   void playSound(const std::string& id, float pitch = 0) override;
+  bool labelFullGradient() const override;
   virtual void onButton(int id) {}
   virtual void onButtonPress(int id, int clicks) {}
   virtual void onButtonEnter(int id) {}
