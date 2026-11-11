@@ -29,7 +29,7 @@ To make links open the game:
 
 ## Direct links and the relay
 
-Players first talk through the lobby, which always works and needs no router settings. At the same time their computers try to open a direct UDP connection with each other, which has less delay and spares the server. If that fails for any reason, you stay on the relay and the match is not interrupted. The Online screen tells you why a direct link did not happen.
+Players first talk through the lobby, which always works and needs no router settings. At the same time their computers try to open a direct UDP connection with each other, which has less delay and spares the server. If that fails for any reason, you stay on the relay and the match is not interrupted. The waiting room tells you why a direct link did not happen, and the log (F10) keeps the full reason.
 
 **Test connection** on the Online screen checks that the lobby answers over UDP and tells you what kind of router you are behind. Routers that give every destination a different port ("symmetric") can not do direct links, and those players stay on the relay.
 
