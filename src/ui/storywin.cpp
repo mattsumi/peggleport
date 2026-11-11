@@ -21,7 +21,7 @@ void StoryScreen::initWin() {
   tier = 0;
   if (info) {
     const PlayerInfo* p = app.curProfile;
-    if (p && (int)p->trophies.size() >= (int)app.trophies.numTrophies()) {
+    if (p && (int)app.trophies.numHeld(p->trophies) >= (int)app.trophies.numTrophies()) {
       tier = 1;
       if (p->clearedLevels.size() >= app.stages.numLevels()) tier = 2;
     }

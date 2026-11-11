@@ -75,7 +75,7 @@ bool MainMenu::mantelEarned(App& app, int id) {
   const PlayerInfo* p = app.curProfile;
   if (!p || id < 0 || id > 3) return false;
   if (id == 0) return p->advCompletions > 0;
-  if (id == 2) return app.trophies.numTrophies() > 0 && p->trophies.size() >= app.trophies.numTrophies();
+  if (id == 2) return app.trophies.numTrophies() > 0 && app.trophies.numHeld(p->trophies) >= app.trophies.numTrophies();
   size_t n = 0, total = 0;
   for (int i = 0; i < app.stages.numStages(); i++)
     if (const StageInfo* s = app.stages.stage(i))

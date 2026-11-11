@@ -97,14 +97,19 @@ class TrophyMgr {
  public:
   bool load(const Vfs& vfs);
   const std::vector<TrophyPage>& pages() const { return pages_; }
-  size_t numTrophies() const { return byId_.size(); }
+  size_t numTrophies() const { return mainTrophies_; }
+  size_t numAllTrophies() const { return byId_.size(); }
+  size_t numHeld(const std::set<int>& held) const;
   const TrophyInfo* byId(int id) const { auto it = byId_.find(id); return it == byId_.end() ? nullptr : it->second; }
   std::vector<const TrophyInfo*> forClearedLevel(const std::string& level) const;
   std::string cfgError;
 
  private:
+  void parseCfg(const std::string& text);
   std::vector<TrophyPage> pages_;
   std::map<int, const TrophyInfo*> byId_;
+  size_t mainTrophies_ = 0;
+  int mainPages_ = 0;
 };
 
 }

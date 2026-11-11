@@ -387,7 +387,7 @@ void MainMenu::syncPlayerInfo() {
     int prev = p->trophyLevelSeen;
     if (p->advCompletions > 0) {
       trophyTier = 1;
-      if ((int)p->trophies.size() >= (int)app.trophies.numTrophies()) {
+      if ((int)app.trophies.numHeld(p->trophies) >= (int)app.trophies.numTrophies()) {
         trophyTier = 2;
         if (p->clearedLevels.size() >= app.stages.numLevels()) trophyTier = 3;
       }

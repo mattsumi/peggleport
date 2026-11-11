@@ -129,7 +129,7 @@ void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
     if (nights) row("Faeries Captured:", p->faeries);
   } else {
     const long long levels = (long long)app.stages.numAllLevels();
-    row("Challenges Finished:", (long long)p->trophies.size(), (long long)app.trophies.numTrophies());
+    row("Challenges Finished:", (long long)p->trophies.size(), (long long)app.trophies.numAllTrophies());
     row("Levels 100% Cleared:", (long long)p->clearedLevels.size(), levels);
     if (nights) row("Levels Aced:", (long long)p->acedLevels.size(), levels);
   }
@@ -615,7 +615,7 @@ void StoryScreen::drawLayer(Gfx& g) {
       g.drawBox(tr, bx, 440, bw, 75, Mode(50 / 255.0f, 0x000000));
     }
     std::string adv = "Adventure: ^00FF00^" + std::to_string(app.curProfile->maxLevelIndex()) + " of 55^oldclr^ Complete";
-    std::string chl = "Challenge: ^00FF00^" + std::to_string((int)app.curProfile->trophies.size()) + " of " + std::to_string(app.trophies.numTrophies()) + "^oldclr^ Complete";
+    std::string chl = "Challenge: ^00FF00^" + std::to_string((int)app.trophies.numHeld(app.curProfile->trophies)) + " of " + std::to_string(app.trophies.numTrophies()) + "^oldclr^ Complete";
     auto line = [&](const std::string& s, float base) {
       std::string bare;
       int carets = 0;

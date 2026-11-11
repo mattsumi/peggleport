@@ -583,7 +583,7 @@ bool App::tryShowNewTrophy() {
   int old = curProfile->trophyLevelSeen, tier = 0;
   if (curProfile->advCompletions > 0) {
     tier = 1;
-    if ((int)curProfile->trophies.size() >= (int)trophies.numTrophies()) {
+    if ((int)trophies.numHeld(curProfile->trophies) >= (int)trophies.numTrophies()) {
       tier = 2;
       if (curProfile->clearedLevels.size() >= stages.numLevels()) tier = 3;
     }

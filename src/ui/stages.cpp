@@ -210,16 +210,8 @@ bool StageMgr::randomLevel(const PlayerInfo& p, int& stage, int& level, bool ski
 }
 
 
-bool TrophyMgr::load(const Vfs& vfs) {
-  pages_.clear();
-  byId_.clear();
-  auto h = vfs.read("levels/trophy.cfg");
-  if (!h) {
-    cfgError = "levels/trophy.cfg not found";
-    pp::log::error("game", cfgError);
-    return false;
-  }
-  auto items = cfgParse(std::string(h->bytes.begin(), h->bytes.end()));
+void TrophyMgr::parseCfg(const std::string& text) {
+  auto items = cfgParse(text);
   for (auto& it : items) {
     if (!it.isGroup || !ieq(it.key, "Page")) continue;
     TrophyPage pg;
@@ -259,14 +251,47 @@ bool TrophyMgr::load(const Vfs& vfs) {
     }
     pages_.push_back(std::move(pg));
   }
+}
+
+bool TrophyMgr::load(const Vfs& vfs) {
+  pages_.clear();
+  byId_.clear();
+  mainTrophies_ = 0;
+  mainPages_ = 0;
+  auto h = vfs.read("levels/trophy.cfg");
+  if (!h) {
+    cfgError = "levels/trophy.cfg not found";
+    pp::log::error("game", cfgError);
+    return false;
+  }
+  parseCfg(std::string(h->bytes.begin(), h->bytes.end()));
+  mainPages_ = (int)pages_.size();
+  for (auto& L : vfs.layers()) {
+    if (!L.isLevelPack) continue;
+    for (auto& [k, idx] : L.pakIndex) {
+      if (k.find('\\') != std::string::npos || k.size() < 4 || k.substr(k.size() - 4) != ".CFG") continue;
+      auto& e = L.pak->entries[idx];
+      parseCfg(std::string(L.pak->data.begin() + e.offset, L.pak->data.begin() + e.offset + e.size));
+    }
+  }
   for (int p = 0; p < (int)pages_.size(); p++)
     for (int s = 0; s < (int)pages_[p].trophies.size(); s++) {
       auto& t = pages_[p].trophies[s];
       t.page = p;
       t.slot = s;
       if (!byId_.emplace(t.id, &t).second) cfgError = "Id already exists: " + std::to_string(t.id);
+      else if (p < mainPages_) mainTrophies_++;
     }
   return !pages_.empty();
+}
+
+size_t TrophyMgr::numHeld(const std::set<int>& held) const {
+  size_t n = 0;
+  for (int id : held) {
+    const TrophyInfo* t = byId(id);
+    if (t && t->page < mainPages_) n++;
+  }
+  return n;
 }
 
 std::vector<const TrophyInfo*> TrophyMgr::forClearedLevel(const std::string& level) const {
