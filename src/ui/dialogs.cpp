@@ -372,10 +372,10 @@ void OptionsDialog::layout() {
     if (app.gameMode == GameMode::Challenge) {
       newLevel->x = mainMenu->x; newLevel->w = mainMenu->w; newLevel->y = mainMenu->y - bh;
       help->x = mainMenu->x; help->w = bw; help->y = newLevel->y - bh;
-      newChallenge->x = help->x + help->w; newChallenge->w = bw; newChallenge->y = help->y;
+      newChallenge->x = help->x + help->w + 5; newChallenge->w = bw; newChallenge->y = help->y;
     } else if (newLevel->visible) {
       help->x = mainMenu->x; help->w = bw; help->y = mainMenu->y - bh;
-      newLevel->x = help->x + help->w; newLevel->w = bw; newLevel->y = help->y;
+      newLevel->x = help->x + help->w + 5; newLevel->w = bw; newLevel->y = help->y;
     } else {
       help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y - bh;
     }
