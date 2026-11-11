@@ -1036,7 +1036,6 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     if (draw) g.drawWrapped("PLAIN2", r, msgBody, 0xffffff, 1, Align::Center);
     return y + bodyH + 18 + 36 + insB + 8;
   }
-  bool win = mode != AdventureLose && mode != QuickLose && mode != ChallengeLose;
   bool list = mode == QuickWin || mode == QuickLose;
   const float L = insL, R = 390;
   float y = insT + g.fontHeight(headerFont) + 16;
@@ -1075,12 +1074,6 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   row(L + 170, R, "Fever Points:", commas(out.feverPoints));
   row(L + 170, R, "Style Points:", commas(out.stylePoints));
   y = sy + 10;
-  if (!win) {
-    const char* why = out.ballsLeft <= 0 ? "You ran out of balls." : "You didn't clear all of the orange pegs.";
-    float hh = g.drawWrapped("PLAINOUTLINE", {L, y, R - L, 40}, draw ? why : "", 0xffffff, 1, Align::Left);
-    y += draw ? hh : g.fontHeight("PLAINOUTLINE");
-    y += 4;
-  }
   if (list) {
     if (draw) g.fill(L, y, R - L, 1, 0xffffff);
     y += 8;
