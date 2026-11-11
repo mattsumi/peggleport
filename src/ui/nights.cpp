@@ -303,6 +303,16 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     if (pic && shown) g.draw(pic, cx - pic->lw() / 2, cy - pic->lh() / 2, Mode(a));
   }
   if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
+  Tex* frameL = g.img("IMAGE_SCREENFRAMELEFT");
+  Tex* frameT = g.img("IMAGE_SCREENFRAMETOP");
+  Tex* frameB = g.img("IMAGE_SCREENFRAMEBOTTOM");
+  Tex* frameR = g.img("IMAGE_SCREENFRAMERIGHT");
+  if (frameL && frameT && frameB && frameR) {
+    g.draw(frameL, 0, 0);
+    g.draw(frameT, frameL->lw(), 0);
+    g.draw(frameB, frameL->lw(), frameL->lh() - frameB->lh());
+    g.draw(frameR, frameL->lw() + frameT->lw(), 0);
+  }
   for (int i = 0; i < 11; i++) {
     const int* f = kFrames[kMasterFrame[i]];
     float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
