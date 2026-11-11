@@ -405,6 +405,15 @@ void StoryScreen::initText() {
     else text += "\n";
     for (auto& d : s->story[page]) text += d.text;
   }
+  head.clear();
+  if (s && app.game != Game::Nights) {
+    if (page != 1) head = "^ffffff^A few choice words of\nPeggle Wisdom^oldclr^";
+    else for (auto& d : s->story[0]) head += d.text;
+    while (!head.empty() && head.back() == '\n') head.pop_back();
+    text.clear();
+    for (auto& d : s->story[page]) text += d.text;
+    headVisible = 0;
+  }
   totalVisible = (int)stripColorCodes(text).size();
   start = 20;
   app.playMusic("beats:48");
@@ -505,7 +514,7 @@ void StoryScreen::drawLayer(Gfx& g) {
   static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
   g.fill(0, 0, 0, 0, 0);
   std::string head = stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1);
-  g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, 45 + g.fontAscent("OVERLOAD24OUTLINE"), head, 0xddddff);
+  g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, app.game == Game::Nights ? 45 + g.fontAscent("OVERLOAD24OUTLINE") : 45.0f, head, 0xddddff);
   const float aX = 53, aY = first ? 200.0f : 135.0f;
   const bool nights = app.game == Game::Nights;
   int ci = nights ? CharacterDialog::masterMetAt(app.game, stage) : stage % 10;
@@ -515,13 +524,14 @@ void StoryScreen::drawLayer(Gfx& g) {
   if (boxes > 0) {
     float tx = 20 + pw + aX, ty = (nights ? 20.0f : 10.0f) + aY, tw = 800 - tx - 50;
     const float textH = std::max(180.0f, g.wrappedHeight("STAGE", tw, firstVisible(text, totalVisible)));
-    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, textH + 20, Mode(0.5f * fade, 0x000000));
+    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, nights ? textH + 20 : 190.0f, Mode(0.5f * fade, 0x000000));
     if (portrait) {
       g.draw(portrait, aX, aY + 4, Mode(fade));
       if (Tex* bf = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(bf, aX - 8, aY + 4 - 8, pw + 16, ph + 16, Mode(fade));
     }
     std::string shown = firstVisible(text, typed);
     g.drawWrapped("STAGE", {tx, ty, tw, 180}, shown, charColor(ci), 1, Align::Left);
+    if (!nights) g.drawWrapped("OVERLOAD24OUTLINE", {80, page != 1 ? 105.0f : 65.0f, 640, 0}, this->head, charColor(ci), fade, Align::Center, 30);
   }
   if (!nights && stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
     const float bx = 45, bw = 64 * 11 + 14;

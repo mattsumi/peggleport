@@ -134,7 +134,7 @@ class StoryScreen : public Screen {
   int page = 1;
   int typed = 0, wait = 0, start = 20, boxFade = 0, boxes = 0, shownChars = 0;
   bool done = false, dreamy = false;
-  std::string text;
+  std::string text, head;
   int totalVisible = 0, headVisible = 0;
   bool win = false;
   int tier = 0;
