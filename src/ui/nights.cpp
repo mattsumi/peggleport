@@ -369,9 +369,11 @@ CreditsScreen::CreditsScreen(App& a) : Screen(a) {
   uint32_t color = 0xffffff;
   float offX = 0, curY = 120;
   bool any = false;
+  int held = 0, forCount = -1;
+  for (int i = 0; i < 4; i++) held += MainMenu::mantelEarned(a, i) ? 1 : 0;
   auto fontOk = [&](const std::string& f) { return a.gfx.fontHeight(f) > 0; };
   auto flush = [&]() {
-    if (any) pages.push_back(cur);
+    if (any && (forCount == -1 || forCount == held)) pages.push_back(cur);
     cur = Page();
     cur.hold = 200;
     curY = 120;
@@ -397,7 +399,7 @@ CreditsScreen::CreditsScreen(App& a) : Screen(a) {
       else if (k == "blank") curY += (float)std::atof(v.c_str()) * 4.0f;
       else if (k == "timePause") cur.hold = std::max(30, std::atoi(v.c_str()) + 120);
       else if (k == "timeStartKeyframe") cur.start = std::atoi(v.c_str());
-      else if (k == "trophyCount") cur.trophy = std::atoi(v.c_str());
+      else if (k == "trophyCount") { cur.trophy = std::atoi(v.c_str()); forCount = cur.trophy; }
       continue;
     }
     size_t at;
