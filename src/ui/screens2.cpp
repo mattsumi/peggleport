@@ -523,7 +523,7 @@ void StoryScreen::drawLayer(Gfx& g) {
     std::string shown = firstVisible(text, typed);
     g.drawWrapped("STAGE", {tx, ty, tw, 180}, shown, charColor(ci), 1, Align::Left);
   }
-  if (stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
+  if (!nights && stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
     const float bx = 45, bw = 64 * 11 + 14;
     if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) {
       g.drawBox(tr, bx, 342, bw, 95, Mode(50 / 255.0f, 0x000000));
