@@ -34,7 +34,7 @@ void App::playMusic(const std::string& which) {
     curMusic_ = which;
     audio->playMusic("music/PeggleBeats.mo3", true, std::atoi(which.c_str() + 6));
     return;
-  } else if (which == "menu") path = game == Game::Deluxe ? "music/opening.ogg" : "music/menu.ogg";
+  } else if (which == "menu") path = game == Game::Deluxe ? "music/opening.ogg" : "music/Menu_Amb_2.ogg";
   else if (which == "credits") path = "music/credits.ogg";
   else if (which == "level") {
     curMusic_ = "level";
