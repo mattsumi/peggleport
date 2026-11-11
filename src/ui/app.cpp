@@ -19,6 +19,7 @@
 #include "ui/log_view.h"
 #include "ui/character_dialog.h"
 #include "ui/screens.h"
+#include "gamefind.h"
 #include "gamepaths.h"
 
 namespace fs = std::filesystem;
@@ -403,6 +404,16 @@ void App::saveAll() {
   settings.maxStage = maxStage;
   settings.maxLevel = maxLevel;
   settings.save(userDir.parent_path() / "settings.ini");
+  if (bothGames && cfg.userDir.empty()) {
+    const fs::path file = defaultUserDir(otherGame(game)).parent_path() / "settings.ini";
+    Settings theirs;
+    theirs.load(file);
+    Settings shared = settings;
+    shared.curUser = theirs.curUser;
+    shared.maxStage = theirs.maxStage;
+    shared.maxLevel = theirs.maxLevel;
+    shared.save(file);
+  }
 }
 
 void App::shutdown() {
