@@ -686,7 +686,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
       o.tryBonus = tryBonus(o.tryNumber);
       p->advScore += o.totalScore + o.tryBonus;
       if (o.cleared) p->clearedLevels.insert(levelFile_);
-      if (app.game == Game::Nights && li && li->ace > 0 && o.totalScore > li->ace) p->acedLevels.insert(levelFile_);
+      if (app.game == Game::Nights && li && li->ace > 0 && o.totalScore >= li->ace) p->acedLevels.insert(levelFile_);
       if (o.cleared) for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
       app.incLevel(1);
       if (p->justBeatAdventure()) {
@@ -723,7 +723,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
     if (p && won && !duel_) {
       if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
       if (o.cleared) p->clearedLevels.insert(levelFile_);
-      if (app.game == Game::Nights && li && li->ace > 0 && o.totalScore > li->ace) p->acedLevels.insert(levelFile_);
+      if (app.game == Game::Nights && app.gameMode != GameMode::Challenge && li && li->ace > 0 && o.totalScore >= li->ace) p->acedLevels.insert(levelFile_);
       if (o.cleared) for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
     }
   }
