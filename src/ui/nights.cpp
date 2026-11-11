@@ -230,7 +230,15 @@ static int stageOfMaster(int master) {
 
 ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x215);
-  bContinue->x = 400 - bContinue->w / 2;
+  if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
+    bContinue->image = pb;
+    bContinue->kind = Button::Kind::Embedded;
+    bContinue->labelOnEmbedded = true;
+    bContinue->w = pb->lw();
+    bContinue->h = pb->lh() / 2;
+    bContinue->textOffY = 0;
+  }
+  bContinue->x = (float)(400 - (int)bContinue->w / 2);
   const PlayerInfo* p = a.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
@@ -352,6 +360,8 @@ void ProgressScreen::drawLayer(Gfx& g) {
       g.drawWrapped("PLAIN2", {bx + 20, by + 20, bw - 40, th}, txt, 0x303030, 1.0f, Align::Center, 18);
     }
   }
+  if (bContinue->visible)
+    if (Tex* plate = g.img("IMAGE_TROPHY_EXIT_BUTTON")) g.draw(plate, bContinue->x - 32, bContinue->y - 16);
 }
 
 void ProgressScreen::finish() {
