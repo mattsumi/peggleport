@@ -8,7 +8,7 @@ Longer guides: [Modding](faq/modding.md) · [Level editor](faq/editor.md) · [On
 It is a program I wrote that runs Peggle Deluxe and Peggle Nights natively on Windows, macOS and Linux. It uses the data files of your own install, so the games look, sound and play like the originals, and it adds a few things on top (widescreen, a level editor, mods, online play).
 
 **Do I need to own the games?**
-Yes. PegglePort does not contain any of the game's code, art, music or levels, and the downloads on this page never will. Buy Peggle Deluxe and/or Peggle Nights from Steam, the EA app (Origin) or wherever you find them, install them, and point PegglePort at the install.
+Yes. PegglePort does not contain any of the game's code, art, music or levels, and the downloads on this page never will. Buy Peggle Deluxe and/or Peggle Nights from Steam, the EA app (Origin) or wherever you find them, install them, and PegglePort finds them by itself.
 
 **Does it change my installed game?**
 No. It only reads from the install. Profiles, high scores, settings, replays and mods are stored in a separate folder (see "Where are my saves?").
@@ -22,14 +22,20 @@ Windows, macOS and Linux.
 ## Starting the game
 
 **What happens when I open it?**
-A small window lists Peggle Deluxe and Peggle Nights. Each one shows the folder it found, or "Not found". Press **Play** on the one you want. The game opens in its own window with the normal loading screen and main menu.
+PegglePort looks for your Peggle Deluxe and Peggle Nights and opens the game right away, with the normal loading screen and main menu. There is no extra window in between. If both games are installed, Peggle Deluxe opens.
 
-**It says "Not found" but I have the game installed.**
-It looks in the usual places for Steam (including extra Steam library folders), Origin, the EA app, the PopCap installer, and in a `Games` folder in your home folder. If your copy lives somewhere else, press **Locate...** and choose the folder that holds `main.pak`. You can also drag that folder onto the window. If you choose a folder that contains the game folders (for example `Games`), it picks up both games.
-It is the folder with `main.pak` in it, not its parent and not `levelpacks`. The window tells you when a folder is wrong.
+**Where does it look for my game?**
+First in the folders it remembers from last time. Then it asks Steam: on Windows it reads the Steam folder from the registry, and on every system it reads Steam's list of library folders and Steam's own records of Peggle Deluxe and Peggle Nights, so a library on another drive or a folder with an unusual name is found too. After that it tries the usual Steam folders on every drive, the Origin, EA app and PopCap folders, and a `Games` folder next to PegglePort or in your home folder. A folder only counts when `main.pak` is in it.
 
-**Can I skip the first window?**
-Tick **Open the last game directly next time**. To get back to the folder window later, use **Game Folders...** in the game's Options.
+**It cannot find my game.**
+Then a message tells you so and lists the places it looked at with what it saw there, for example "folder not there" or "folder there, but no main.pak in it". Press **Choose Folder...** and pick the folder that holds `main.pak`. The folder that contains your game folders works too (for example `Games`, it picks up both games), and so does a Steam folder. If the folder is wrong, the message says so and asks again. The complete list is written to `start.log`, next to `launcher.ini` (see "Where are my saves?").
+On Linux the folder window needs a desktop portal or `zenity`. If neither is there, the message tells you to put your game folder into a folder named `Games` next to PegglePort.
+
+**Where did it find my game?**
+Press `F10` in the game. The log starts with every place it looked at and ends with the folder each game is read from.
+
+**How do I change a game folder, or add the other game?**
+Use **Game Folders...** in the game's Options. It shows both folders, asks which game you mean and opens the folder window.
 
 **Do Deluxe and Nights share profiles?**
 No. Each game has its own profiles, high scores, settings and mods folder, the same way the originals do.
@@ -51,7 +57,7 @@ PegglePort stores everything in one folder per game. Nothing is written into the
 | macOS | `~/Library/Application Support/PopCap Games/Peggle` | `~/Library/Application Support/PopCap Games/PeggleNights` |
 | Linux | `~/.local/share/PopCap Games/Peggle` | `~/.local/share/PopCap Games/PeggleNights` |
 
-Inside you find `settings.ini` and a `userdata` folder with profiles (`users.dat`, `user*.dat`), saved games, `highscores.dat`, `replays/`, `mods/` and `logs/`. The launcher remembers your game folders in a small `launcher.ini` of its own, in `%APPDATA%\PegglePort\PegglePort` on Windows, `~/Library/Application Support/PegglePort/PegglePort` on macOS and `~/.local/share/PegglePort/PegglePort` on Linux.
+Inside you find `settings.ini` and a `userdata` folder with profiles (`users.dat`, `user*.dat`), saved games, `highscores.dat`, `replays/`, `mods/` and `logs/`. PegglePort remembers your game folders in a small `launcher.ini` of its own, in `%APPDATA%\PegglePort\PegglePort` on Windows, `~/Library/Application Support/PegglePort/PegglePort` on macOS and `~/.local/share/PegglePort/PegglePort` on Linux.
 
 ## Playing
 
