@@ -322,6 +322,18 @@ void App::endLevelButton(int id, int mode) {
     else doToMenu();
     return;
   }
+  if (id == 0 && gs && curProfile && (m == EndLevelDialog::QuickWin || m == EndLevelDialog::QuickLose)) {
+    int s = -1, l = -1;
+    if (stages.randomLevel(*curProfile, s, l, gameMode == GameMode::Duel, rand()) && s >= 0) {
+      curStage = s;
+      curLevel = l;
+      curProfile->levelSelectStage = s;
+      curProfile->dirty = true;
+      stages.markUsed(s, l);
+      gs->nextLevel();
+      return;
+    }
+  }
   bool win = m == EndLevelDialog::AdventureWin || m == EndLevelDialog::QuickWin || m == EndLevelDialog::ChallengeWin || m == EndLevelDialog::AdventureComplete;
   if (m == EndLevelDialog::AdventureComplete) {
     if (game == Game::Nights) {
