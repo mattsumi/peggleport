@@ -60,8 +60,11 @@ class Audio {
     double pos = 0, step = 1;
     float vol = 1;
     bool loop = false;
+    bool fading = false;
+    float inst = 1;
   };
   struct Music;
+  static void fadeStep(Voice& v);
   const Vfs& vfs_;
   std::map<std::string, std::pair<std::string, float>> manifest_;
   std::map<std::string, std::unique_ptr<Sample>> cache_;

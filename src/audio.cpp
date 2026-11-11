@@ -205,9 +205,24 @@ void Audio::stopSample(const std::string& id) {
   std::lock_guard<std::mutex> lk(mu_);
   for (auto& v : voices_)
     if (v.s == s) {
-      v.loop = false;
-      v.pos = (double)s->pcm.size() / 2;
+      if (!v.loop) {
+        v.pos = (double)s->pcm.size() / 2;
+      } else if (!v.fading) {
+        v.fading = true;
+        fadeStep(v);
+      }
     }
+}
+
+void Audio::fadeStep(Voice& v) {
+  v.inst -= 0.05f;
+  if (v.inst > 0) {
+    v.vol = volumeCurve(std::clamp(v.s->baseVolume * v.inst, 0.0f, 1.0f));
+    return;
+  }
+  v.fading = false;
+  v.loop = false;
+  v.pos = (double)v.s->pcm.size() / 2;
 }
 
 void Audio::stopLoops() {
@@ -361,6 +376,11 @@ void Audio::tick() {
     } else {
       i++;
     }
+  }
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& v : voices_)
+      if (v.fading) fadeStep(v);
   }
   if (duckHold_ > 0 && --duckHold_ == 0) duckRate_ = 0.01f;
   duck_ = std::clamp(duck_ + duckRate_, 0.4f, 1.0f);
