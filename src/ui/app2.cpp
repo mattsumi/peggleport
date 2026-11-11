@@ -48,6 +48,7 @@ void App::playMusic(const std::string& which) {
   if (path == "music/Menu_Amb_2.ogg") level = 0.6f;
   else if (path == "music/menu.ogg") { level = 0.75f; rise = 0.01f; }
   else if (path == "music/progress.ogg") { level = 0.3f; rise = 0.001f; }
+  if (game != Game::Deluxe) audio->stopMusic();
   audio->playMusic(path, true, 0, 1.0f, level, rise);
 }
 
