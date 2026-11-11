@@ -478,6 +478,7 @@ std::optional<Level> parseLevel(const std::vector<uint8_t>& data, std::string* e
     lv.mode = (uint8_t)c.raw(1);
     int32_t count = c.i32();
     if (count < 0) throw std::runtime_error("negative entry count");
+    if ((size_t)count > (c.n - c.pos) / 4) throw std::runtime_error("entry count larger than the file");
     lv.entries.resize((size_t)count);
     for (auto& e : lv.entries) ptr(c, e, 'o');
     lv.trailing.assign(data.begin() + (long)c.pos, data.end());
