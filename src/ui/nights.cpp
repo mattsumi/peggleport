@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 
+#include "ui/character_dialog.h"
 #include "ui/screens.h"
 
 namespace pp::ui {
@@ -221,6 +222,12 @@ static const int kFrames[11][4] = {{574, 85, 54, 102}, {178, 94, 47, 89},  {77, 
                                    {650, 254, 55, 88}, {90, 405, 42, 82},  {196, 396, 52, 67}, {545, 377, 61, 80}, {676, 402, 41, 81}};
 static const int kMasterFrame[11] = {2, 8, 6, 1, 0, 5, 4, 10, 7, 9, 3};
 
+static int stageOfMaster(int master) {
+  for (int s = 0; s < 11; s++)
+    if (CharacterDialog::masterMetAt(Game::Nights, s) == master) return s;
+  return master;
+}
+
 ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x215);
   bContinue->x = 400 - bContinue->w / 2;
@@ -283,9 +290,10 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
   for (int i = 0; i < 11; i++) {
     const int* f = kFrames[kMasterFrame[i]];
     float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
-    bool shown = i < cleared;
+    const int met = stageOfMaster(i);
+    bool shown = met < cleared;
     float a = 1;
-    if (i == newest) {
+    if (met == newest) {
       shown = t > 40;
       a = std::clamp((t - 40) / 60.0f, 0.0f, 1.0f);
     }
@@ -293,7 +301,7 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     Tex* pic = g.img("IMAGE_TROPHY_PORTRAIT_" + std::to_string(i + 1));
     if (hid && (!shown || a < 1)) g.draw(hid, cx - hid->lw() / 2, cy - hid->lh() / 2);
     if (pic && shown) g.draw(pic, cx - pic->lw() / 2, cy - pic->lh() / 2, Mode(a));
-    if (i == newest && t > 10 && t < 160) {
+    if (met == newest && t > 10 && t < 160) {
       float k = t < 40 ? (t - 10) / 30.0f : t < 110 ? 1.0f : std::max(0.0f, (160 - t) / 50.0f);
       if (Tex* sp = g.img("IMAGE_TROPHY_PARTICLE_WHITE_MED_ROUND")) g.drawRot(sp, cx, cy, 0, 3.0f, 3.5f, Mode(0.55f * k, 0xfff0c0, true));
       if (Tex* sk = g.img("IMAGE_TROPHY_SPARKLE"))
@@ -314,8 +322,9 @@ void ProgressScreen::drawLayer(Gfx& g) {
   const PlayerInfo* p = app.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
-  if (hovered >= 0 && hovered < cleared && !(hovered == newest && t < 100)) {
-    const StageInfo* st = app.stages.stage(hovered);
+  const int hoveredStage = hovered >= 0 ? stageOfMaster(hovered) : -1;
+  if (hovered >= 0 && hoveredStage < cleared && !(hoveredStage == newest && t < 100)) {
+    const StageInfo* st = app.stages.stage(hoveredStage);
     std::string txt;
     if (st)
       for (auto& d : st->story[0]) txt += d.text;
