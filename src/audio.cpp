@@ -94,6 +94,8 @@ struct Audio::Music {
   bool loop = true, isOgg = false;
   float gain = 1.0f;
   float level = 1.0f;
+  float top = 1.0f;
+  float rise = 0.0f;
   bool fixed = false;
   float fade = 1.0f;
   std::string path;
@@ -366,6 +368,7 @@ void Audio::tick() {
 
 void Audio::tickMusic() {
   std::lock_guard<std::mutex> lk(mu_);
+  if (music_ && music_->level < music_->top) music_->level = std::min(music_->top, music_->level + music_->rise);
   for (auto& f : fading_) f->fade -= 0.01f;
   fading_.erase(std::remove_if(fading_.begin(), fading_.end(), [](const std::unique_ptr<Music>& f) { return f->fade <= 0.0f; }), fading_.end());
 #ifdef PP_HAVE_OPENMPT
@@ -417,7 +420,7 @@ void Audio::playLevelMusic(bool nights) {
   }
 }
 
-void Audio::playMusic(const std::string& path, bool loop, int startOrder, float gain, float level) {
+void Audio::playMusic(const std::string& path, bool loop, int startOrder, float gain, float level, float rise) {
   auto h = vfs_.read(path);
   if (!h) {
     vfsLogMiss("music", path);
@@ -430,7 +433,9 @@ void Audio::playMusic(const std::string& path, bool loop, int startOrder, float 
   auto m = std::make_unique<Music>();
   m->loop = loop;
   m->gain = gain;
-  m->level = level;
+  m->level = rise > 0.0f ? 0.0f : level;
+  m->top = level;
+  m->rise = rise;
   m->fixed = gain != 1.0f;
   std::string low = path;
   for (auto& c : low) c = (char)std::tolower((unsigned char)c);
