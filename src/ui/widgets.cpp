@@ -49,14 +49,14 @@ bool Button::mouseUp(float lx, float ly, int button) {
 
 static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
   const uint32_t rgb = b.over ? b.labelOver : b.labelColor;
-  if ((b.labelStyle != 0 && b.labelStyle != 16) || b.font != "BUTTON") {
+  if ((b.labelStyle != 0 && b.labelStyle != 6 && b.labelStyle != 9 && b.labelStyle != 16) || b.font != "BUTTON") {
     g.drawString(b.font, x, y, b.label, rgb, b.alpha);
     return;
   }
-  static const uint32_t kOutlines[2][3] = {{0x00264cccu, 0x003366ccu, 0x003f7fccu}, {0x5b1e54ffu, 0x600256ffu, 0xe533ccffu}};
-  static const uint32_t kMains[2][3] = {{0xe7fff3ffu, 0xffff00ffu, 0xffff00ffu}, {0xfb54eaffu, 0xfe94e7ffu, 0xfdb6f7ffu}};
-  static const uint32_t kGradients[2][3] = {{0x19b24c00u, 0x33d86600u, 0x4c7f7f00u}, {0xcc2bb700u, 0xe08cef00u, 0x9999ff00u}};
-  const size_t set = b.labelStyle == 16 ? 1 : 0;
+  static const uint32_t kOutlines[4][3] = {{0x00264cccu, 0x003366ccu, 0x003f7fccu}, {0x5b1e54ffu, 0x600256ffu, 0xe533ccffu}, {0x560700ccu, 0x4c000cccu, 0xc41400ccu}, {0x821c01ffu, 0xb32702ffu, 0xe55e04ffu}};
+  static const uint32_t kMains[4][3] = {{0xe7fff3ffu, 0xffff00ffu, 0xffff00ffu}, {0xfb54eaffu, 0xfe94e7ffu, 0xfdb6f7ffu}, {0xffba02ffu, 0xfac841ffu, 0xf6fd42ffu}, {0xfff3a3ffu, 0xfffadaffu, 0xffffffffu}};
+  static const uint32_t kGradients[4][3] = {{0x19b24c00u, 0x33d86600u, 0x4c7f7f00u}, {0xcc2bb700u, 0xe08cef00u, 0x9999ff00u}, {0xfc5e0000u, 0xafaf0000u, 0xf4b21400u}, {0xffcc0000u, 0xffe40000u, 0xfffeac00u}};
+  const size_t set = b.labelStyle == 16 ? 1 : (b.labelStyle == 6 ? 2 : (b.labelStyle == 9 ? 3 : 0));
   const uint32_t* kOutline = kOutlines[set];
   const uint32_t* kMain = kMains[set];
   const uint32_t* kGradient = kGradients[set];
@@ -68,7 +68,8 @@ static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
   if (have) {
     fp.setLayerColors(b.font, 0, kOutline[state], add[0]);
     fp.setLayerColors(b.font, 1, kMain[state], add[1]);
-    fp.setLayerColors(b.font, 2, mult[2] & 0xffffff00u, kGradient[state] | (uint32_t)std::clamp((int)(90.0f * b.alpha), 0, 255));
+    if (b.labelFullGradient) fp.setLayerColors(b.font, 2, mult[2], kGradient[state] | 0xffu);
+    else fp.setLayerColors(b.font, 2, mult[2] & 0xffffff00u, kGradient[state] | (uint32_t)std::clamp((int)(90.0f * b.alpha), 0, 255));
   }
   g.drawString(b.font, x, y, b.label, rgb, b.alpha);
   if (have)

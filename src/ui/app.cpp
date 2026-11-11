@@ -99,7 +99,12 @@ Button* Panel::patchButton(int id, const std::string& label, const std::string& 
   b->x = bx;
   b->y = by;
   b->textOffY = 5;
-  if (app.game == Game::Nights) b->labelStyle = imageId == "IMAGE_DLG_PURPLEBUTTON" ? 16 : 0;
+  if (app.game == Game::Nights) {
+    b->labelStyle = imageId == "IMAGE_DLG_PURPLEBUTTON" ? 16 : 0;
+  } else {
+    b->labelStyle = imageId == "IMAGE_DLG_PURPLEBUTTON" ? 16 : ((imageId == "IMAGE_DLG_BROWNBUTTON1" || imageId == "IMAGE_DLG_BROWNBUTTON2") ? 6 : 9);
+    b->labelFullGradient = true;
+  }
   return b;
 }
 

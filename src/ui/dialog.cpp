@@ -16,7 +16,8 @@ Dialog::Dialog(App& a, int id, bool mod, const std::string& hdr, const std::stri
   auto mk = [&](int bid, const std::string& label) {
     auto* b = addButton(bid, Button::Kind::Patch, "IMAGE_DLG_BUTTON3", label);
     b->textOffY = 5;
-    if (a.game == Game::Nights) b->labelStyle = 0;
+    b->labelStyle = a.game == Game::Nights ? 0 : 9;
+    b->labelFullGradient = a.game != Game::Nights;
     return b;
   };
   if (bm == BUTTONS_YES_NO) {
