@@ -464,8 +464,8 @@ void App::incLevel(int delta) {
   }
 }
 
-int App::tryShowNewTrophy() {
-  if (!curProfile) return 0;
+bool App::tryShowNewTrophy() {
+  if (!curProfile) return false;
   int old = curProfile->trophyLevelSeen, tier = 0;
   if (curProfile->advCompletions > 0) {
     tier = 1;
@@ -475,7 +475,7 @@ int App::tryShowNewTrophy() {
     }
   }
   if (old < tier) showStoryScreen(true, false);
-  return tier;
+  return old < tier;
 }
 
 void App::toggleLogView() {

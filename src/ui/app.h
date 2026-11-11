@@ -256,7 +256,7 @@ class App : public WidgetHost {
   void syncProfile();
   void saveProfile() { if (curProfile && !cfg.noSave) profiles.saveIfDirty(curProfile); }
   void saveAll();
-  int tryShowNewTrophy();
+  bool tryShowNewTrophy();
   void applySettings();
   void applyColorblind(bool on);
 

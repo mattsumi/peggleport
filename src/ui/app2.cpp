@@ -398,8 +398,7 @@ void App::endLevelButton(int id, int mode) {
       showProgressScreen(4);
       return;
     }
-    showMainMenu();
-    tryShowNewTrophy();
+    if (!tryShowNewTrophy()) showMainMenu();
     return;
   }
   if (!gs) return;
