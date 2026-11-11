@@ -17,6 +17,7 @@
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
+#include "ui/other_game.h"
 #include "ui/character_dialog.h"
 #include "ui/screens.h"
 #include "gamefind.h"
@@ -317,6 +318,37 @@ bool App::goHome() {
   return true;
 }
 
+OtherGame* App::otherLevels() {
+  if (!bothGames || game != homeGame || cfg.otherDir.empty()) return nullptr;
+  if (!other_) {
+    const Game theirs = otherGame(game);
+    auto o = std::make_unique<OtherGame>(theirs);
+    std::string err;
+    if (!o->load(cfg.otherDir, cfg.otherUserDir.empty() ? defaultUserDir(theirs) : cfg.otherUserDir, gfx.renderer(), &err)) {
+      log::warn("game", std::string(gameTitle(theirs)) + ": its levels cannot be listed: " + err);
+      cfg.otherDir.clear();
+      return nullptr;
+    }
+    for (int id : cfg.start.newTrophies) o->newTrophies.insert(id);
+    other_ = std::move(o);
+  }
+  other_->choosePlayer(curProfile ? curProfile->name : std::string());
+  return other_.get();
+}
+
+bool App::modeOpen(GameMode mode) const {
+  if (!curProfile) return true;
+  if (mode == GameMode::Duel) return curProfile->maxStage >= 1;
+  if (mode == GameMode::Challenge) return challengesOpenFor(game, *curProfile);
+  return true;
+}
+
+bool App::otherOpen(GameMode mode) {
+  OtherGame* o = otherLevels();
+  if (!o) return false;
+  return mode == GameMode::Duel ? o->duelOpen() : mode == GameMode::Challenge ? o->challengesOpen() : true;
+}
+
 void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow) {
   if (!start.player.empty()) {
     PlayerInfo* p = profiles.get(start.player);
@@ -337,7 +369,62 @@ void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictu
   cur_ = std::make_unique<LastPicture>(*this, lastPicture, pictureFillsWindow);
   scrollDir = 0;
   if (start.place == StartPlace::Adventure && curProfile) enterAdventure();
-  else showMainMenu();
+  else if (!startInList(start)) showMainMenu();
+}
+
+bool App::startInList(const StartTarget& start) {
+  if (!curProfile || !bothGames) return false;
+  const bool list = start.place == StartPlace::LevelList || start.place == StartPlace::ChallengeList;
+  if (list != (game == homeGame)) return false;
+  if (start.place == StartPlace::Level) {
+    const StageInfo* s = stages.stage(start.stage);
+    if (!s || !s->level(start.level) || (start.mode != GameMode::QuickPlay && start.mode != GameMode::Duel)) return false;
+    gameMode = start.mode;
+    curStage = start.stage;
+    curLevel = start.level;
+    packStage = s->pack ? start.stage : -1;
+    duelSes = start.duel;
+    stages.markUsed(curStage, curLevel);
+    showBoard(false, true);
+    return true;
+  }
+  if (start.place == StartPlace::Challenge) {
+    const TrophyInfo* t = trophies.byId(start.challenge);
+    if (!t || t->levels.empty()) return false;
+    gameMode = GameMode::Challenge;
+    curChallenge = t->id;
+    challengeStep = std::clamp(start.step, 0, (int)t->levels.size() - 1);
+    challengeMore = false;
+    challengeKeepLives = false;
+    if (t->levels[(size_t)challengeStep] == "pick") {
+      const LevelInfo* li = stages.levelByName(start.challengeLevel);
+      if (!li) return false;
+      curStage = li->stage;
+      curLevel = li->index;
+      challengeLevel = li->file;
+    } else {
+      challengeLevel = resolveChallengeLevel(t->levels[(size_t)challengeStep]);
+    }
+    showBoard(false, true);
+    return true;
+  }
+  if (start.place == StartPlace::LevelList && (start.mode == GameMode::QuickPlay || start.mode == GameMode::Duel)) {
+    if (!otherLevels()) return false;
+    gameMode = start.mode;
+    duelSes = start.duel;
+    packStage = -1;
+    listPage = start.page;
+    showLevelScreen(false);
+    return true;
+  }
+  if (start.place == StartPlace::ChallengeList) {
+    if (!otherLevels()) return false;
+    gameMode = GameMode::Challenge;
+    listPage = start.page;
+    showTrophyScreen();
+    return true;
+  }
+  return false;
 }
 
 void App::enterAdventure() {

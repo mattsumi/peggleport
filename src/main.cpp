@@ -39,6 +39,7 @@ pp::ui::RunResult playGame(const pp::ui::GameRequest& request, pp::Vfs& vfs, pp:
     return folders.chooseFolders(running);
   };
   options.hasGame = [&](pp::Game g) { return folders.has(g); };
+  options.gameDir = [&](pp::Game g) { return folders.dir(g); };
   options.home = [&] { return folders.home(); };
   options.setHome = [&](pp::Game g) { folders.setHome(g); };
   return pp::ui::runApp(options, vfs, window, next, error);

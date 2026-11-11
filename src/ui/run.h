@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -19,6 +20,7 @@ struct RunOptions {
   std::function<bool(Game)> canOpen;
   std::function<bool(Game)> chooseFolders;
   std::function<bool(Game)> hasGame;
+  std::function<std::filesystem::path(Game)> gameDir;
   std::function<Game()> home;
   std::function<void(Game)> setHome;
 };

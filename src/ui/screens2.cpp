@@ -14,6 +14,7 @@
 #include "ui/dialog.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
+#include "ui/other_game.h"
 #include "ui/screens.h"
 
 namespace pp::ui {
@@ -188,6 +189,17 @@ LevelScreen::LevelScreen(App& a) : Screen(a) {
   stage = std::clamp(a.curProfile ? a.curProfile->levelSelectStage : 0, 0, std::max(0, a.stages.numStages() - 1));
   if (a.curProfile && a.curProfile->maxStage < stage) stage = a.curProfile->maxStage;
   if (a.packStage >= a.stages.numStages() && a.packStage < a.stages.numAllStages() && a.gameMode != GameMode::Challenge) stage = a.packStage;
+  pick = a.pickOther && a.gameMode == GameMode::Challenge;
+  a.pickOther = false;
+  if (a.gameMode != GameMode::Challenge || pick) og = a.otherLevels();
+  if (og && pick) {
+    other = true;
+    stage = og->listStage(og->player->levelSelectStage);
+  } else if (og && a.listPage >= 0) {
+    other = true;
+    stage = og->listStage(a.listPage);
+  }
+  if (!pick) a.listPage = -1;
   for (int i = 0; i < 5; i++) {
     auto b = std::make_unique<Button>();
     b->id = i;
@@ -212,9 +224,22 @@ LevelScreen::LevelScreen(App& a) : Screen(a) {
   syncStageNum();
 }
 
+const StageInfo* LevelScreen::pageStage() const { return other ? og->stages.stage(stage) : app.stages.stage(stage); }
+
+bool LevelScreen::groupOpen() const {
+  if (!og || app.gameMode != GameMode::Duel) return true;
+  return other ? og->duelOpen() : app.modeOpen(GameMode::Duel);
+}
+
 bool LevelScreen::canSelect(int id) const {
   if (id < 0 || id >= 5) return false;
+  if (other) {
+    const StageInfo* s = og->stages.stage(stage);
+    if (!s || id >= (int)s->levels.size() || !groupOpen()) return false;
+    return s->pack || og->player->isLevelUnlocked(stage, id);
+  }
   if (!app.curProfile) return true;
+  if (!groupOpen()) return false;
   const StageInfo* s = app.stages.stage(stage);
   if (!s || id >= (int)s->levels.size()) return false;
   if (s->pack) return true;
@@ -228,6 +253,13 @@ static int modFirstStage(const App& a) {
 }
 
 void LevelScreen::syncStageNum() {
+  if (other) {
+    bBack->visible = !pick || og->prevStage(stage) >= 0;
+    bNext->visible = og->nextStage(stage) >= 0;
+    bRandom->visible = !pick && stage < og->stages.numStages();
+    return;
+  }
+  if (og && stage < app.stages.numStages()) bRandom->visible = true;
   int mf = modFirstStage(app);
   if (stage >= app.stages.numStages()) {
     bBack->visible = stage > app.stages.numStages() || stage == mf;
@@ -236,7 +268,7 @@ void LevelScreen::syncStageNum() {
   }
   bBack->visible = stage > 0 || mf >= 0;
   int maxS = app.curProfile ? std::min(app.curProfile->maxStage, app.stages.numStages() - 1) : app.stages.numStages() - 1;
-  bNext->visible = stage < maxS;
+  bNext->visible = stage < maxS || og != nullptr;
   if (app.curProfile) { app.curProfile->levelSelectStage = stage; app.curProfile->dirty = true; }
 }
 
@@ -249,8 +281,25 @@ void LevelScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id;
 
 void LevelScreen::doPlay(int id) {
   int lvl = id;
+  if (other) {
+    int s = stage;
+    if (id >= 5 && (!groupOpen() || !og->stages.randomLevel(*og->player, s, lvl, app.gameMode == GameMode::Duel, app.rand()) || s < 0)) return;
+    const StageInfo* st = og->stages.stage(s);
+    const LevelInfo* li = st ? st->level(lvl) : nullptr;
+    if (!li) return;
+    StartTarget t;
+    t.place = pick ? StartPlace::Challenge : StartPlace::Level;
+    t.mode = app.gameMode;
+    t.stage = s;
+    t.level = lvl;
+    t.duel = app.duelSes;
+    t.challenge = app.curChallenge;
+    t.challengeLevel = li->file;
+    app.requestGameSwitch(og->game, t);
+    return;
+  }
   if (id >= 5) {
-    if (!app.curProfile) return;
+    if (!app.curProfile || !groupOpen()) return;
     int s = -1, l = -1;
     if (!app.stages.randomLevel(*app.curProfile, s, l, app.gameMode == GameMode::Duel, app.rand()) || s < 0) return;
     stage = s;
@@ -271,6 +320,20 @@ void LevelScreen::onButton(int id) {
   else if (id == 100) {
     if (app.gameMode == GameMode::Challenge) app.showTrophyScreen();
     else app.showMainMenu();
+  } else if (other && (id == 101 || id == 102)) {
+    const int to = id == 101 ? og->prevStage(stage) : og->nextStage(stage);
+    if (to >= 0) {
+      stage = to;
+    } else if (id == 101 && !pick) {
+      other = false;
+      stage = app.curProfile ? std::clamp(app.curProfile->maxStage, 0, std::max(0, app.stages.numStages() - 1)) : std::max(0, app.stages.numStages() - 1);
+      app.packStage = -1;
+    }
+    syncStageNum();
+  } else if (og && id == 102 && stage < app.stages.numStages() && !(app.curProfile ? stage < std::min(app.curProfile->maxStage, app.stages.numStages() - 1) : stage < app.stages.numStages() - 1)) {
+    other = true;
+    stage = 0;
+    syncStageNum();
   } else if (id == 101 && modFirstStage(app) >= 0 && (stage == 0 || stage == modFirstStage(app))) {
     stage = stage == 0 ? modFirstStage(app) : 0;
     app.packStage = stage == 0 ? -1 : stage;
@@ -289,7 +352,8 @@ void LevelScreen::keyDown(int key, int) {
 }
 
 void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
-  const StageInfo* s = app.stages.stage(stage);
+  const StageInfo* s = pageStage();
+  const Game pageGame = other ? og->game : app.game;
   const bool duel = app.gameMode == GameMode::Duel, chal = app.gameMode == GameMode::Challenge, normal = !duel && !chal;
   const float panelX = 300, panelW = 190;
   if (hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && canSelect(hovered)) {
@@ -297,7 +361,7 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", li.title) / 2, 365, li.title, 0xffff00);
     const auto& all = app.highScores.all();
     if (all.count(li.file) || true) {
-      const auto& hs = app.highScores.scores(app.scoreKey(li.file, app.boardWidthForNewBoard()));
+      const auto& hs = (other ? og->highScores : app.highScores).scores(app.scoreKey(li.file, app.boardWidthForNewBoard()));
       g.drawString("PLAIN", 400 - g.textWidth("PLAIN", "Top Five Scores") / 2, 395, "Top Five Scores", 0x88ff88);
       const char* nf = "OVERLOAD10OUTLINE";
       float y = 395 + 25, step = g.fontLineSpacing(nf);
@@ -314,15 +378,21 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
     }
     return;
   }
-  if (app.game == Game::Nights && hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && !canSelect(hovered)) {
+  if (pageGame == Game::Nights && hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && !canSelect(hovered)) {
     std::string t = "Level locked!", body = "Complete this level\nin adventure mode to unlock!";
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", t) / 2, 365, t, 0xff4444);
     g.drawWrapped("PLAIN", {303, 395, 190, 80}, body, 0xff4444, 1, Align::Center);
     return;
   }
   bool randomOver = hovered == 5;
-  std::string title = randomOver ? "Play Random Level" : app.stages.title(stage);
-  g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", title) / 2, 365, title, 0xffff00);
+  std::string title = randomOver ? "Play Random Level" : other ? og->stages.title(stage) : app.stages.title(stage);
+  float titleY = 365;
+  if (og && !randomOver) {
+    const std::string name = gameTitle(pageGame);
+    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", name) / 2, titleY, name, 0xffff00);
+    titleY += g.fontLineSpacing("OVERLOAD16OUTLINE");
+  }
+  g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", title) / 2, titleY, title, 0xffff00);
   if (normal || chal || duel) {
     std::string hint = chal ? "Pick a level for the challenge!"
                        : duel ? "Face off against a friend or the computer in this two player game mode!"
@@ -334,15 +404,16 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
 
 void LevelScreen::drawLayer(Gfx& g) {
   g.fill(0, 0, 800, 600, 0x000000);
-  const StageInfo* s = app.stages.stage(stage);
+  const StageInfo* s = pageStage();
   const bool normal = app.gameMode != GameMode::Duel && app.gameMode != GameMode::Challenge;
+  const PlayerInfo* marks = other ? og->player : app.curProfile;
   for (int i = 0; i < 5; i++) {
     float sx = kSlot[i][0], sy = kSlot[i][1];
     g.fill(sx - 10, sy - 10, kSlotW + 20, kSlotH + 20, 0x000000);
     if (!s || i >= (int)s->levels.size()) continue;
     float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
-    Tex* t = g.img("levels/cached_thumbnails/" + s->levels[i].file);
-    if (!t) t = g.img("levels/" + s->levels[i].file);
+    Tex* t = other ? og->picture("levels/cached_thumbnails/" + s->levels[i].file) : g.img("levels/cached_thumbnails/" + s->levels[i].file);
+    if (!t) t = other ? og->picture("levels/" + s->levels[i].file) : g.img("levels/" + s->levels[i].file);
     bool ok = canSelect(i);
     if (t) {
       g.drawStretch(t, cx, cy, 200, 177, Mode(1, 0x969696));
@@ -366,10 +437,10 @@ void LevelScreen::drawLayer(Gfx& g) {
     }
     if (bLevel[i]->overAlpha > 0)
       if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) g.draw(sel, sx - 4, sy, Mode(bLevel[i]->overAlpha));
-    if (ok && normal && app.curProfile && app.curProfile->clearedLevels.count(s->levels[i].file))
+    if (ok && normal && marks && marks->clearedLevels.count(s->levels[i].file))
       if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 60, sy + 177);
-    if (ok && normal && app.game == Game::Nights && app.curProfile && app.curProfile->acedLevels.count(s->levels[i].file))
-      if (Tex* ar = g.img("IMAGE_LS_TINYACED")) g.draw(ar, sx + kSlotW - 225, sy + 177);
+    if (ok && normal && (other ? og->game : app.game) == Game::Nights && marks && marks->acedLevels.count(s->levels[i].file))
+      if (Tex* ar = other ? og->picture("IMAGE_LS_TINYACED") : g.img("IMAGE_LS_TINYACED")) g.draw(ar, sx + kSlotW - 225, sy + 177);
   }
   if (Tex* l = g.img("IMAGE_LS_LEVELSCREENLEFT")) g.draw(l, 15, 524);
   if (bRandom->visible)

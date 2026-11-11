@@ -27,6 +27,7 @@ namespace pp::ui {
 
 class App;
 class Dialog;
+struct OtherGame;
 class LogView;
 
 class Panel : public WidgetHost {
@@ -92,6 +93,7 @@ class App : public WidgetHost {
     StartTarget start;
     bool bothGames = false;
     Game home = Game::Deluxe;
+    std::filesystem::path otherDir, otherUserDir;
     std::filesystem::path userDir;
     bool fastBoot = false;
     int boardWidth = 0;
@@ -122,6 +124,12 @@ class App : public WidgetHost {
   std::function<void(Game)> homeHook;
   void setHomeGame(Game g);
   bool goHome();
+  bool startInList(const StartTarget& start);
+  OtherGame* otherLevels();
+  bool otherOpen(GameMode mode);
+  bool modeOpen(GameMode mode) const;
+  int listPage = -1;
+  bool pickOther = false;
   void enterAdventure();
   void doAdventureQuestion();
   void requestGameFolders() { foldersWanted_ = true; }
@@ -229,7 +237,8 @@ class App : public WidgetHost {
   bool challengeMore = false;
   std::string resolveChallengeLevel(const std::string& token);
   int packStage = -1;
-  struct DuelSession { int wins[2]{}, fevers[2]{}, points[2]{}, streakOwner = -1, streak = 0; } duelSes;
+  using DuelSession = DuelTally;
+  DuelSession duelSes;
   struct DuelEnd { bool active = false; int score[2]{}; std::string name[2]; } duelEnd;
   std::string endBodyOverride;
   std::string endHeaderOverride;
@@ -320,6 +329,7 @@ class App : public WidgetHost {
   int switchWait_ = 0;
   bool foldersWanted_ = false;
   GameRequest switchTo_;
+  std::unique_ptr<OtherGame> other_;
   float canvasW_ = 800;
   uint32_t rng_ = 0x2545f491;
   CrtRand crt_;

@@ -112,9 +112,13 @@ class LevelScreen : public Screen {
   void doPlay(int id);
   bool canSelect(int id) const;
   void drawLevelInfo(Gfx& g, float x, float y);
+  const StageInfo* pageStage() const;
+  bool groupOpen() const;
   int stage = 0, hovered = -1, hoverTicks = 0;
   Button* bLevel[5];
   Button *bBack, *bNext, *bMenu, *bRandom;
+  OtherGame* og = nullptr;
+  bool other = false, pick = false;
 };
 
 class StoryScreen : public Screen {

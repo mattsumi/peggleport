@@ -233,6 +233,7 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
     cfg.start = o.start;
     cfg.bothGames = bothInstalled(o);
     cfg.home = homeOf(o);
+    if (cfg.bothGames && o.gameDir) cfg.otherDir = o.gameDir(otherGame(o.game));
     cfg.seed = (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count();
     App app(gfx, vfs, audio.get(), &board, cfg);
     app.homeHook = [&](Game g) {

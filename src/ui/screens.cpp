@@ -664,7 +664,7 @@ void MainMenu::startGame() {
       return;
     case GameMode::QuickPlay:
     case GameMode::Duel:
-      if (app.gameMode == GameMode::Duel && p && p->maxStage < 1) {
+      if (app.gameMode == GameMode::Duel && p && p->maxStage < 1 && !app.otherOpen(GameMode::Duel)) {
         app.doNotYet("^FFFF00^DUEL MODE LOCKED!^oldclr^\nThis mode lets you compete against a friend or the computer.\n\n^FFFF00^To Unlock:^oldclr^\nFinish Stage 1 of Adventure Mode!");
         return;
       }
