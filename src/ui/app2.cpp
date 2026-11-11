@@ -288,12 +288,12 @@ void App::doConfirmRestartLevelDialog() {
   const char* yes = "New Level";
   if (gameMode == GameMode::Challenge) {
     title = "Restart Challenge?";
-    text = "Are you sure you want to restart this challenge? Your progress on it will be lost.";
-    yes = "Restart Challenge";
+    text = "Are you sure that you want to restart the challenge?";
+    yes = "Restart";
   } else if (gameMode == GameMode::Adventure) {
     title = "Restart Level?";
-    text = "Are you sure you want to restart this level? Your progress on this level will be lost.";
-    yes = "Restart Level";
+    text = "Are you sure that you want to restart the level?";
+    yes = "Restart";
   } else if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
     dialogButton(D_RestartLevel, ID_YES);
     return;
