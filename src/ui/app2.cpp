@@ -237,6 +237,7 @@ void App::dialogButton(int dlg, int btn) {
       if (yes) {
         finishOptionsDialog(false, true);
         if (gameMode == GameMode::QuickPlay || gameMode == GameMode::Duel) showLevelScreen(false);
+        else if (gameMode == GameMode::Challenge) restartChallenge();
         else if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
       }
       return;
@@ -302,6 +303,17 @@ void App::doConfirmRestartLevelDialog() {
   d->setYesNo(yes, "NO");
 }
 
+void App::restartChallenge() {
+  auto* gs = dynamic_cast<GameScreen*>(cur_.get());
+  if (!gs) return;
+  const TrophyInfo* t = trophies.byId(curChallenge);
+  challengeStep = 0;
+  challengeMore = false;
+  challengeKeepLives = false;
+  if (t && !t->levels.empty() && t->levels[0] != "pick") challengeLevel = resolveChallengeLevel(t->levels[0]);
+  gs->startChallengeLevel();
+}
+
 
 void App::showEndLevel(int mode, const LevelOutcome& o, const std::string& level, const std::string& title, int rank, bool newBest) {
   killDialog(D_EndLevel);
@@ -318,12 +330,7 @@ void App::endLevelButton(int id, int mode) {
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   auto m = (EndLevelDialog::Mode)mode;
   if (id == 1000 && gs && game == Game::Nights && (m == EndLevelDialog::ChallengeLevelDone || m == EndLevelDialog::ChallengeLives)) {
-    const TrophyInfo* t = trophies.byId(curChallenge);
-    challengeStep = 0;
-    challengeMore = false;
-    challengeKeepLives = false;
-    if (t && !t->levels.empty() && t->levels[0] != "pick") challengeLevel = resolveChallengeLevel(t->levels[0]);
-    gs->startChallengeLevel();
+    restartChallenge();
     return;
   }
   if (id == 1001 && newMantel && game == Game::Nights && m != EndLevelDialog::AdventureComplete) {
