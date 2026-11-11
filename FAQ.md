@@ -22,7 +22,22 @@ Windows, macOS and Linux.
 ## Starting the game
 
 **What happens when I open it?**
-PegglePort looks for your Peggle Deluxe and Peggle Nights and opens the game right away, with the normal loading screen and main menu. There is no extra window in between. If both games are installed, Peggle Deluxe opens.
+PegglePort looks for your Peggle Deluxe and Peggle Nights and opens the game right away, with the normal loading screen and main menu. There is no extra window in between. If you have one of the two games, that game opens and everything is the way you know it.
+
+**I have both games. What do I get?**
+One game. It opens with the Peggle Deluxe main menu, and both adventures are behind it. When you go from one game to the other the window stays as it is and there is no second loading screen: the next screen slides in the way screens always do.
+
+**How do I play the other adventure?**
+Press **Adventure** on the main menu. The game asks **Peggle Deluxe** or **Peggle Nights**. Pick one and you are in that adventure, with its own story, levels, Masters and music. Press `Esc` if you did not mean to press Adventure.
+
+**How do I get back?**
+The same way as always: **Main Menu** in the level's menu, on the screen after a level or on the Adventure screen. You always come back to the menu you started from.
+
+**Can I open with the Peggle Nights menu instead?**
+Yes. Open **Options** on the main menu and press the row **Main Menu: Peggle Deluxe**. It changes to **Main Menu: Peggle Nights**. Press **Done** and the Peggle Nights menu comes up, and it is the one that opens from now on. Press the row again to go back. The row is only there when both games are installed.
+
+**What about Quick Play, Duel and Challenge?**
+They belong to the menu that is open, so they show that game's levels. To play them with the other game's levels, change the **Main Menu** row in Options.
 
 **Where does it look for my game?**
 First in the folders it remembers from last time. Then it asks Steam: on Windows it reads the Steam folder from the registry, and on every system it reads Steam's list of library folders and Steam's own records of Peggle Deluxe and Peggle Nights, so a library on another drive or a folder with an unusual name is found too. After that it tries the usual Steam folders on every drive, the Origin, EA app and PopCap folders, and a `Games` folder next to PegglePort or in your home folder. A folder only counts when `main.pak` is in it.
@@ -38,14 +53,17 @@ Press `F10` in the game. The log starts with every place it looked at and ends w
 Use **Game Folders...** in the game's Options. It shows both folders, asks which game you mean and opens the folder window.
 
 **Do Deluxe and Nights share profiles?**
-No. Each game has its own profiles, high scores, settings and mods folder, the same way the originals do.
+You are the same player in both. When you go to the other game it picks the player with your name, and if there is none yet it makes one for you without asking for your name again. Your progress is kept for each game on its own, so your Deluxe adventure and your Nights adventure do not mix. High scores, replays and mods are kept for each game too, the same way the originals do.
+
+**Do I have to set my options twice?**
+No. Sound and music volume, fullscreen, widescreen, custom cursors, vertical sync, the enhanced visuals and colorblind mode are the same in both games. Change them in either one.
 
 **Can I use my existing profiles?**
 Yes. In the game, click **If this is not you, click here.** on the main menu and then **Import Player**. If you are starting for the first time, **Import Player** is on the certificate where you would type your name. A file chooser opens: choose the `userdata` folder of your original Peggle Deluxe or Peggle Nights, or one player file such as `user1.dat`. PegglePort lists the players it finds with their progress. Pick one and press **Import**.
 
 You get a new player with your adventure progress, challenge trophies, cleared levels (and aced levels in Nights), adventure scores, the Masters you picked and the settings that are kept in the profile. The scores you put on the high score lists are added to the lists. If a player with the same name already exists, the imported one gets a number after its name. Nothing is ever overwritten and the original files are only read. If a file cannot be read, the window says so in plain words.
 
-The original games keep their saves in `C:\ProgramData\PopCap Games\Peggle\userdata` (Deluxe) and `C:\ProgramData\PopCap Games\PeggleNights\userdata` (Nights) on Windows, or in a `userdata` folder next to the game's `.exe` on older Windows. The Steam versions use `C:\ProgramData\Steam\Peggle\userdata` and `C:\ProgramData\Steam\PeggleNights\userdata` instead. If you run the originals through Wine, CrossOver or Proton, it is the same path inside the Wine folder (`drive_c/ProgramData/PopCap Games/...` or `drive_c/ProgramData/Steam/...`), and the file chooser starts there when I find it. A player from the other game is added to that game's list, so start that game in PegglePort to find the player there.
+The original games keep their saves in `C:\ProgramData\PopCap Games\Peggle\userdata` (Deluxe) and `C:\ProgramData\PopCap Games\PeggleNights\userdata` (Nights) on Windows, or in a `userdata` folder next to the game's `.exe` on older Windows. The Steam versions use `C:\ProgramData\Steam\Peggle\userdata` and `C:\ProgramData\Steam\PeggleNights\userdata` instead. If you run the originals through Wine, CrossOver or Proton, it is the same path inside the Wine folder (`drive_c/ProgramData/PopCap Games/...` or `drive_c/ProgramData/Steam/...`), and the file chooser starts there when I find it. A player from the other game is added to that game's list. Change the **Main Menu** row in Options to that game and pick the player there with **If this is not you, click here.**
 
 ## Where are my saves?
 
