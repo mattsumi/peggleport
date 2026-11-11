@@ -200,7 +200,7 @@ bool GameScreen::choosesMaster() const {
 int GameScreen::chosenMaster() {
   static int lastRolled = -1;
   const int c = app.curProfile->char1;
-  const bool keep = keepRoll_ && rolled_ >= 0;
+  const bool keep = keepRoll_ && rolled_ >= 0 && rolled_ < 10;
   keepRoll_ = false;
   if (c != CharacterDialog::randomChoice(app.game)) return std::clamp(c, 0, app.game == Game::Nights ? 10 : 9);
   if (keep) return rolled_;
