@@ -470,7 +470,8 @@ void LevelScreen::drawLayer(Gfx& g) {
   if (Tex* l = g.img("IMAGE_LS_LEVELSCREENLEFT")) g.draw(l, 15, 524);
   if (bRandom->visible)
     if (Tex* r = g.img("IMAGE_LS_LEVELSCREENRIGHT")) g.draw(r, 703, 508);
-  std::string banner = app.gameMode == GameMode::Duel ? "Two Player Duel" : app.gameMode == GameMode::Challenge ? "Pick a Level" : "Quick Play";
+  const TrophyInfo* pickedChallenge = app.gameMode == GameMode::Challenge ? (pick && og ? og->trophies : app.trophies).byId(app.curChallenge) : nullptr;
+  std::string banner = app.gameMode == GameMode::Duel ? "Two Player Duel" : app.gameMode == GameMode::Challenge ? (pickedChallenge && !pickedChallenge->name.empty() ? pickedChallenge->name : "Pick a Level") : "Quick Play";
   g.drawString("OVERLOAD24GRAD1", 400 - g.textWidth("OVERLOAD24GRAD1", banner) / 2, 48, banner, 0xb6ffff);
   drawLevelInfo(g, 304, 335);
   const Game pageGame = other ? og->game : app.game;
