@@ -1,5 +1,6 @@
 #include "content.h"
 
+#include "gamepaths.h"
 #include "log.h"
 #include "ui/cfg.h"
 
@@ -126,15 +127,15 @@ static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int
 static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
   out = LevelBundle();
   std::vector<uint8_t> lvBytes, sideBytes, baseBytes;
-  fs::path p(nameOrPath);
+  fs::path p = pathFromUtf8(nameOrPath);
   std::error_code ec;
   if (p.extension() == ".dat" && fs::is_regular_file(p, ec)) {
     if (!slurp(p, lvBytes)) {
-      if (err) *err = "cannot read " + p.string();
+      if (err) *err = "cannot read " + pathToUtf8(p);
       return false;
     }
-    out.name = p.stem().string();
-    out.source = p.string();
+    out.name = pathToUtf8(p.stem());
+    out.source = pathToUtf8(p);
     fs::path side = p;
     side.replace_extension(".ini");
     slurp(side, sideBytes);

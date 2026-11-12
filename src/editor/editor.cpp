@@ -1,5 +1,6 @@
 #include "editor/editor.h"
 #include "content.h"
+#include "gamepaths.h"
 #include "log.h"
 #include "vfs.h"
 
@@ -167,7 +168,7 @@ std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& mo
         if (it->is_regular_file(ec)) {
           fs::path rel = fs::relative(it->path(), modDir, ec);
           fs::path real = it->path();
-          add(normKey(rel.generic_string()), &real, "mod folder " + modDir.filename().string());
+          add(normKey(rel.generic_string()), &real, "mod folder " + pathToUtf8(modDir.filename()));
         }
   std::sort(out.begin(), out.end(), [](const ArtItem& a, const ArtItem& b) { return lowerS(a.value) < lowerS(b.value); });
   return out;
@@ -336,47 +337,47 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
 
 bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   std::vector<uint8_t> bytes;
-  if (!slurp(p, bytes)) { if (err) *err = "cannot read " + p.string(); return false; }
+  if (!slurp(p, bytes)) { if (err) *err = "cannot read " + pathToUtf8(p); return false; }
   std::string e;
   auto lv = parseLevel(bytes, &e);
   if (!lv) { if (err) *err = e; return false; }
   level = std::make_shared<Level>(std::move(*lv));
-  meta.name = p.stem().string();
+  meta.name = pathToUtf8(p.stem());
   meta.title = meta.name;
-  savedPath = p.string();
+  savedPath = p;
   finishLoad();
-  status = "opened " + p.string();
+  status = "opened " + pathToUtf8(p);
   return true;
 }
 
 bool Editor::saveDat(const fs::path& p, std::string* err) {
   try {
     auto bytes = writeLevel(*level);
-    if (!spit(p, bytes.data(), bytes.size())) { if (err) *err = "cannot write " + p.string(); return false; }
+    if (!spit(p, bytes.data(), bytes.size())) { if (err) *err = "cannot write " + pathToUtf8(p); return false; }
   } catch (const std::exception& ex) {
     if (err) *err = ex.what();
     return false;
   }
-  savedPath = p.string();
+  savedPath = p;
   clean_ = (int)undo_.size();
   metaDirty = false;
-  status = "saved " + p.string();
+  status = "saved " + pathToUtf8(p);
   return true;
 }
 
 bool Editor::saveJson(const fs::path& p, std::string* err) {
   std::string text = levelToJson(*level, meta).dump(2) + "\n";
-  if (!spit(p, text)) { if (err) *err = "cannot write " + p.string(); return false; }
-  status = "exported " + p.string();
+  if (!spit(p, text)) { if (err) *err = "cannot write " + pathToUtf8(p); return false; }
+  status = "exported " + pathToUtf8(p);
   return true;
 }
 
 bool Editor::loadJson(const fs::path& p, std::string* err) {
   std::vector<uint8_t> bytes;
-  if (!slurp(p, bytes)) { if (err) *err = "cannot read " + p.string(); return false; }
+  if (!slurp(p, bytes)) { if (err) *err = "cannot read " + pathToUtf8(p); return false; }
   J j;
   std::string e;
-  if (!parseJson(std::string(bytes.begin(), bytes.end()), j, &e)) { if (err) *err = p.string() + ": " + e; return false; }
+  if (!parseJson(std::string(bytes.begin(), bytes.end()), j, &e)) { if (err) *err = pathToUtf8(p) + ": " + e; return false; }
   Level lv;
   LevelMeta m;
   if (!levelFromJson(j, lv, m, &e)) { if (err) *err = e; return false; }
@@ -384,7 +385,7 @@ bool Editor::loadJson(const fs::path& p, std::string* err) {
   meta = m;
   savedPath.clear();
   resetHistory();
-  status = "imported " + p.string();
+  status = "imported " + pathToUtf8(p);
   return true;
 }
 
@@ -419,7 +420,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
   }
   spit(lv / (meta.name + ".ini"), ini.str());
-  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + modDir.string());
+  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + pathToUtf8(modDir));
   std::vector<std::pair<std::string, std::string>> levels;
   {
     std::vector<uint8_t> bytes;
@@ -445,18 +446,18 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   if (!found) levels.push_back({meta.name, entry});
   std::string out = "// levels of this mod, written by the PegglePort level editor (Quick Play shows each Stage as a page of 5)\n";
   for (size_t i = 0; i < levels.size(); i += 5) {
-    std::string stageName = modDir.filename().string() + (i ? " " + std::to_string(i / 5 + 1) : "");
+    std::string stageName = pathToUtf8(modDir.filename()) + (i ? " " + std::to_string(i / 5 + 1) : "");
     out += "Stage\n{\nName: \"" + stageName + "\"\nDesc: \"Levels made with the PegglePort level editor\"\n";
     for (size_t j = i; j < std::min(levels.size(), i + 5); j++) out += "\t" + levels[j].second + "\n";
     out += "}\n";
   }
   spit(lv / "mod_levels.cfg", out);
   if (!fs::exists(modDir / "mod.ini")) {
-    std::string id = modDir.filename().string();
+    std::string id = pathToUtf8(modDir.filename());
     for (auto& c : id) c = (char)std::tolower((unsigned char)c);
-    spit(modDir / "mod.ini", "id = " + id + "\nname = " + modDir.filename().string() + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n");
+    spit(modDir / "mod.ini", "id = " + id + "\nname = " + pathToUtf8(modDir.filename()) + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n");
   }
-  status = "saved " + (lv / (meta.name + ".dat")).string();
+  status = "saved " + pathToUtf8(lv / (meta.name + ".dat"));
   return true;
 }
 

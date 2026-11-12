@@ -36,7 +36,7 @@ class Editor {
   std::shared_ptr<Level> level;
   std::shared_ptr<const Level> base;
   LevelMeta meta;
-  std::string savedPath;
+  std::filesystem::path savedPath;
   std::vector<NodeP> sel;
   std::string status;
   std::vector<Issue> issues;
