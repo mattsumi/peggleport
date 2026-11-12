@@ -266,6 +266,7 @@ void GameScreen::showStageDialog() {
     else if (t.find("PURPLE PEG") != std::string::npos) img = 4;
   }
   Dialog* d = app.doDialog(D_Tip, true, li->dialogTitle, t, "OK", BUTTONS_FOOTER);
+  d->scrollTarget = 100;
   if (img > 0)
     d->extraDraw = [img](Dialog& dl, Gfx& g) {
       std::string id = img == 1 ? "IMAGE_DLG_INSTRUCTIONS" : "IMAGE_DLG_INSTRUCTIONS" + std::to_string(img);
