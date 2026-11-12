@@ -425,12 +425,12 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
   Font* left = font("FONT_BALLSLEFT");
   if (small) {
     auto mode = [&](const std::string& t, bool leftSide) {
-      float x = leftSide ? 128.0f : 508.0f + dw;
+      float x = leftSide ? 128.0f : 508.0f + dw / 2.0f;
       if (small->width(t) > 75) x -= 6;
       drawText(small, x, 20, t, 0xffffffff);
     };
     auto detail = [&](const std::string& t, bool leftSide, float off) {
-      float x = leftSide ? 128.0f : 508.0f + dw;
+      float x = leftSide ? 128.0f : 508.0f + dw / 2.0f;
       if (small->width(t) > 75) x -= 6;
       drawText(small, x + off, 35, t, 0xffffffff);
     };
