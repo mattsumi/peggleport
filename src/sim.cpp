@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstring>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <memory>
+#include <type_traits>
 #include <vector>
 #include <string>
 #include <array>
@@ -33,6 +35,12 @@ uint64_t fnvMix(uint64_t h, const void* p, size_t n) {
 }
 template <class T>
 uint64_t mix(uint64_t h, const T& v) {
+  if constexpr (std::is_floating_point_v<T>) {
+    if (std::isnan(v)) {
+      const T canonical = std::numeric_limits<T>::quiet_NaN();
+      return fnvMix(h, &canonical, sizeof canonical);
+    }
+  }
   return fnvMix(h, &v, sizeof v);
 }
 
