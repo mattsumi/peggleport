@@ -1437,7 +1437,8 @@ void EndLevelDialog::layout() {
   float bw = (w - insL - insR - 10) / 2, bh = bMenu->h;
   float by = h - insB - bh;
   if (bRetry) {
-    bRetry->x = insL; bRetry->w = w - insL - insR; bRetry->y = by - bh - 6;
+    bRetry->x = insL; bRetry->w = w - insL - insR; bRetry->y = by;
+    by -= bh + 5;
   }
   bMenu->x = insL; bMenu->w = bw; bMenu->y = by;
   bNext->x = insL + bw + 10; bNext->w = bw; bNext->y = by;
