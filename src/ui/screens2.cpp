@@ -394,7 +394,7 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
   }
   if (pageGame == Game::Nights && hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && !canSelect(hovered)) {
     std::string t = "Level locked!", body = "Complete this level\nin adventure mode to unlock!";
-    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", t) / 2, 365, t, 0xff4444);
+    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", t) / 2, 365, t, 0xffff00);
     g.drawWrapped("PLAIN", {303, 395, 190, 80}, body, 0xff4444, 1, Align::Center);
     return;
   }
