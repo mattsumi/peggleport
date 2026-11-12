@@ -129,7 +129,7 @@ void App::doReplaysDialog() {
 
 void App::doConfirmDeleteReplay(const std::string& name) {
   Dialog* d = doDialog(D_DeleteReplay, true, "Delete Replay?", "Are you sure you want to delete " + name + "?", "", BUTTONS_YES_NO);
-  d->setYesNo("Delete", "NO");
+  d->setYesNo("Delete", "Cancel");
 }
 
 void App::doSaveReplayDialog() {
