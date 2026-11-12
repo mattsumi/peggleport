@@ -646,8 +646,9 @@ void Audio::render(float* out, int frames) {
           m.pos = 0;
         }
         size_t k = (size_t)m.pos;
-        out[i * 2] += m.ogg.pcm[k * 2] * mg;
-        out[i * 2 + 1] += m.ogg.pcm[k * 2 + 1] * mg;
+        float f = (float)(m.pos - (double)k);
+        out[i * 2] += (m.ogg.pcm[k * 2] * (1 - f) + m.ogg.pcm[k * 2 + 2] * f) * mg;
+        out[i * 2 + 1] += (m.ogg.pcm[k * 2 + 1] * (1 - f) + m.ogg.pcm[k * 2 + 3] * f) * mg;
         m.pos += step;
       }
     }
