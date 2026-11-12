@@ -437,7 +437,7 @@ void LevelScreen::drawLayer(Gfx& g) {
       g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
     }
     if (!ok)
-      if (Tex* lk = g.img("IMAGE_LS_LOCK")) g.draw(lk, sx + (kSlotW - lk->lw()) / 2, sy + (kSlotH - lk->lh()) / 2);
+      if (Tex* lk = g.img("IMAGE_LS_LOCK")) g.draw(lk, kTileHit[i][0] + (float)((int)(kTileHitW - lk->lw()) / 2), kTileHit[i][1] + (float)((int)(kTileHitH - lk->lh()) / 2));
   }
   if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
   for (int i = 0; i < 5; i++) {
