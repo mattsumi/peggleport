@@ -39,8 +39,8 @@ class CharacterDialog : public Dialog {
   bool onPager(float lx, float ly) const;
   int count = 10;
   bool computer = true;
-  int skill = 1;
-  Checkbox *cbFriend = nullptr, *cbComputer = nullptr, *cbNormal = nullptr, *cbMaster = nullptr;
+  int skill = 0;
+  Checkbox *cbFriend = nullptr, *cbComputer = nullptr, *cbSkill[4] = {nullptr, nullptr, nullptr, nullptr};
   void checkboxChanged(int id, bool on) override;
   void layoutBoxes();
 

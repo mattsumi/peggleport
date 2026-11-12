@@ -36,7 +36,8 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
     : Dialog(a, D_Character, true, twoPlayers ? "Two Player Selection" : "Choose Character", "", "Play Now!", BUTTONS_FOOTER), two(twoPlayers) {
   if (a.curProfile) {
     computer = a.curProfile->computerPlayer;
-    skill = a.curProfile->computerSkill == 2 ? 2 : 1;
+    const int stored = a.curProfile->computerSkill;
+    skill = stored >= -1 && stored <= 1 ? stored : 2;
   }
   auto mk = [&](int id, const char* label, bool v) {
     auto c = std::make_unique<Checkbox>();
@@ -53,8 +54,8 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
   if (two) {
     cbFriend = mk(0, "Play a Friend", !computer);
     cbComputer = mk(1, "Play Computer", computer);
-    cbNormal = mk(2, "Normal", skill != 2);
-    cbMaster = mk(3, "Master", skill == 2);
+    static const char* kLevel[4] = {"Easy", "Normal", "Hard", "Master"};
+    for (int i = 0; i < 4; i++) cbSkill[i] = mk(2 + i, kLevel[i], skill == i - 1);
   }
   count = a.game == Game::Nights ? 11 : 10;
   if (two && a.curProfile) {
@@ -152,9 +153,11 @@ void CharacterDialog::layoutBoxes() {
   float x = kW / 2 - 92, y = 399;
   cbFriend->x = x; cbFriend->y = y;
   cbComputer->x = x; cbComputer->y = y + 28;
-  cbNormal->x = x + 14; cbNormal->y = y + 56;
-  cbMaster->x = x + 14; cbMaster->y = y + 84;
-  cbNormal->visible = cbMaster->visible = computer;
+  for (int i = 0; i < 4; i++) {
+    cbSkill[i]->x = i % 2 == 0 ? x + 14 : cbSkill[i - 1]->x + cbSkill[i - 1]->w + 4;
+    cbSkill[i]->y = y + 56 + 28 * (float)(i / 2);
+    cbSkill[i]->visible = computer;
+  }
 }
 
 void CharacterDialog::checkboxChanged(int id, bool on) {
@@ -163,10 +166,9 @@ void CharacterDialog::checkboxChanged(int id, bool on) {
     computer = id == 1 ? on : !on;
     cbFriend->checked = !computer;
     cbComputer->checked = computer;
-  } else if (id == 2 || id == 3) {
-    skill = id == 3 ? (on ? 2 : 1) : (on ? 1 : 2);
-    cbNormal->checked = skill != 2;
-    cbMaster->checked = skill == 2;
+  } else if (id >= 2 && id <= 5) {
+    skill = id - 3;
+    for (int i = 0; i < 4; i++) cbSkill[i]->checked = i == id - 2;
   }
   layoutBoxes();
   app.playSample("BUTTON2");
