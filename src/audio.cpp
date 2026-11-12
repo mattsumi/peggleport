@@ -23,6 +23,8 @@
 #include <libopenmpt/libopenmpt.h>
 #endif
 
+#include <ogg/ogg.h>
+#include <vorbis/codec.h>
 #include <vorbis/vorbisfile.h>
 
 namespace pp {
@@ -49,6 +51,83 @@ int oggSeek(void* h, ogg_int64_t off, int whence) {
 }
 long oggTell(void* h) { return (long)((OggMem*)h)->pos; }
 
+bool decodeOggPackets(const std::vector<uint8_t>& bytes, Sample& out) {
+  ogg_sync_state oy;
+  ogg_stream_state os;
+  vorbis_info vi;
+  vorbis_comment vc;
+  vorbis_dsp_state vd;
+  vorbis_block vb;
+  ogg_sync_init(&oy);
+  vorbis_info_init(&vi);
+  vorbis_comment_init(&vc);
+  bool haveStream = false, haveDsp = false, ok = true;
+  int serial = 0, headers = 0, ch = 1;
+  size_t off = 0;
+  out.pcm.clear();
+  while (ok && off < bytes.size()) {
+    const size_t take = std::min<size_t>(4096, bytes.size() - off);
+    char* buf = ogg_sync_buffer(&oy, (long)take);
+    std::memcpy(buf, bytes.data() + off, take);
+    off += take;
+    ogg_sync_wrote(&oy, (long)take);
+    ogg_page og;
+    int pr;
+    while (ok && (pr = ogg_sync_pageout(&oy, &og)) != 0) {
+      if (pr < 0) continue;
+      if (!haveStream) {
+        serial = ogg_page_serialno(&og);
+        ogg_stream_init(&os, serial);
+        haveStream = true;
+      } else if (ogg_page_serialno(&og) != serial) {
+        continue;
+      }
+      ogg_stream_pagein(&os, &og);
+      ogg_packet op;
+      int r;
+      while (ok && (r = ogg_stream_packetout(&os, &op)) != 0) {
+        if (r < 0) continue;
+        if (headers < 3) {
+          if (vorbis_synthesis_headerin(&vi, &vc, &op) < 0) {
+            ok = false;
+            break;
+          }
+          if (++headers == 3) {
+            if (vi.channels < 1 || vorbis_synthesis_init(&vd, &vi) != 0) {
+              ok = false;
+              break;
+            }
+            vorbis_block_init(&vd, &vb);
+            haveDsp = true;
+            ch = vi.channels;
+            out.rate = (int)vi.rate;
+          }
+          continue;
+        }
+        if (vorbis_synthesis(&vb, &op) == 0) vorbis_synthesis_blockin(&vd, &vb);
+        float** pcm = nullptr;
+        int n;
+        while ((n = vorbis_synthesis_pcmout(&vd, &pcm)) > 0) {
+          for (int i = 0; i < n; i++) {
+            out.pcm.push_back(pcm[0][i]);
+            out.pcm.push_back(ch > 1 ? pcm[1][i] : pcm[0][i]);
+          }
+          vorbis_synthesis_read(&vd, n);
+        }
+      }
+    }
+  }
+  if (haveDsp) {
+    vorbis_block_clear(&vb);
+    vorbis_dsp_clear(&vd);
+  }
+  if (haveStream) ogg_stream_clear(&os);
+  vorbis_comment_clear(&vc);
+  vorbis_info_clear(&vi);
+  ogg_sync_clear(&oy);
+  return ok && !out.pcm.empty();
+}
+
 bool decodeOgg(const std::vector<uint8_t>& bytes, Sample& out) {
   OggMem mem{bytes.data(), bytes.size(), 0};
   ov_callbacks cb{oggRead, oggSeek, nullptr, oggTell};
@@ -69,7 +148,9 @@ bool decodeOgg(const std::vector<uint8_t>& bytes, Sample& out) {
       out.pcm.push_back(ch > 1 ? pcm[1][i] : pcm[0][i]);
     }
   }
+  const ogg_int64_t expected = ov_pcm_total(&vf, -1);
   ov_clear(&vf);
+  if (expected > 0 && (ogg_int64_t)(out.pcm.size() / 2) < expected) return decodeOggPackets(bytes, out);
   return !out.pcm.empty();
 }
 }
