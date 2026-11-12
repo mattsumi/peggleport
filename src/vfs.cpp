@@ -39,6 +39,11 @@ std::string normKey(std::string_view path) {
   return s;
 }
 
+std::string genericUtf8(const fs::path& p) {
+  auto u = p.generic_u8string();
+  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+
 std::map<std::string, std::string> readIni(const std::string& text) {
   std::map<std::string, std::string> out;
   std::istringstream in(text);
@@ -111,7 +116,7 @@ void Vfs::indexDir(Layer& L) {
        it != fs::recursive_directory_iterator(); it.increment(ec)) {
     if (ec) break;
     if (!it->is_regular_file()) continue;
-    auto rel = fs::relative(it->path(), L.root, ec).generic_string();
+    auto rel = genericUtf8(fs::relative(it->path(), L.root, ec));
     if (rel.empty() || rel[0] == '.') continue;
     L.files.emplace(normKey(rel), it->path());
   }
@@ -136,7 +141,7 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   std::error_code ec;
   if (fs::is_directory(gameDir / "levelpacks", ec))
     for (auto& e : fs::directory_iterator(gameDir / "levelpacks", ec))
-      if (e.is_regular_file() && normKey(e.path().extension().string()) == ".PAK") packs.push_back(e.path());
+      if (e.is_regular_file() && normKey(pathToUtf8(e.path().extension())) == ".PAK") packs.push_back(e.path());
   std::sort(packs.begin(), packs.end());
   for (auto& p : packs) {
     auto lp = std::make_shared<Pak>();
@@ -218,7 +223,7 @@ size_t Vfs::unmountMods() {
 std::string Vfs::modSignature() const {
   std::string s;
   for (auto& L : layers_)
-    if (L.isMod) s += L.root.generic_string() + "|" + std::to_string(L.priority) + "|" + std::to_string(L.imageScale) + "\n";
+    if (L.isMod) s += genericUtf8(L.root) + "|" + std::to_string(L.priority) + "|" + std::to_string(L.imageScale) + "\n";
   return s;
 }
 

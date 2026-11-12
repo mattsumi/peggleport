@@ -12,6 +12,7 @@
 namespace pp {
 
 std::string normKey(std::string_view path);
+std::string genericUtf8(const std::filesystem::path& p);
 std::map<std::string, std::string> readIni(const std::string& text);
 
 struct PakEntry {

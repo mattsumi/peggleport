@@ -58,7 +58,7 @@ ModManager::ModManager() {
     std::error_code ec;
     fs::path d = (userDir_.empty() ? fs::temp_directory_path() : userDir_) / "mod-data" / sanitizeId(id);
     fs::create_directories(d, ec);
-    return d.string();
+    return pathToUtf8(d);
   };
   host_.queue = [this](const ModCmd& c) {
     if (queue_.size() < 4096) {
@@ -127,17 +127,17 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
   std::error_code ec;
   fs::path dir = srcIn;
   if (fs::is_regular_file(srcIn, ec)) {
-    std::string ext = srcIn.extension().string();
+    std::string ext = pathToUtf8(srcIn.extension());
     for (auto& c : ext) c = (char)std::tolower((unsigned char)c);
     if (ext != ".zip") {
-      pp::log::info("mods", "ignored " + srcIn.filename().string() + " (a mod is a folder or a .zip file)");
+      pp::log::info("mods", "ignored " + pathToUtf8(srcIn.filename()) + " (a mod is a folder or a .zip file)");
       return;
     }
     m->zip = true;
-    const std::string zid = sanitizeId(srcIn.stem().string());
+    const std::string zid = sanitizeId(pathToUtf8(srcIn.stem()));
     std::string bytes;
     if (!readFile(srcIn, bytes, 256u << 20)) {
-      failMod(mods_, std::move(m), zid, srcIn.stem().string(), "cannot read " + srcIn.filename().string());
+      failMod(mods_, std::move(m), zid, pathToUtf8(srcIn.stem()), "cannot read " + pathToUtf8(srcIn.filename()));
       return;
     }
     uint64_t zh = fnvMix(1469598103934665603ull, bytes.data(), bytes.size());
@@ -147,7 +147,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
       std::string e;
       bool unpacked = extractZip(srcIn, cache, &e);
       if (!unpacked) {
-        failMod(mods_, std::move(m), zid, srcIn.stem().string(), "zip: " + e);
+        failMod(mods_, std::move(m), zid, pathToUtf8(srcIn.stem()), "zip: " + e);
         return;
       }
       if (!e.empty()) pp::log::warn("mod:" + zid, "zip: " + e);
@@ -156,7 +156,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
     dir = cache;
     if (!fs::exists(dir / "mod.ini", ec) && !fs::exists(dir / "mod.json", ec)) {
       std::vector<fs::path> subs;
-      for (auto& e : fs::directory_iterator(dir, ec)) if (e.is_directory(ec) && e.path().filename().string()[0] != '.') subs.push_back(e.path());
+      for (auto& e : fs::directory_iterator(dir, ec)) if (e.is_directory(ec) && pathToUtf8(e.path().filename())[0] != '.') subs.push_back(e.path());
       if (subs.size() == 1 && (fs::exists(subs[0] / "mod.ini", ec) || fs::exists(subs[0] / "mod.json", ec))) dir = subs[0];
     }
   } else if (!fs::is_directory(srcIn, ec)) {
@@ -166,10 +166,10 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
   m->dir = dir;
   std::string err;
   if (!loadManifest(dir, m->m, &err)) {
-    failMod(mods_, std::move(m), sanitizeId(dir.filename().string()), dir.filename().string(), err);
+    failMod(mods_, std::move(m), sanitizeId(pathToUtf8(dir.filename())), pathToUtf8(dir.filename()), err);
     return;
   }
-  if (m->zip) m->m.id = m->m.id.empty() ? sanitizeId(srcIn.stem().string()) : m->m.id;
+  if (m->zip) m->m.id = m->m.id.empty() ? sanitizeId(pathToUtf8(srcIn.stem())) : m->m.id;
   m->hash = hashModDir(dir);
   m->hashHex = hex64(m->hash);
   m->scan = scanMod(dir, m->m);
@@ -217,7 +217,7 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
     pp::log::info("mods", "looking for mods in " + pathToUtf8(modsDir()));
     std::vector<fs::path> items;
     for (auto& e : fs::directory_iterator(modsDir(), ec)) {
-      std::string nm = e.path().filename().string();
+      std::string nm = pathToUtf8(e.path().filename());
       if (nm.empty() || nm[0] == '.') continue;
       items.push_back(e.path());
     }
@@ -258,12 +258,12 @@ std::string ModManager::folderSignature() const {
   std::vector<std::string> rows;
   for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
     if (ec) break;
-    std::string nm = it->path().filename().string();
+    std::string nm = pathToUtf8(it->path().filename());
     if (!nm.empty() && nm[0] == '.') {
       if (it->is_directory(ec)) it.disable_recursion_pending();
       continue;
     }
-    std::string row = it->path().lexically_relative(root).generic_string();
+    std::string row = genericUtf8(it->path().lexically_relative(root));
     if (it->is_regular_file(ec)) {
       row += "|" + std::to_string((unsigned long long)it->file_size(ec));
       row += "|" + std::to_string((long long)it->last_write_time(ec).time_since_epoch().count());
