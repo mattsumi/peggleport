@@ -166,7 +166,17 @@ bool GameScreen::startLevel(const std::string& name) {
     if (oi < 0) {
       std::string low = ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)];
       for (auto& ch : low) ch = (char)std::tolower((unsigned char)ch);
-      if (low == "rand") oi = std::clamp(randomMaster(CharacterDialog::randomChoice(app.game)), 0, app.game == Game::Nights ? 10 : 9);
+      if (low == "rand") {
+        static int lastOpponent = -1;
+        const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+        int pick = 0;
+        for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
+          pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+          if (pick != lastOpponent) break;
+        }
+        lastOpponent = pick;
+        oi = std::clamp(pick, 0, app.game == Game::Nights ? 10 : 9);
+      }
     }
     if (oi >= 0) cfg.master[1] = Board::masterByName(kMasterNames[oi]);
   }
