@@ -734,8 +734,24 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
     static const char* prize[] = {"IMAGE_BONUS5000", "IMAGE_BONUS10000", "IMAGE_BONUS25000", "IMAGE_BONUS50000", "IMAGE_BONUS100000"};
     static const char* light[] = {"IMAGE_BONUS5000LIGHT", "IMAGE_BONUS10000LIGHT", "IMAGE_BONUS25000LIGHT", "IMAGE_BONUS50000LIGHT", "IMAGE_BONUS100000LIGHT"};
     float hx = BX + o.pos.x, hy = BY + o.pos.y;
-    if (Tex* h = img("IMAGE_BONUSHALO")) put(h, {0, 0, h->lw(), h->lh()}, (float)(int)(hx - (int)(h->lw() / 2)), (float)(int)(hy - lift - 40));
-    if (Tex* t = img(prize[k])) put(t, {0, 0, t->lw(), t->lh()}, (float)(int)(hx - (int)(t->lw() / 2)), (float)(int)(hy - lift - 25));
+    if (b.cfg.nights) {
+      const bool duel = b.cfg.duel;
+      const char* bucket = "IMAGE_RBUCKET";
+      int dy1 = -10, dy2 = -5;
+      switch (o.score) {
+        case 5000:
+        case 10000: bucket = "IMAGE_BBUCKET"; dy1 = 0; dy2 = 0; break;
+        case 25000: bucket = "IMAGE_GBUCKET"; dy1 = -7; dy2 = -5; break;
+        case 50000: bucket = duel ? "IMAGE_RBUCKET" : "IMAGE_GBUCKET"; dy1 = -7; dy2 = duel ? -7 : -5; break;
+        default: break;
+      }
+      const int row = o.flash > 0 && (o.flash / 15) % 2 == 0 ? 1 : 0;
+      if (Tex* d = img(bucket)) putCelAt(d, 0, row, (float)(int)(hx - (int)(d->cw() / 2)), (float)(int)(hy - lift - 25 + dy1));
+      if (Tex* t = img(prize[k])) putCelAt(t, 0, row, (float)(int)(hx - (int)(t->cw() / 2)), (float)(int)(hy - lift - 35 + dy1 + dy2));
+    } else {
+      if (Tex* h = img("IMAGE_BONUSHALO")) put(h, {0, 0, h->lw(), h->lh()}, (float)(int)(hx - (int)(h->lw() / 2)), (float)(int)(hy - lift - 40));
+      if (Tex* t = img(prize[k])) put(t, {0, 0, t->lw(), t->lh()}, (float)(int)(hx - (int)(t->lw() / 2)), (float)(int)(hy - lift - 25));
+    }
     lightImg = img(light[k]);
   }
   if (auto t = objImage(o.image)) {
