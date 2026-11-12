@@ -1115,9 +1115,16 @@ void TrophyScreen::drawLayer(Gfx& g) {
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
     float sx = kSlot[i][0], sy = kSlot[i][1];
-    Tex* th = t.levels.empty() ? nullptr : theirs ? og->picture("levels/cached_thumbnails/" + t.levels[0]) : g.img("levels/cached_thumbnails/" + t.levels[0]);
-    if (th && th->valid()) {
-      float cx = kTileHit[i][0] + (float)((int)(kTileHitW - 200) / 2), cy = kTileHit[i][1] + (float)((int)(kTileHitH - 177) / 2);
+    const bool drawn = !t.levels.empty() && (t.levels[0] == "pick" || t.levels[0].rfind("Rand", 0) == 0 || t.levels[0].rfind("rand", 0) == 0);
+    Tex* th = t.levels.empty() || drawn ? nullptr : theirs ? og->picture("levels/cached_thumbnails/" + t.levels[0]) : g.img("levels/cached_thumbnails/" + t.levels[0]);
+    float cx = kTileHit[i][0] + (float)((int)(kTileHitW - 200) / 2), cy = kTileHit[i][1] + (float)((int)(kTileHitH - 177) / 2);
+    if (drawn) {
+      static const int kRow[10] = {0, 1, 2, 3, 4, 5, -1, -1, -1, 6};
+      Tex* rl = theirs ? og->picture("IMAGE_LS_RANDOMLEVEL") : g.img("IMAGE_LS_RANDOMLEVEL");
+      const size_t n = t.levels.size();
+      const int row = n >= 1 && n <= 10 ? kRow[n - 1] : -1;
+      if (rl && row >= 0) g.drawStretchSrc(rl, 0, (float)row * rl->ch(), rl->cw(), rl->ch(), cx, cy, 200, 177);
+    } else if (th && th->valid()) {
       g.drawStretch(th, cx, cy, 200, 177);
     } else {
       g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
