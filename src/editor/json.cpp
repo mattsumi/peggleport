@@ -467,10 +467,10 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
   if (auto v = j.get("mode")) out.mode = (uint8_t)v->n;
   if (auto m = j.get("meta")) {
     auto s = [&](const char* k, std::string& dst) { if (auto v = m->get(k)) dst = v->s; };
-    auto n = [&](const char* k, int& dst) { if (auto v = m->get(k)) dst = (int)v->n; };
     s("name", meta.name); s("title", meta.title); s("background", meta.background); s("master", meta.master);
     if (auto v = m->get("board_width")) meta.boardWidth = v->n >= 650.0 ? (int)std::min(v->n, 1400.0) : 650;
-    n("balls", meta.balls); n("orange", meta.orange);
+    if (auto v = m->get("balls")) meta.balls = v->n >= 0.0 ? (int)std::min(v->n, 99.0) : 0;
+    if (auto v = m->get("orange")) meta.orange = v->n >= 0.0 ? (int)std::min(v->n, 500.0) : 0;
     if (const J* ph = m->get("physics"); ph && ph->t == J::Obj) {
       meta.physics = PhysicsEdit();
       for (const auto& kv : ph->o) {
