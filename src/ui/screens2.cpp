@@ -814,11 +814,11 @@ void HelpScreen::drawLayer(Gfx& g) {
   if (Tex* bg = g.img("IMAGE_HELP_SCREEN")) g.draw(bg, 0, 0);
   const bool nights = app.game == Game::Nights;
   const HelpPage& hp = nights ? kHelpNights[page] : kHelp[page];
-  g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, "How to Play", 0xb6ffff, 1, Align::Center);
-  g.drawString("OVERLOAD16OUTLINE", 400, 90, hp.name, 0xffffff, 1, Align::Center);
+  g.drawString("OVERLOAD24GRAD1", 100, 50, "How to Play", 0xb6ffff);
+  g.drawString(nights ? "OVERLOAD16OUTLINE" : "OVERLOAD24OUTLINE", 400, nights ? 90 : 110, hp.name, 0xffffff, 1, Align::Center);
   char pg[32];
   std::snprintf(pg, sizeof pg, "Page %d of %d", page + 1, numPages());
-  g.drawString("PLAIN2", 400, 0x21c, pg, 0xffffff, 1, Align::Center);
+  g.drawString("OVERLOAD24GRAD1", nights ? 700 - g.textWidth("OVERLOAD24GRAD1", pg) : 540, 50, pg, 0xb6ffff);
   for (int i = 0; i < 2; i++)
     if (hp.head[i][0]) g.drawWrapped("PLAIN2", {60, 110.0f + 18 * i, 680, 20}, hp.head[i], 0xffffaa, 1, Align::Center);
   Tex* icons = g.img("IMAGE_HELP_ICONS");
