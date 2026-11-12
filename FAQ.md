@@ -135,7 +135,7 @@ Yes, inside the game. Open **Options, then Level Editor**, or press **F9** on th
 ## Online play
 
 **How do I play with a friend?**
-Open **Online** on the main menu. Everybody enters the same lobby server address, one player creates a room and the others join it from the list, with the 5-letter code, or by pasting an invite link. See [faq/online.md](faq/online.md), which also explains how to run a lobby server yourself.
+Open **Online** on the main menu. Everybody enters the same lobby server address, one player creates a room and the others join it from the list, with the 5-character code, or by pasting an invite link. See [faq/online.md](faq/online.md), which also explains how to run a lobby server yourself.
 
 **Is there a public lobby server?**
 You need the address of a lobby server somebody runs. `pp_lobbyd` in the download is the server, and the guide shows how to start it.
