@@ -626,6 +626,7 @@ void MainMenu::onButton(int id) {
       break;
     case 2:
       app.gameMode = GameMode::Duel;
+      if (sessionsOf(app).askToContinue(true)) break;
       startGame();
       break;
     case 3:

@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace pp::ui {
 
@@ -201,7 +202,7 @@ bool GameScreen::startLevel(const std::string& name) {
   board_ = Board();
   cfg_ = cfg;
   log_.clear();
-  recording_ = !duel_ && !demo_ && !viewer_;
+  recording_ = !demo_ && !viewer_;
   haveSnap_ = false;
   if (!board_.load(lb_.base, lb_.level, cfg, &err)) {
     loadError = err;
@@ -527,11 +528,29 @@ bool GameScreen::startViewer(const ReplayData& d) {
 int GameScreen::aiSkill() const {
   auto level = [](int s) { return s == 2 ? 10 : s == 1 ? 1 : s == -1 ? -1 : 0; };
   if (demo_) return 10;
+  if (aiFixed_ != -100) return aiFixed_;
   if (app.gameMode == GameMode::Challenge)
     if (const TrophyInfo* t = app.trophies.byId(app.curChallenge))
       if (!t->opponentDifficulty.empty())
         return level(t->opponentDifficulty[std::min<size_t>((size_t)std::max(0, app.challengeStep), t->opponentDifficulty.size() - 1)]);
   return level(app.curProfile ? app.curProfile->computerSkill : -1);
+}
+
+uint32_t GameScreen::aiDraw() {
+  aiDrawn_++;
+  return (uint32_t)(aiBoard_ ? aiBoard_->rng.rand() : board_.rng.rand());
+}
+
+void GameScreen::logAi(uint8_t kind, int a, int b) {
+  if (recording_) log_.push_back({board_.tick, kind, a, b, board_.frames});
+}
+
+namespace {
+int floatBits(float f) {
+  int v = 0;
+  std::memcpy(&v, &f, sizeof v);
+  return v;
+}
 }
 
 void GameScreen::aiTurn() {
@@ -540,19 +559,29 @@ void GameScreen::aiTurn() {
   if (!ai_) ai_ = std::make_unique<AIMgr>();
   if (aiState_ == 0) {
     if (aiWait_ >= (b.shotIndex > 0 ? 150 : 100)) {
-      ai_->begin(b, aiSkill(), [&b] { return (uint32_t)b.rng.rand(); });
+      aiDrawn_ = 0;
+      ai_->begin(b, aiSkill(), [this] { return aiDraw(); });
+      logAi(4, (int)aiDrawn_, 1);
+      aiDrawn_ = 0;
       aiState_ = 1;
       aiTick_ = 0;
+      aiThink_ = 0;
     }
   } else if (aiState_ == 1) {
-    if (ai_->update(10)) {
+    aiThink_++;
+    aiDrawn_ = 0;
+    const bool finished = ai_->update(10);
+    if (aiDrawn_ > 0) logAi(4, (int)aiDrawn_, 0);
+    aiDrawn_ = 0;
+    if (finished) {
+      aiChosen_ = ai_->angle();
       aiState_ = 2;
       aiTick_ = 0;
     }
   } else {
     aiTick_++;
-    if (aiTick_ >= 20 && ai_->angle() != b.gunAngle) {
-      float want = ai_->angle(), cur = b.gunAngle;
+    if (aiTick_ >= 20 && aiChosen_ != b.gunAngle) {
+      float want = aiChosen_, cur = b.gunAngle;
       if (want < 1.5707964f) want = want + 6.2831855f;
       if (cur < 1.5707964f) cur = cur + 6.2831855f;
       float rate = 0.1f * std::fabs(want - cur);
@@ -566,12 +595,14 @@ void GameScreen::aiTurn() {
       }
       gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, cur, true);
       b.lmAim = cur;
+      logAi(5, floatBits(cur), 0);
     }
     if (aiTick_ >= 100) {
-      b.lmAim = ai_->angle();
+      b.lmAim = aiChosen_;
       gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, b.lmAim, true);
       b.fireHeld = true;
       b.fireCooldown = 0;
+      logAi(6, floatBits(aiChosen_), 0);
       aiState_ = 0;
       aiWait_ = 0;
     }

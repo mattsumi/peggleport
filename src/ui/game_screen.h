@@ -89,7 +89,7 @@ class GameScreen : public Screen {
   bool levelDone() const { return done_; }
   bool saveReplay(bool all, std::filesystem::path* pathOut, const std::string& stem = std::string());
   bool replayAllShots() const { return replayAll_; }
-  bool canSaveReplay() const { return recording_ && haveSnap_ && !log_.empty(); }
+  bool canSaveReplay() const { return recording_ && !duel_ && haveSnap_ && !log_.empty(); }
   bool startViewer(const ReplayData& d);
   bool viewing() const { return viewer_; }
   void pause(bool on);
@@ -114,9 +114,15 @@ class GameScreen : public Screen {
   GameMode statsMode_ = GameMode::None;
   void pushMouse();
   bool duel_ = false;
-  int aiWait_ = 0, aiState_ = 0, aiTick_ = 0;
+  int aiWait_ = 0, aiState_ = 0, aiTick_ = 0, aiThink_ = 0, aiFixed_ = -100;
+  uint32_t aiDrawn_ = 0;
+  float aiChosen_ = 0;
   std::unique_ptr<AIMgr> ai_;
+  std::unique_ptr<Board> aiBoard_;
   int aiSkill() const;
+  uint32_t aiDraw();
+  void logAi(uint8_t kind, int a, int b);
+  void restoreAi(const ReadySession& r);
   bool demo_ = false;
   bool human2_ = false;
   std::string oppName() const { return human2_ ? "Player 2" : "Computer"; }

@@ -27,6 +27,10 @@ struct SavedHistory {
   std::vector<StageMgr::UseMark> use;
 };
 
+struct SavedDuel {
+  int score2 = 0, skill = 0, state = 0, wait = 0, tick = 0, think = 0, chosen = 0;
+};
+
 struct SavedSession {
   static constexpr int kMaxFrames = 600000;
   static constexpr size_t kMaxEvents = 600000;
@@ -43,19 +47,20 @@ struct SavedSession {
   std::vector<ReplayEvent> log;
   uint8_t flags = 0;
   SavedChallenge ch;
+  SavedDuel duel;
   SavedHistory hist;
 
   std::vector<uint8_t> bytes() const;
   static bool parse(const std::vector<uint8_t>& data, SavedSession& out);
   bool save(const std::filesystem::path& file) const;
   static bool load(const std::filesystem::path& file, SavedSession& out);
-  bool rebuild(const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap) const;
+  bool rebuild(const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap, Board& aiSnap) const;
 };
 
 struct ReadySession {
   SavedSession saved;
   LevelBundle bundle;
-  Board board, snap;
+  Board board, snap, aiSnap;
   bool haveSnap = false;
 };
 

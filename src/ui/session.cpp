@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "gamepaths.h"
+#include "gun.h"
 #include "log.h"
 #include "masters.h"
 #include "ui/app.h"
@@ -141,7 +142,7 @@ void syncConfig(Ar& a, BoardConfig& c) {
 
 bool configSane(const BoardConfig& c) {
   if (c.boardWidth < 650 || c.boardWidth > 1400) return false;
-  if (c.players != 1 || c.duel) return false;
+  if (c.players < 1 || c.players > 2 || c.duel != (c.players == 2)) return false;
   if (c.balls < 0 || c.balls > 10000 || c.orange < 0 || c.orange > 10000) return false;
   for (int m : c.master)
     if (m < 0 || m >= masters::kPowerSlots) return false;
@@ -167,6 +168,22 @@ void syncHistory(Ar& a, SavedHistory& h) {
   for (StageMgr::UseMark& m : h.use) { a.i32(m.stage); a.i32(m.level); a.i32(m.use); }
 }
 
+void syncDuel(Ar& a, SavedDuel& d) {
+  a.i32(d.score2); a.i32(d.skill); a.i32(d.state); a.i32(d.wait); a.i32(d.tick); a.i32(d.think); a.i32(d.chosen);
+}
+
+int floatBits(float f) {
+  int v = 0;
+  std::memcpy(&v, &f, sizeof v);
+  return v;
+}
+
+float bitsFloat(int v) {
+  float f = 0;
+  std::memcpy(&f, &v, sizeof f);
+  return f;
+}
+
 void syncBody(Ar& a, SavedSession& s) {
   a.i32(s.game); a.i32(s.mode); a.str(s.level); a.u64(s.content);
   a.i32(s.stage); a.i32(s.levelNo);
@@ -185,19 +202,29 @@ void syncBody(Ar& a, SavedSession& s) {
   a.u8(s.flags);
   syncHistory(a, s.hist);
   if (s.mode == (int)GameMode::Challenge) syncChallenge(a, s.ch);
+  if (s.cfg.players == 2) syncDuel(a, s.duel);
 }
 
 bool bodySane(const SavedSession& s) {
   if (s.game < 0 || s.game > 1) return false;
   const bool challenge = s.mode == (int)GameMode::Challenge;
-  if (s.mode != (int)GameMode::Adventure && s.mode != (int)GameMode::QuickPlay && !challenge) return false;
+  const bool duel = s.mode == (int)GameMode::Duel;
+  if (s.mode != (int)GameMode::Adventure && s.mode != (int)GameMode::QuickPlay && !challenge && !duel) return false;
   if (s.level.empty()) return false;
   if (s.hist.rng == 0 || s.hist.lastOpponent < -1 || s.hist.lastOpponent > 64 || s.hist.lastRolled < -1 || s.hist.lastRolled > 64) return false;
   if (s.hist.useCounter < 0 || s.hist.useCounter > 1000000000) return false;
   for (const StageMgr::UseMark& m : s.hist.use)
     if (m.stage < 0 || m.stage > 4096 || m.level < 0 || m.level > 4096 || m.use < -1000 || m.use > s.hist.useCounter) return false;
-  if (s.flags > 1) return false;
   if (!challenge && (s.cfg.startScore != 0 || s.cfg.startScore2 != 0)) return false;
+  if (s.flags > 3 || ((s.flags & 2) != 0 && !s.cfg.duel)) return false;
+  if (duel != (duel && s.cfg.duel) || (!duel && !challenge && s.cfg.duel)) return false;
+  if (s.cfg.duel) {
+    const SavedDuel& d = s.duel;
+    if (d.state < 0 || d.state > 2 || d.skill < -1 || d.skill > 10) return false;
+    if (d.wait < 0 || d.wait > 100000 || d.tick < 0 || d.tick > 100000 || d.think < 0 || d.think > 5000) return false;
+    if (d.score2 < -100000000 || d.score2 > 1000000000 || !std::isfinite(bitsFloat(d.chosen))) return false;
+    if ((s.flags & 2) != 0 && d.state != 0) return false;
+  }
   if (challenge) {
     const SavedChallenge& c = s.ch;
     if (s.cfg.startScore < -100000000 || s.cfg.startScore > 1000000000 || s.cfg.startScore2 < -100000000 || s.cfg.startScore2 > 1000000000) return false;
@@ -212,9 +239,11 @@ bool bodySane(const SavedSession& s) {
   if (!configSane(s.cfg)) return false;
   int last = 0;
   for (const ReplayEvent& e : s.log) {
-    if (e.kind > 3) return false;
+    if (e.kind > 6 || (e.kind > 3 && (!s.cfg.duel || (s.flags & 2) != 0))) return false;
     if (e.frame < last || e.frame > s.frames) return false;
     if (e.kind == 2 && (e.a < -1000000 || e.a > 1000000)) return false;
+    if (e.kind == 4 && (e.a < 0 || e.a > 100000 || (e.b != 0 && e.b != 1))) return false;
+    if ((e.kind == 5 || e.kind == 6) && !std::isfinite(bitsFloat(e.a))) return false;
     last = e.frame;
   }
   return true;
@@ -298,12 +327,13 @@ bool SavedSession::load(const std::filesystem::path& file, SavedSession& out) {
   return (size_t)f.gcount() == data.size() && parse(data, out);
 }
 
-bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap) const {
+bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap, Board& aiSnap) const {
   if (lb.contentHash != content) return false;
   std::string err;
   Board b;
   if (!b.load(lb.base, lb.level, cfg, &err)) return false;
   haveSnap = false;
+  bool begun = false;
   size_t next = 0;
   const bool ended = ch.over != 0;
   for (;;) {
@@ -314,7 +344,18 @@ bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, boo
         if (b.phase == Phase::Aim) { snap = b; haveSnap = true; }
         b.gunClick();
       } else if (e.kind == 3) b.gunRelease();
-      else b.gunWheel(e.a);
+      else if (e.kind == 4) {
+        if (e.b == 1) { aiSnap = b; begun = true; }
+        for (int i = 0; i < e.a; i++) b.rng.rand();
+      } else if (e.kind == 5) {
+        gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, bitsFloat(e.a), true);
+        b.lmAim = bitsFloat(e.a);
+      } else if (e.kind == 6) {
+        b.lmAim = bitsFloat(e.a);
+        gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, b.lmAim, true);
+        b.fireHeld = true;
+        b.fireCooldown = 0;
+      } else b.gunWheel(e.a);
     }
     if (b.frames >= frames) break;
     b.step();
@@ -324,6 +365,7 @@ bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, boo
   if (ended != (b.phase == Phase::Over)) return false;
   if (next != log.size() || b.tick != tick || b.hash() != hash) return false;
   if (b.result.shots != shots || b.score[0] != score || b.ballsLeft[0] != ballsLeft) return false;
+  if (cfg.duel && (b.score[1] != duel.score2 || (duel.state == 1 && !begun))) return false;
   board = std::move(b);
   return true;
 }
@@ -352,7 +394,7 @@ bool SessionKeeper::keep(const GameScreen& gs) {
 
 bool SessionKeeper::find(GameMode m) {
   ready_.reset();
-  if (m != GameMode::Adventure && m != GameMode::QuickPlay && m != GameMode::Challenge) return false;
+  if (m != GameMode::Adventure && m != GameMode::QuickPlay && m != GameMode::Challenge && m != GameMode::Duel) return false;
   const std::filesystem::path path = file(m);
   std::error_code ec;
   if (path.empty() || !std::filesystem::exists(path, ec)) return false;
@@ -363,11 +405,11 @@ bool SessionKeeper::find(GameMode m) {
   if (ok && m != GameMode::Adventure) li = app_.stages.levelByName(r->saved.level);
   if (ok && m == GameMode::Challenge) {
     const TrophyInfo* t = app_.trophies.byId(r->saved.ch.trophy);
-    ok = t && r->saved.ch.step < (int)t->levels.size();
+    ok = t && r->saved.ch.step < (int)t->levels.size() && r->saved.cfg.duel == !t->opponents.empty();
   } else {
     ok = ok && li && (m != GameMode::Adventure || li->file == r->saved.level);
   }
-  ok = ok && loadLevelBundle(app_.vfs, r->saved.level, r->bundle, &err) && r->saved.rebuild(r->bundle, r->board, r->snap, r->haveSnap);
+  ok = ok && loadLevelBundle(app_.vfs, r->saved.level, r->bundle, &err) && r->saved.rebuild(r->bundle, r->board, r->snap, r->haveSnap, r->aiSnap);
   if (ok && li) {
     r->saved.stage = li->stage;
     r->saved.levelNo = li->index;
@@ -393,6 +435,9 @@ bool SessionKeeper::resume() {
   std::unique_ptr<ReadySession> r = std::move(ready_);
   drop((GameMode)r->saved.mode);
   app_.gameMode = (GameMode)r->saved.mode;
+  app_.lastOpponent = r->saved.hist.lastOpponent;
+  app_.lastRolled = r->saved.hist.lastRolled;
+  app_.stages.restoreUse(r->saved.hist.use, r->saved.hist.useCounter);
   if (app_.gameMode != GameMode::Adventure) {
     app_.curStage = r->saved.stage;
     app_.curLevel = r->saved.levelNo;
@@ -428,6 +473,10 @@ std::string withCommas(int v) {
     out += digits[i];
   }
   return v < 0 ? "-" + out : out;
+}
+
+std::string duelLines(const SavedSession& s, const std::string& me, bool human2) {
+  return me + " - " + withCommas(s.score) + " points\n" + (human2 ? "Player 2" : "Computer") + " - " + withCommas(s.duel.score2) + " points\n";
 }
 
 class ContinueDialog : public Dialog {
@@ -493,7 +542,7 @@ class ContinueDialog : public Dialog {
 bool SessionKeeper::askToContinue(bool ask) {
   PlayerInfo* p = app_.curProfile;
   const GameMode mode = app_.gameMode;
-  if (!p || (mode != GameMode::Adventure && mode != GameMode::QuickPlay && mode != GameMode::Challenge)) return false;
+  if (!p || (mode != GameMode::Adventure && mode != GameMode::QuickPlay && mode != GameMode::Challenge && mode != GameMode::Duel)) return false;
   if (mode == GameMode::Adventure) {
     if (ask && app_.game == Game::Deluxe && p->advCompletions > 0) return false;
     app_.curStage = std::clamp(p->advStage, 0, std::max(0, app_.numStages() - 1));
@@ -511,7 +560,10 @@ bool SessionKeeper::askToContinue(bool ask) {
     text = "Do you want to ^00FF00^continue^oldclr^ the game in progress or start a ^00FF00^new game^oldclr^?\n\n^44DAFB^Challenge: " + (t ? t->name : std::string()) + "\n";
     if (t && t->levels.size() > 1) text += "Level: " + std::to_string(s.ch.step + 1) + "/" + std::to_string(t->levels.size()) + "\n";
     if (t && t->balls > 10) text += "Balls Left: " + std::to_string(s.ballsLeft) + "\n";
-    text += "Score: " + withCommas(s.score) + "\n";
+    if (s.cfg.duel) text += duelLines(s, p->name, (s.flags & 2) != 0);
+    else text += "Score: " + withCommas(s.score) + "\n";
+  } else if (mode == GameMode::Duel) {
+    text = "Do you want to ^00FF00^continue^oldclr^ the game in progress or start a ^00FF00^new game^oldclr^?\n\n^44DAFB^" + duelLines(s, p->name, (s.flags & 2) != 0);
   } else {
     text = "Do you want to ^00FF00^continue^oldclr^ the game in progress or start a ^00FF00^new game^oldclr^?\n\n^44DAFB^";
     const LevelInfo* li = app_.stages.levelByName(s.level);
@@ -577,14 +629,15 @@ int GameScreen::betweenLevels() const {
 }
 
 bool GameScreen::keepsSession() const {
-  if (!ready_ || viewer_ || demo_ || duel_ || sessionOff_ || !recording_ || !app.curProfile) return false;
+  if (!ready_ || viewer_ || demo_ || sessionOff_ || !recording_ || !app.curProfile) return false;
   if (app.gameMode != statsMode_ || board_.frames > SavedSession::kMaxFrames || log_.size() > SavedSession::kMaxEvents) return false;
   if (done_) return betweenLevels() != 0;
   if (board_.phase == Phase::Over) return false;
   switch (app.gameMode) {
     case GameMode::Adventure: return true;
     case GameMode::QuickPlay: return board_.score[0] > 0;
-    case GameMode::Challenge: return app.challengeStep > 0 || board_.score[0] > 0;
+    case GameMode::Challenge: return app.challengeStep > 0 || board_.score[0] > 0 || (duel_ && board_.score[1] > 0);
+    case GameMode::Duel: return board_.score[0] > 0 || board_.score[1] > 0;
     default: return false;
   }
 }
@@ -605,7 +658,17 @@ bool GameScreen::fillSession(SavedSession& s) const {
   s.hash = board_.hash();
   s.cfg = cfg_;
   s.log = log_;
-  s.flags = charPaused_ ? 1 : 0;
+  s.flags = (charPaused_ ? 1 : 0) | (human2_ ? 2 : 0);
+  if (duel_) {
+    SavedDuel& d = s.duel;
+    d.score2 = board_.score[1];
+    d.skill = human2_ ? 0 : aiSkill();
+    d.state = human2_ ? 0 : aiState_;
+    d.wait = aiWait_;
+    d.tick = aiTick_;
+    d.think = aiThink_;
+    d.chosen = floatBits(aiChosen_);
+  }
   if (app.gameMode == GameMode::Challenge) {
     s.ch.trophy = app.curChallenge;
     s.ch.step = app.challengeStep;
@@ -624,6 +687,31 @@ bool GameScreen::fillSession(SavedSession& s) const {
   return true;
 }
 
+void GameScreen::restoreAi(const ReadySession& r) {
+  const SavedDuel& d = r.saved.duel;
+  aiWait_ = d.wait;
+  aiState_ = d.state;
+  aiTick_ = d.tick;
+  aiThink_ = d.think;
+  aiFixed_ = d.skill;
+  aiChosen_ = bitsFloat(d.chosen);
+  if (d.state != 1) return;
+  ai_ = std::make_unique<AIMgr>();
+  aiBoard_ = std::make_unique<Board>(r.aiSnap);
+  aiDrawn_ = 0;
+  ai_->begin(*aiBoard_, d.skill, [this] { return aiDraw(); });
+  for (int i = 0; i < d.think; i++) {
+    if (ai_->update(10)) {
+      aiChosen_ = ai_->angle();
+      aiState_ = 2;
+      aiTick_ = 0;
+      break;
+    }
+  }
+  aiBoard_.reset();
+  aiDrawn_ = 0;
+}
+
 GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
   seed = r.saved.cfg.seed;
   levelFile_ = r.saved.level;
@@ -635,6 +723,12 @@ GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
   haveSnap_ = r.haveSnap;
   recording_ = true;
   boardResets_ = 1;
+  duel_ = r.saved.cfg.duel;
+  human2_ = (r.saved.flags & 2) != 0;
+  if (duel_) {
+    charChosen_ = true;
+    restoreAi(r);
+  }
   if (r.saved.ch.over != 0) {
     done_ = endShown_ = true;
     endPending_ = true;
