@@ -63,9 +63,14 @@ static void drawStyledLabel(Gfx& g, const std::string& font, float x, float y, c
     for (size_t i = 0; i < 3; i++) fp.setLayerColors(font, i, mult[i], add[i]);
 }
 
-static void drawControlLabel(Gfx& g, const Widget& w, const std::string& font, float x, float y, const std::string& text, float styleAlpha) {
+static void drawControlLabel(Gfx& g, const Widget& w, const std::string& font, float x, float y, const std::string& text, float styleAlpha, int bar = -1) {
   if (font != "BUTTON") {
     g.drawString(font, x, y, text, 0xffffff, w.alpha);
+    return;
+  }
+  if (bar >= 0) {
+    static const uint32_t kBar[3][3] = {{0x1333d8ffu, 0x65f3f8ffu, 0x4cc4f700u}, {0x0a5dccffu, 0xc2f6ffffu, 0x7ffaff00u}, {0x006a29ffu, 0xfffde4ffu, 0xf6ff0000u}};
+    drawStyledLabel(g, font, x, y, text, 0xffffff, w.alpha, styleAlpha, kBar[bar][0], kBar[bar][1], kBar[bar][2], w.host && w.host->labelFullGradient());
     return;
   }
   drawStyledLabel(g, font, x, y, text, 0xffffff, w.alpha, styleAlpha, w.down ? 0x1a3bd6ffu : 0x1333d8ffu, w.down ? 0xffffffffu : 0x65f3f8ffu, w.down ? 0xd2f7ff00u : 0x4cc4f700u, w.host && w.host->labelFullGradient());
@@ -146,11 +151,12 @@ void Checkbox::draw(Gfx& g) {
   float rows = style == 0 ? 4.0f : 3.0f, ch = image->lh() / rows;
   int row;
   if (style == 0) row = checked ? (over ? 3 : 2) : (over ? 1 : 0);
-  else row = checked ? 0 : (over ? 1 : 2);
+  else row = checked ? 2 : (over ? 1 : 0);
   g.drawBoxSrc(image, 0, ch * row, image->lw(), ch, 0, 0, w, h, Mode(alpha));
   if (label.empty()) return;
   const float ty = style == 0 ? (float)(((int)h - (int)g.fontHeight(font)) / 2 + (int)g.fontAscent(font)) + labelY : (h + g.fontAscent(font) * 0.8f) / 2 + labelY;
-  drawControlLabel(g, *this, font, labelX, ty, label, alpha);
+  const int bar = style == 0 ? -1 : (checked || (down && over) ? 2 : (down || over ? 1 : 0));
+  drawControlLabel(g, *this, font, labelX, ty, label, alpha, bar);
 }
 bool Checkbox::mouseDown(float lx, float ly, int button, int clicks) {
   if (!enabled || button != 1) return false;
