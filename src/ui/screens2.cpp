@@ -457,6 +457,24 @@ void LevelScreen::drawLayer(Gfx& g) {
   std::string banner = app.gameMode == GameMode::Duel ? "Two Player Duel" : app.gameMode == GameMode::Challenge ? "Pick a Level" : "Quick Play";
   g.drawString("OVERLOAD24GRAD1", 400 - g.textWidth("OVERLOAD24GRAD1", banner) / 2, 48, banner, 0xb6ffff);
   drawLevelInfo(g, 304, 335);
+  const Game pageGame = other ? og->game : app.game;
+  const StageMgr& pageStages = other ? og->stages : app.stages;
+  if (pageGame == Game::Nights && normal && marks && stage < pageStages.numStages()) {
+    int clearedOwn = 0, acedOwn = 0;
+    for (int i = 0; i < pageStages.numStages(); i++)
+      if (const StageInfo* st = pageStages.stage(i))
+        for (const LevelInfo& l : st->levels) {
+          clearedOwn += (int)marks->clearedLevels.count(l.file);
+          acedOwn += (int)marks->acedLevels.count(l.file);
+        }
+    const char* nf = "OVERLOAD16OUTLINE2";
+    const std::string total = std::to_string(pageStages.numLevels());
+    const std::string acedText = std::to_string(acedOwn) + " / " + total, clearedText = std::to_string(clearedOwn) + " / " + total;
+    if (Tex* ar = other ? og->picture("IMAGE_LS_TINYACED") : g.img("IMAGE_LS_TINYACED")) g.draw(ar, 111, 550);
+    if (Tex* rb = other ? og->picture("IMAGE_LS_TINYBLUERIBBON") : g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, 581, 550);
+    g.drawString(nf, 210 - g.textWidth(nf, acedText), 583, acedText, 0xffffff);
+    g.drawString(nf, 680 - g.textWidth(nf, clearedText), 583, clearedText, 0xffffff);
+  }
 }
 
 
