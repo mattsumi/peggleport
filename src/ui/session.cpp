@@ -140,6 +140,15 @@ void syncConfig(Ar& a, BoardConfig& c) {
   }
 }
 
+bool rulesSane(const ChallengeRules& c) {
+  for (int v : c.styleShots)
+    if (v < 0 || v > 1000000) return false;
+  for (int v : c.powerups)
+    if (v < 0 || v > 1000000) return false;
+  if (c.magicHat < 0 || c.magicHat > 1000000 || c.tripleScore < 0 || c.tripleScore > 1000000 || c.uniqueStyleReq < 0 || c.uniqueStyleReq > 1000000) return false;
+  return c.scoreReq >= 0 && c.scoreReq <= 1000000000 && c.scoreCeil >= 0 && c.scoreCeil <= 1000000000 && c.styleScoreReq >= 0 && c.styleScoreReq <= 1000000000;
+}
+
 bool configSane(const BoardConfig& c) {
   if (c.boardWidth < 650 || c.boardWidth > 1400) return false;
   if (c.players < 1 || c.players > 2 || c.duel != (c.players == 2)) return false;
@@ -148,7 +157,7 @@ bool configSane(const BoardConfig& c) {
     if (m < 0 || m >= masters::kPowerSlots) return false;
   if (c.masterIndex < -1 || c.masterIndex > 64) return false;
   if (c.tryNumber < 0 || c.tryNumber > 100000000) return false;
-  if (c.ch.levelIndex < 0 || c.ch.levelCount < 0) return false;
+  if (c.ch.levelIndex < 0 || c.ch.levelCount < 0 || !rulesSane(c.ch)) return false;
   return true;
 }
 
