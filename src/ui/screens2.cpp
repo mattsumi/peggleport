@@ -573,7 +573,7 @@ void StoryScreen::update() {
   bContinue->visible = true;
   bContinue->x = -(100 + bContinue->w);
   bContinue->y = 0x21e + 60;
-  app.playSample("TEXT_WOOSH");
+  app.playSample("DIALOG_MOVE");
 }
 void StoryScreen::finish() {
   if (win || reveal) { app.showMainMenu(); return; }
