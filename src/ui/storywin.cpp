@@ -23,7 +23,7 @@ void StoryScreen::initWin() {
     const PlayerInfo* p = app.curProfile;
     if (p && (int)app.trophies.numHeld(p->trophies) >= (int)app.trophies.numTrophies()) {
       tier = 1;
-      if (p->clearedLevels.size() >= app.stages.numLevels()) tier = 2;
+      if (app.stages.numClearedOwn(p->clearedLevels) >= app.stages.numLevels()) tier = 2;
     }
     if (easter) tier = 3;
     if (info->story[tier].empty() && info->credits[tier].empty()) tier = 0;

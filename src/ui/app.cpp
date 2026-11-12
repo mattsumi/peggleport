@@ -599,7 +599,7 @@ bool App::tryShowNewTrophy() {
     tier = 1;
     if ((int)trophies.numHeld(curProfile->trophies) >= (int)trophies.numTrophies()) {
       tier = 2;
-      if (curProfile->clearedLevels.size() >= stages.numLevels()) tier = 3;
+      if (stages.numClearedOwn(curProfile->clearedLevels) >= stages.numLevels()) tier = 3;
     }
   }
   if (old < tier) showStoryScreen(true, false);

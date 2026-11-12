@@ -114,6 +114,13 @@ void StageMgr::parseCfg(const std::string& text, bool pack, const std::string& l
   }
 }
 
+size_t StageMgr::numClearedOwn(const std::set<std::string>& cleared) const {
+  size_t n = 0;
+  for (int s = 0; s < mainStages_ && s < (int)stages_.size(); s++)
+    for (const LevelInfo& l : stages_[s].levels) n += cleared.count(l.file);
+  return n;
+}
+
 bool StageMgr::load(const Vfs& vfs) {
   stages_.clear();
   byName_.clear();

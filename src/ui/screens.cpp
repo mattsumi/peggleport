@@ -392,7 +392,7 @@ void MainMenu::syncPlayerInfo() {
       trophyTier = 1;
       if ((int)app.trophies.numHeld(p->trophies) >= (int)app.trophies.numTrophies()) {
         trophyTier = 2;
-        if (p->clearedLevels.size() >= app.stages.numLevels()) trophyTier = 3;
+        if (app.stages.numClearedOwn(p->clearedLevels) >= app.stages.numLevels()) trophyTier = 3;
       }
     }
     if (prev < trophyTier) {

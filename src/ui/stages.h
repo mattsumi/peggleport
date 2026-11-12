@@ -1,6 +1,7 @@
 #pragma once
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -58,6 +59,7 @@ class StageMgr {
   std::string title(int i) const;
   size_t numLevels() const { return mainLevels_; }
   size_t numAllLevels() const { return byName_.size(); }
+  size_t numClearedOwn(const std::set<std::string>& cleared) const;
   const std::string& tip(unsigned i) const;
   size_t numTips() const { return tips_.size(); }
   const std::vector<std::string>& credits() const { return credits_; }
