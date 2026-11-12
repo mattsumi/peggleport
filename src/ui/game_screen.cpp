@@ -1435,6 +1435,7 @@ void EndLevelDialog::update() {
   if (scrollActive) return;
   shownTicks++;
   if (duelEnd && shownTicks <= 200 && shownTicks % 10 == 1) app.playSample("SCORECOUNTER");
+  if (tingStep > 0 && tingStep < 50 && ++tingStep == 50) app.playSample("TING");
   if (!countUp || shownTicks < 30) return;
   if (delay > 0) { delay--; return; }
   int i = 0;
@@ -1450,6 +1451,7 @@ void EndLevelDialog::update() {
     delay = 100;
     pitchAcc = 0;
   }
+  if (i >= 3 && tingStep == 0 && cur[3] == tgt[3] && mode == AdventureComplete) tingStep = 1;
   if (shownTicks % 10 == 0) { pitchAcc += 1.0f; app.playSample("SCORECOUNTER", pitchAcc); }
 }
 

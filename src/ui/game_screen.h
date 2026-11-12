@@ -30,7 +30,7 @@ class EndLevelDialog : public Dialog {
   int rank, shownTicks = 0, highlight = -1;
   bool countUp = false;
   float pitchAcc = 0;
-  int cur[5]{}, tgt[5]{}, levelCur = 0, levelTgt = 0, totalCur = 0, delay = 0;
+  int cur[5]{}, tgt[5]{}, levelCur = 0, levelTgt = 0, totalCur = 0, delay = 0, tingStep = 0;
   std::vector<HighScoreEntry> table;
   bool newBest;
   int advTotal = 0, bonus = 0;
