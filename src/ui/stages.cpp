@@ -323,4 +323,13 @@ std::vector<const TrophyInfo*> TrophyMgr::forClearedLevel(const std::string& lev
   return out;
 }
 
+std::vector<const TrophyInfo*> TrophyMgr::forScoreOnLevel(const std::string& level, int score) const {
+  std::vector<const TrophyInfo*> out;
+  for (auto& pg : pages_)
+    for (auto& t : pg.trophies)
+      if (t.scoreReq > 0 && score >= t.scoreReq && t.levels.size() == 1 && (lc(t.levels[0]) == lc(level) || lc(t.levels[0]) == "pick"))
+        out.push_back(&t);
+  return out;
+}
+
 }

@@ -946,6 +946,15 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
       for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
     }
   }
+  if (p && app.game == Game::Deluxe && !duel_ && !demo_ && !viewer_) {
+    const TrophyInfo* ct = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
+    const bool barred = ct && ((ct->levels.size() > 1 && !ct->scoreReset) || (ct->numOrange != 0 && ct->numOrange != 25) || ct->clearLevel);
+    if (!barred)
+      for (auto* t : app.trophies.forScoreOnLevel(levelFile_, o.totalScore)) {
+        p->awardTrophy(t->id);
+        p->checkTrophyTopScore(t->id, o.totalScore);
+      }
+  }
   newBest = rank == 1;
   const bool aced = app.game == Game::Nights && won && !duel_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) && li && li->ace > 0 && o.totalScore >= li->ace;
   if (app.audio && !o.cleared && (mode == EndLevelDialog::AdventureComplete || aced)) {
