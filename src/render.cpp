@@ -246,7 +246,8 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
   if (auto im = loadGameImage(vfs_, path)) {
     if (texQ_ == 1 && im->scale < 1.5f) { upscale2(*im, 1, 1); im->scale *= 2; }
     else if (texQ_ == -1 && im->w % 2 == 0 && im->h % 2 == 0) { downscale2(*im); im->scale *= 0.5f; }
-    int cropY = 0;
+    int cropY = 0, cropX = 0;
+    const int fullW = im->w;
     if (im->w >= 700 * im->scale) {
       std::vector<int> cc((size_t)im->w, 0), rc((size_t)im->h, 0);
       for (int y = 0; y < im->h; y++)
@@ -267,6 +268,7 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
         im->w = x1 - x0;
         im->h = y1 - y0;
         cropY = y0;
+        cropX = x0;
       }
       {
         const int ym0 = im->h / 6, ym1 = im->h * 2 / 3;
@@ -286,41 +288,32 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
           for (int y = 0; y < im->h; y++) std::memcpy(&c[(size_t)y * nw * 4], &im->rgba[((size_t)y * im->w + tl) * 4], (size_t)nw * 4);
           im->rgba = std::move(c);
           im->w = nw;
+          cropX += tl;
         }
       }
     }
     const int w = im->w, h = im->h;
     const float sc = im->scale;
-    const int tw = std::max(w, (int)std::lround(targetW * sc));
-    const int w2 = std::min(tw, (int)std::lround(w * std::min(1.15f + 0.15f * std::clamp((targetW - 916.0f) / 334.0f, 0.0f, 1.0f), (float)tw / (float)w)));
-    const int ox = (tw - w2) / 2;
+    const int tw = std::max(1, (int)std::lround(targetW * sc));
+    const int off = (tw - fullW) / 2 + cropX;
     std::vector<uint8_t> out((size_t)tw * h * 4);
-    auto srcCol = [&](int x) {
-      float u = ((float)x + 0.5f) * (float)w / (float)w2 - 0.5f;
-      return std::clamp(u, 0.0f, (float)(w - 1));
-    };
-    auto stretched = [&](int x, int y, uint8_t* px4) {
-      float u = srcCol(std::clamp(x, 0, w2 - 1));
-      int i0 = (int)u, i1 = std::min(i0 + 1, w - 1);
-      float f = u - (float)i0;
-      for (int c = 0; c < 4; c++)
-        px4[c] = (uint8_t)std::lround(im->rgba[((size_t)y * w + i0) * 4 + c] * (1 - f) + im->rgba[((size_t)y * w + i1) * 4 + c] * f);
-    };
     std::vector<float> dist((size_t)tw, 0.0f);
+    int gap = 0;
     for (int x = 0; x < tw; x++) {
-      int d = x < ox ? ox - x : (x >= ox + w2 ? x - (ox + w2) + 1 : 0);
-      dist[(size_t)x] = (float)d;
-      int sx;
-      if (d == 0) sx = x - ox;
-      else {
-        int p = (d - 1) % (2 * w2);
-        if (p >= w2) p = 2 * w2 - 1 - p;
-        sx = x < ox ? p : w2 - 1 - p;
+      const int u = x - off;
+      int sx = u, d = 0;
+      if (u < 0 || u >= w) {
+        d = u < 0 ? -u : u - w + 1;
+        int p = (d - 1) % (2 * w);
+        if (p >= w) p = 2 * w - 1 - p;
+        sx = u < 0 ? p : w - 1 - p;
+        gap = std::max(gap, d);
       }
-      for (int y = 0; y < h; y++) stretched(sx, y, &out[((size_t)y * tw + x) * 4]);
+      dist[(size_t)x] = (float)d;
+      for (int y = 0; y < h; y++) std::memcpy(&out[((size_t)y * tw + x) * 4], &im->rgba[((size_t)y * w + sx) * 4], 4);
     }
-    const int band = std::max(ox, 1);
-    if (ox > 0) {
+    const int band = std::max(gap, 1);
+    if (gap > 0) {
       std::vector<uint8_t> bl = out, tmp = out;
       const int R = std::max(2, (int)std::lround(6 * sc));
       auto boxH = [&](std::vector<uint8_t>& a, std::vector<uint8_t>& dst) {
