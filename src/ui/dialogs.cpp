@@ -345,7 +345,7 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   help->visible = true;
   if (fg && watching) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
-  extraH = (float)(0xdc + (fg ? 0x24 : 0x3c));
+  extraH = (float)(0xdc + (fg ? 0x24 : 0x50));
   if (editor->visible) extraH += 0x20;
   if (homeBtn->visible) extraH += 0x20;
   if (demoBtn->visible) extraH += 0x20;
@@ -382,7 +382,7 @@ void OptionsDialog::layout() {
   float bw = W / 2 - 2, bh = help->h;
   if (!fromGame) {
     help->x = yesBtn->x; help->y = yesBtn->y - 0x1e - bh + 0; help->w = yesBtn->w;
-    help->y = yesBtn->y - bh - 4;
+    help->y = yesBtn->y - bh - 24;
     help->w = bw;
     modsBtn->x = help->x + bw; modsBtn->y = help->y; modsBtn->w = bw; modsBtn->h = bh;
     if (editor->visible) { editor->x = help->x; editor->w = bw; editor->y = help->y - bh; }

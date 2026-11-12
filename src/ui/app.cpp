@@ -857,7 +857,7 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
       x = 400 - width / 2;
     } else if (hgt >= 300) {
       x = 0x226 - width;
-      y = 0x32;
+      y = std::min(50.0f, 600.0f - hgt);
     } else {
       x = 0x122 - width / 2;
     }
