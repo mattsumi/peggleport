@@ -366,11 +366,11 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
   const Game pageGame = other ? og->game : app.game;
   const bool duel = app.gameMode == GameMode::Duel, chal = app.gameMode == GameMode::Challenge, normal = !duel && !chal;
   const float panelX = 300, panelW = 190;
+  const std::string modeHint = chal ? "Pick a level for the challenge!" : duel ? "Face off against a friend or the computer in this two player game mode!" : "";
   if (hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && canSelect(hovered)) {
     const LevelInfo& li = s->levels[hovered];
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", li.title) / 2, 365, li.title, 0xffff00);
-    const auto& all = app.highScores.all();
-    if (all.count(li.file) || true) {
+    if (normal) {
       const auto& hs = (other ? og->highScores : app.highScores).scores(app.scoreKey(li.file, app.boardWidthForNewBoard()));
       g.drawString("PLAIN", 400 - g.textWidth("PLAIN", "Top Five Scores") / 2, 395, "Top Five Scores", 0x88ff88);
       const char* nf = "OVERLOAD10OUTLINE";
@@ -385,6 +385,8 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
         g.drawString("PLAIN", 490 - g.textWidth("PLAIN", v), y + g.fontAscent(nf) + 4, v, col);
         y += step;
       }
+    } else {
+      g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, modeHint, 0x88ff88, 1, Align::Center);
     }
     return;
   }
@@ -404,8 +406,7 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
   }
   g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", title) / 2, titleY, title, 0xffff00);
   if (normal || chal || duel) {
-    std::string hint = chal ? "Pick a level for the challenge!"
-                       : duel ? "Face off against a friend or the computer in this two player game mode!"
+    std::string hint = !modeHint.empty() ? modeHint
                        : randomOver ? "Can't decide on a level?  Select one randomly!"
                                     : "Play any level that\nyou have unlocked in Adventure Mode!";
     g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, hint, 0x88ff88, 1, Align::Center);
