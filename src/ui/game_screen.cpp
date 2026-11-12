@@ -1247,6 +1247,7 @@ void EndLevelDialog::layout() {
 void EndLevelDialog::update() {
   Dialog::update();
   shownTicks++;
+  if (duelEnd && shownTicks <= 200 && shownTicks % 10 == 1) app.playSample("SCORECOUNTER");
   if (!countUp || shownTicks < 30) return;
   if (delay > 0) { delay--; return; }
   int i = 0;
