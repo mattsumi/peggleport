@@ -276,7 +276,6 @@ void ProgressScreen::update() {
     bContinue->visible = true;
     bContinue->x = -(100 + bContinue->w);
     bContinue->y = 0x215;
-    app.playSample("TEXT_WOOSH");
   }
   if (bContinue->visible) {
     float tx = 400 - bContinue->w / 2;
