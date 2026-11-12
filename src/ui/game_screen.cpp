@@ -1322,7 +1322,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     text(kBig, L, base, label, bigLabel);
     if (extra) text(kBig, L + g.textWidth(kBig, label), base, extra, 0xffff99);
     if (draw) g.drawString(kBig, R - g.textWidth(kBig, v), base, v, bigValue);
-    y += g.fontHeight(kBig) + 4;
+    y += g.fontHeight(kBig) + 5;
   };
   const bool advMode = mode == AdventureWin || mode == AdventureLose || mode == AdventureComplete;
   if (mode == AdventureWin || mode == AdventureComplete) {
@@ -1346,7 +1346,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     float base = sy + g.fontAscent(kPlain);
     text(kPlain, x0, base, l, rowLabel);
     if (draw) g.drawString(kPlain, x1 - g.textWidth(kPlain, v), base, v, rowValue);
-    sy += g.fontHeight(kPlain) + 3;
+    sy += g.fontHeight(kPlain) - 3;
   };
   row(L, L + 140, "Shots:", std::to_string(out.shots));
   row(L, L + 140, "Free Balls:", std::to_string(out.freeBalls));
@@ -1365,7 +1365,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     }
     float rx = L + 30, nx = rx + 40, sx = nx + 250, lh = g.fontHeight(kPlain) + 1;
     int n = std::min<int>((int)table.size(), 10);
-    if (aceRow && n > 0) lh -= (g.fontHeight(kBig) + 4) / (float)n;
+    if (aceRow && n > 0) lh -= (g.fontHeight(kBig) + 5) / (float)n;
     for (int i = 0; i < n && draw; i++) {
       uint32_t col = i == highlight ? hslToRgbEnd((shownTicks * 3) % 0xff, 0xff, 0x80) : 0xffffff;
       float base = y + g.fontAscent(kPlain) + i * lh;
