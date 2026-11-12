@@ -364,9 +364,11 @@ void Board::incShotScore(int n) {
       } else {
         awardStyle(19);
       }
-      if (!(cfg.ch.active && cfg.ch.noFreeballs)) result.freeBalls[1 + i]++;
-      ev(Event::ExtraBall, i);
-      extraFlag = true;
+      if (!(cfg.ch.active && cfg.ch.noFreeballs)) {
+        result.freeBalls[1 + i]++;
+        ev(Event::ExtraBall, i);
+        extraFlag = true;
+      }
     }
 }
 
