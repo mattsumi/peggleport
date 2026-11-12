@@ -1064,7 +1064,8 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     levelCur = levelTgt;
     totalCur = levelTgt;
   }
-  tip = a.stages.tip(a.rand());
+  const std::string& pickedTip = a.stages.tip(a.rand());
+  if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0))) tip = pickedTip;
   w = 425;
   const auto& hs = a.highScores.scores(lname);
   for (auto& e : hs) table.push_back(e);
