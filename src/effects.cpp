@@ -636,7 +636,11 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
       break;
     }
     case Event::LevelDone: {
-      if (b.result.cleared) {
+      if (S.badge) {
+        FxEffect& r = fxAdd(0x21, (float)b.W / 2.0f, 275.0f, 0);
+        r.age = -130;
+        r.life = 0;
+      } else if (b.result.cleared) {
         FxEffect& r = fxAdd(7, (float)b.W / 2.0f, 320.0f, 0);
         r.age = -130;
         r.life = 0;
@@ -866,6 +870,7 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
 }
 
 void Renderer::masterBadge() {
+  fx_.badge = true;
   for (auto& v : fx_.eff)
     for (auto& e : v)
       if (e.type == 7 && e.age < 0) { e.type = 0x21; e.y = 275.0f; }

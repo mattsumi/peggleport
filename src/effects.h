@@ -62,13 +62,14 @@ struct FxState {
   float styleX = 0, styleY = 0;
   int styleStack = 0;
   bool rainbowWait = false;
+  bool badge = false;
   int rainbowAge = -1;
   int hintText = 0;
   int countText = 0, countCur = 0;
   uint32_t rng = 0x2545f491u;
   uint32_t rand() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng & 0x7fffffffu; }
   int rand(int n) { return n > 0 ? (int)(rand() % (uint32_t)n) : 0; }
-  void clear() { texts.clear(); for (auto& e : eff) e.clear(); nextId = 0; hintText = 0; rainbowWait = false; rainbowAge = -1; countText = 0; countCur = 0; }
+  void clear() { texts.clear(); for (auto& e : eff) e.clear(); nextId = 0; hintText = 0; rainbowWait = false; badge = false; rainbowAge = -1; countText = 0; countCur = 0; }
 };
 
 const char* fxFontName(int resId);
