@@ -139,6 +139,7 @@ void UserDialog::confirmDelete() {
   idx = std::max(0, idx - 1);
   if (!list->lines.empty()) list->select = std::min(idx, (int)list->lines.size() - 1);
   else list->select = -1;
+  list->reveal();
   if (!app.curProfile) {
     app.curProfile = app.profiles.get(selName());
     if (!app.curProfile) app.curProfile = app.profiles.any();

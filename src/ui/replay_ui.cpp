@@ -97,6 +97,7 @@ class ReplayFileDialog : public Dialog {
     files.erase(files.begin() + idx);
     list->lines.erase(list->lines.begin() + idx);
     list->select = files.empty() ? -1 : std::min(idx, (int)files.size() - 1);
+    list->reveal();
   }
   void play() {
     const ReplayFile* f = selected();
