@@ -1239,7 +1239,7 @@ void EditorScreen::syncModArt() {
       auto& lm = const_cast<Layer&>(L);
       for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
         if (it->is_regular_file(ec)) {
-          std::string key = normKey(fs::relative(it->path(), dir, ec).generic_string());
+          std::string key = normKey(genericUtf8(fs::relative(it->path(), dir, ec)));
           if (key == "MOD.INI") continue;
           lm.files[key] = it->path();
           ch.keys.insert(key);
@@ -1436,7 +1436,7 @@ void EditorScreen::indexMod(const fs::path& dir) {
       auto& lm = const_cast<Layer&>(L);
       std::error_code ec;
       for (fs::recursive_directory_iterator it(dir / "levels", ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_regular_file(ec)) lm.files[normKey("levels/" + fs::relative(it->path(), dir / "levels", ec).generic_string())] = it->path();
+        if (it->is_regular_file(ec)) lm.files[normKey("levels/" + genericUtf8(fs::relative(it->path(), dir / "levels", ec)))] = it->path();
     }
   if (!mounted) app.vfs.mountMod(dir, &e2);
 }
