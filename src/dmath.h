@@ -24,7 +24,7 @@ inline void sincos(double x, double& s, double& c) {
   const double p1 = 1.57079632673412561417e+00, p2 = 6.07710050650619224932e-11, p3 = 2.02226624871116645580e-21;
   double n = std::floor(x * invpio2 + 0.5);
   double r = ((x - n * p1) - n * p2) - n * p3;
-  long long q = ((long long)n) & 3;
+  long long q = n >= -9223372036854775808.0 && n < 9223372036854775808.0 ? ((long long)n) & 3 : 0;
   double ks = kSin(r), kc = kCos(r);
   switch (q) {
     case 0: s = ks; c = kc; break;
