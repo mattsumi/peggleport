@@ -146,6 +146,7 @@ class GameScreen : public Screen {
   Hud hud_;
   bool ready_ = false, done_ = false, endShown_ = false, pendingBest_ = false;
   bool rightDown_ = false, keyUp_ = false, keyDown_ = false, mouseOverMenu_ = false;
+  int heldButton_ = 0;
   int pauseCount_ = 0, pauseFade_ = 0;
   int mouseBx_ = 0, mouseBy_ = 0;
   bool haveMouse_ = false;

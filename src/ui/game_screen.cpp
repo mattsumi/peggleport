@@ -896,6 +896,10 @@ static bool inMenuButton(float x, float y) { return x >= 12 && x < 63 && y >= 54
 
 bool GameScreen::input(const Input& in) {
   if (demo_ && (in.type == Input::MouseDown || in.type == Input::KeyDown)) { app.doToMenu(); return true; }
+  const auto menuLive = [&]() { return inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0; };
+  const auto replayLive = [&]() {
+    return inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn();
+  };
   switch (in.type) {
     case Input::MouseMove:
       mouseBx_ = (int)std::floor(in.x) - 75;
@@ -916,9 +920,10 @@ bool GameScreen::input(const Input& in) {
           !done_ && board_.phase == Phase::Aim && humanTurn()) { startReplay(true); break; }
       if (in.button == 3) { rightDown_ = true; break; }
       if (in.button != 1 || !ready_) break;
+      heldButton_ = 0;
       if (replaying_) { stopReplay(); if (viewer_) app.doToMenu(); break; }
-      if (inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0) { app.doOptionsDialog(); break; }
-      if (inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn()) { startReplay(); break; }
+      if (menuLive()) { heldButton_ = 1; break; }
+      if (replayLive()) { heldButton_ = 2; break; }
       if (pauseCount_ > 0) { if (!app.anyDialog()) pause(false); break; }
       pushMouse();
       if (board_.phase == Phase::Over) { if (board_.result.cleared && overTicks < 100) overTicks = 100; }
@@ -926,6 +931,12 @@ bool GameScreen::input(const Input& in) {
       break;
     case Input::MouseUp:
       if (in.button == 3) rightDown_ = false;
+      else if (in.button == 1 && heldButton_ != 0) {
+        const int held = heldButton_;
+        heldButton_ = 0;
+        if (held == 1 && menuLive()) app.doOptionsDialog();
+        else if (held == 2 && replayLive()) startReplay();
+      }
       else if (in.button == 1 && ready_ && !replaying_ && pauseCount_ == 0 && humanTurn()) recRelease();
       break;
     case Input::Wheel:
