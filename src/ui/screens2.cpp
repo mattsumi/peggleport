@@ -388,7 +388,8 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
         y += step;
       }
     } else {
-      g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, modeHint, 0x88ff88, 1, Align::Center);
+      if (pageGame == Game::Deluxe) g.drawWrapped("OVERLOAD12OUTLINE", {panelX, 410, panelW, 60}, modeHint, 0x88ff88, 1, Align::Center);
+      else g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, modeHint, 0x88ff88, 1, Align::Center);
     }
     return;
   }
