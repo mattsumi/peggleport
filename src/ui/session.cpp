@@ -146,6 +146,7 @@ bool rulesSane(const ChallengeRules& c) {
   for (int v : c.powerups)
     if (v < 0 || v > 1000000) return false;
   if (c.magicHat < 0 || c.magicHat > 1000000 || c.tripleScore < 0 || c.tripleScore > 1000000 || c.uniqueStyleReq < 0 || c.uniqueStyleReq > 1000000) return false;
+  if (c.levelIndex > 100000 || c.levelCount > 100000) return false;
   return c.scoreReq >= 0 && c.scoreReq <= 1000000000 && c.scoreCeil >= 0 && c.scoreCeil <= 1000000000 && c.styleScoreReq >= 0 && c.styleScoreReq <= 1000000000;
 }
 
