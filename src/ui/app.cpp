@@ -845,7 +845,7 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
   float minW = gfx.textWidth(d->headerFont, d->header) + d->insL + d->insR + 0x14;
   if (width < minW) width = minW;
   float hgt = d->preferredHeight(width);
-  float y = 0x96 - d->insT;
+  float y = 0x96;
   if (y + hgt > 0x244 && (y = 0x244 - hgt) < 10) y = 10;
   Dialog* other = nullptr;
   for (auto& o : dialogs_)
