@@ -473,6 +473,19 @@ bool registryText(HKEY root, const wchar_t* key, const wchar_t* value, REGSAM vi
   return ok;
 }
 
+fs::path systemSpelling(const std::wstring& text) {
+  std::wstring w = text;
+  std::replace(w.begin(), w.end(), L'/', L'\\');
+  DWORD need = GetLongPathNameW(w.c_str(), nullptr, 0);
+  if (need > 0) {
+    std::vector<wchar_t> buf((size_t)need + 1, L'\0');
+    DWORD got = GetLongPathNameW(w.c_str(), buf.data(), need + 1);
+    if (got > 0 && got <= need) w.assign(buf.data(), got);
+  }
+  if (w.size() >= 2 && w[1] == L':' && w[0] >= L'a' && w[0] <= L'z') w[0] = (wchar_t)(w[0] - L'a' + L'A');
+  return fs::path(w);
+}
+
 struct RegistrySpot {
   HKEY root;
   const wchar_t* key;
@@ -491,7 +504,7 @@ std::vector<FindPlace> registryPlaces(const RegistrySpot* spots, size_t count, s
     for (int v = 0; v < 2; v++) {
       std::wstring text;
       if (!registryText(spot.root, spot.key, spot.value, views[v], text)) continue;
-      fs::path p(text);
+      fs::path p = systemSpelling(text);
       line += std::string(any ? ", " : " ") + pathToUtf8(p) + " (" + viewNames[v] + ")";
       any = true;
       out.push_back({p, std::string("registry ") + spot.name + ", " + viewNames[v], false});
