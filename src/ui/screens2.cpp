@@ -1125,7 +1125,7 @@ void TrophyScreen::drawLayer(Gfx& g) {
   const Game pageGame = theirs ? og->game : app.game;
   const bool firstOwnPage = (theirs ? page - ownPages() : page) == 0;
   const char* header = pageGame == Game::Nights && firstOwnPage ? "Initiate Challenges" : "Master Challenges";
-  g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, header, 0xb7ffff, 1, Align::Center);
+  g.drawString("OVERLOAD24GRAD1", 400, 48, header, 0xb7ffff, 1, Align::Center);
   g.drawString("OVERLOAD12OUTLINE", 0x1b8, 0x1f9, "Page " + std::to_string(page + 1), 0xffff00, 1, Align::Left);
   const TrophyMgr& pageTrophies = theirs ? og->trophies : app.trophies;
   if (pageGame == Game::Nights && marks && (theirs ? page - ownPages() : page) < pageTrophies.numMainPages()) {
