@@ -425,8 +425,13 @@ bool GameScreen::startViewer(const ReplayData& d) {
 }
 
 int GameScreen::aiSkill() const {
-  int s = app.curProfile ? app.curProfile->computerSkill : 1;
-  return s == 2 ? 10 : s == 1 || s == -1 ? 1 : 0;
+  auto level = [](int s) { return s == 2 ? 10 : s == 1 ? 1 : s == -1 ? -1 : 0; };
+  if (demo_) return 10;
+  if (app.gameMode == GameMode::Challenge)
+    if (const TrophyInfo* t = app.trophies.byId(app.curChallenge))
+      if (!t->opponentDifficulty.empty())
+        return level(t->opponentDifficulty[std::min<size_t>((size_t)std::max(0, app.challengeStep), t->opponentDifficulty.size() - 1)]);
+  return level(app.curProfile ? app.curProfile->computerSkill : -1);
 }
 
 void GameScreen::aiTurn() {
