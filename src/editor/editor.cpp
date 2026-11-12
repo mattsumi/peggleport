@@ -133,7 +133,7 @@ std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& mo
   auto add = [&](const std::string& key, const fs::path* real, const std::string& src) {
     size_t dot = key.rfind('.');
     if (dot == std::string::npos || !isArtExt(key.substr(dot))) return;
-    std::string stem = key.substr(0, dot), value, last = real ? real->stem().string() : std::string();
+    std::string stem = key.substr(0, dot), value, last = real ? pathToUtf8(real->stem()) : std::string();
     if (slot == ArtSlot::Background) {
       if (stem.rfind("LEVELS\\", 0) != 0 || stem.find('\\', 7) != std::string::npos) return;
       std::string nm = stem.substr(7);
@@ -168,7 +168,7 @@ std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& mo
         if (it->is_regular_file(ec)) {
           fs::path rel = fs::relative(it->path(), modDir, ec);
           fs::path real = it->path();
-          add(normKey(rel.generic_string()), &real, "mod folder " + pathToUtf8(modDir.filename()));
+          add(normKey(genericUtf8(rel)), &real, "mod folder " + pathToUtf8(modDir.filename()));
         }
   std::sort(out.begin(), out.end(), [](const ArtItem& a, const ArtItem& b) { return lowerS(a.value) < lowerS(b.value); });
   return out;
