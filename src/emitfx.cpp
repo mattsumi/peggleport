@@ -257,7 +257,8 @@ struct EmitFx {
 
   void tick(Emitter& m, V2 pos) {
     if (!m.paused && m.pending > 0) {
-      const int n = (int)(m.rateMul * (float)m.pending);
+      const float steps = m.rateMul * (float)m.pending;
+      const int n = steps > 100000.0f ? 100000 : steps > 0.0f ? (int)steps : 0;
       for (int k = 0; k < n; k++) step(m, pos);
       m.pending = 0;
     }
