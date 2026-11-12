@@ -689,6 +689,10 @@ void StoryScreen::drawLayer(Gfx& g) {
     return;
   }
   g.fill(0, 0, 800, 600, 0x000000);
+  g.fill(0, 0, 800, 20, 0x000080);
+  g.fill(0, 0, 20, 600, 0x000080);
+  g.fill(780, 0, 20, 600, 0x000080);
+  g.fill(0, 580, 800, 20, 0x000080);
   if (Tex* bx = g.img("IMAGE_DLG_DIALOGBOX")) g.drawBox(bx, -2, -4, 804, 608);
   if (bContinue->visible)
     if (Tex* plate = g.img("IMAGE_DLG_PLAYWIDGET1")) g.draw(plate, bContinue->x - 32, bContinue->y - 20);
