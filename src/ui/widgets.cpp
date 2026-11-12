@@ -198,7 +198,7 @@ void Slider::draw(Gfx& g) {
   if (!label.empty()) drawControlLabel(g, *this, "BUTTON", bx + 18, by + 31, label, 1.0f);
   if (hi && orb) {
     float tw = orb->lw();
-    float cw = std::clamp((float)((hi->lw() + tw) * value), 0.0f, hi->lw());
+    float cw = std::clamp((float)(int)(value * (w - tw) + 2), 0.0f, hi->lw());
     g.drawSrc(hi, 0, 0, cw, hi->lh(), 0, 9);
     float ox = (float)(value * (w - tw));
     g.draw(orb, ox, (h - orb->lh()) / 2);

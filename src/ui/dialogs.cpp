@@ -284,7 +284,7 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
     s->id = id;
     s->label = label;
     s->value = v;
-    s->w = 0xbe;
+    s->w = 0xa2;
     s->h = 0x24;
     return add(std::move(s));
   };
