@@ -39,6 +39,9 @@ Yes. Open **Options** on the main menu and press the row **Main Menu: Peggle Del
 **What about Quick Play, Duel and Challenge?**
 They list the levels of both games. The list starts with the levels of the menu that is open. Keep pressing the right arrow and the other game's pages follow, and every page shows the name of its game. A level or a challenge of the other game is played in that game, with its own rules, Masters and music, and its scores and progress are kept there. What is still locked in that game is locked in the list too. **New Level** and **New Challenge** bring you back to the list you picked it from.
 
+**What do Random and Play New Level pick from?**
+From the unlocked levels of both games. The **Random** button on the Quick Play and Duel lists and **Play New Level** on the screen after a level can give you a level of the other game, and it opens there the same way a level you picked yourself does. Inside each game the usual rules stay: the level you just played does not come up again, **Play New Level** does not repeat one of the last ten, and in Duel the levels the games keep out of random picks stay out. A game you have not played yet only offers what is unlocked in it. The random levels inside a challenge always come from that challenge's own game.
+
 **Where does it look for my game?**
 First in the folders it remembers from last time. Then it asks Steam: on Windows it reads the Steam folder from the registry, and on every system it reads Steam's list of library folders and Steam's own records of Peggle Deluxe and Peggle Nights, so a library on another drive or a folder with an unusual name is found too. After that it tries the usual Steam folders on every drive, the Origin, EA app and PopCap folders, and a `Games` folder next to PegglePort or in your home folder. A folder only counts when `main.pak` is in it.
 
