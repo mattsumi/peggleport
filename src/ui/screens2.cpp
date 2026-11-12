@@ -425,7 +425,7 @@ void LevelScreen::drawLayer(Gfx& g) {
     float sx = kSlot[i][0], sy = kSlot[i][1];
     g.fill(sx - 10, sy - 10, kSlotW + 20, kSlotH + 20, 0x000000);
     if (!s || i >= (int)s->levels.size()) continue;
-    float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
+    float cx = kTileHit[i][0] + (float)((int)(kTileHitW - 200) / 2), cy = kTileHit[i][1] + (float)((int)(kBtnH - 177) / 2);
     Tex* t = other ? og->picture("levels/cached_thumbnails/" + s->levels[i].file) : g.img("levels/cached_thumbnails/" + s->levels[i].file);
     if (!t) t = other ? og->picture("levels/" + s->levels[i].file) : g.img("levels/" + s->levels[i].file);
     bool ok = canSelect(i);
@@ -447,7 +447,7 @@ void LevelScreen::drawLayer(Gfx& g) {
     const char* tf = "OVERLOAD16OUTLINE2";
     std::string name = s->levels[i].title;
     const float nameW = g.textWidth(tf, name);
-    g.drawString(tf, kTileHit[i][0] + (float)((int)(kBtnW - nameW) / 2), kTileHit[i][1] + 26 + g.fontAscent(tf), name, hovered == 5 || bLevel[i]->over ? 0xfff600 : 0x93c814);
+    g.drawString(tf, kTileHit[i][0] + (float)((int)(kTileHitW - nameW) / 2), kTileHit[i][1] + 26 + g.fontAscent(tf), name, hovered == 5 || bLevel[i]->over ? 0xfff600 : 0x93c814);
     if (bLevel[i]->overAlpha > 0)
       if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) {
         const float a = bLevel[i]->overAlpha;
