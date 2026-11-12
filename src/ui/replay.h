@@ -11,6 +11,7 @@ struct ReplayEvent {
   int tick = 0;
   uint8_t kind = 0;
   int a = 0, b = 0;
+  int frame = 0;
 };
 
 struct ReplayData {

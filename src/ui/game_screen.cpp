@@ -317,19 +317,19 @@ void GameScreen::recMouse(int x, int y) {
   if (!recording_) return;
   if (!log_.empty() && log_.back().kind == 0 && log_.back().a == x && log_.back().b == y) return;
   if (!log_.empty() && log_.back().kind == 0 && log_.back().tick == board_.tick) { log_.back().a = x; log_.back().b = y; return; }
-  log_.push_back({board_.tick, 0, x, y});
+  log_.push_back({board_.tick, 0, x, y, board_.frames});
 }
 void GameScreen::recClick() {
   board_.gunClick();
-  if (recording_) log_.push_back({board_.tick, 1, 0, 0});
+  if (recording_) log_.push_back({board_.tick, 1, 0, 0, board_.frames});
 }
 void GameScreen::recRelease() {
   board_.gunRelease();
-  if (recording_) log_.push_back({board_.tick, 3, 0, 0});
+  if (recording_) log_.push_back({board_.tick, 3, 0, 0, board_.frames});
 }
 void GameScreen::recWheel(int n) {
   board_.gunWheel(n);
-  if (recording_ && n != 0) log_.push_back({board_.tick, 2, n, 0});
+  if (recording_ && n != 0) log_.push_back({board_.tick, 2, n, 0, board_.frames});
 }
 
 void GameScreen::clickBoard() {

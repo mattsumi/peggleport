@@ -14,6 +14,9 @@
 
 namespace pp::ui {
 
+struct SavedSession;
+struct ReadySession;
+
 class EndLevelDialog : public Dialog {
  public:
   enum Mode { AdventureWin, AdventureLose, QuickWin, QuickLose, ChallengeWin, ChallengeLose, AdventureComplete,
@@ -50,6 +53,7 @@ class GameScreen : public Screen {
  public:
   GameScreen(App& a, bool fromAdventure, bool newLevel);
   GameScreen(App& a, const ReplayData& d);
+  GameScreen(App& a, const ReadySession& r);
   ~GameScreen() override;
   const char* name() const override { return "board"; }
   bool isGame() const override { return true; }
@@ -70,6 +74,8 @@ class GameScreen : public Screen {
   void startChallengeLevel();
   void restartLevel(bool fromMenu = true);
   bool hasProgress() const;
+  bool keepsSession() const;
+  bool fillSession(SavedSession& s) const;
   void masterChosen(bool picked);
   void nextLevel();
   bool ok() const { return ready_; }

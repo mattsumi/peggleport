@@ -28,6 +28,7 @@ namespace pp::ui {
 class App;
 class Dialog;
 struct OtherGame;
+class SessionKeeper;
 class LogView;
 
 class Panel : public WidgetHost {
@@ -291,6 +292,7 @@ class App : public WidgetHost {
   void scrollOn(Panel* l);
   int scrollDir = 0;
 
+  std::shared_ptr<SessionKeeper> sessions;
   void setScreen(std::unique_ptr<Screen> s, Dir offDir);
   float canvasW() const { return canvasW_; }
   float mouseX = 0, mouseY = 0;
