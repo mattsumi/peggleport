@@ -1240,6 +1240,20 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
   bNext = patchButton(1001, next, "IMAGE_DLG_BUTTON3", 0, 0);
   bMenu->visible = !(deluxeForm && m == ChallengeWin);
   if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, a.game == Game::Nights ? "Play New Level" : "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
+  if (a.game == Game::Nights && m == AdventureWin && p && p->advCompletions == 0) {
+    portraitStage = a.curStage;
+    portraitLevel = a.curLevel;
+    if (portraitLevel > 0) {
+      portraitLevel--;
+    } else {
+      portraitStage--;
+      portraitLevel = 4;
+    }
+    if (portraitStage < 0) {
+      portraitStage = 11;
+      portraitLevel = 4;
+    }
+  }
   countUp = m == AdventureWin || m == AdventureComplete;
   tgt[0] = o.shotPoints; tgt[1] = o.feverPoints; tgt[2] = o.stylePoints; tgt[3] = o.tryBonus; tgt[4] = o.effBonus;
   levelTgt = o.totalScore;
@@ -1294,6 +1308,20 @@ float EndLevelDialog::paintDuel(Gfx& g, bool draw) {
   return rowTop + 4 * pitch + 12 + buttons;
 }
 
+void EndLevelDialog::paintPortrait(Gfx& g, float top) {
+  Tex* pic = g.img("IMAGE_CHR_CHARACTER_NEW" + std::to_string(CharacterDialog::masterMetAt(Game::Nights, portraitStage) + 1));
+  if (!pic) return;
+  const float x = w / 2 + 10 - pic->lw() / 2;
+  g.draw(pic, x, top);
+  if (Tex* frame = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(frame, x - 8, top - 8, pic->lw() + 16, pic->lh() + 20);
+  if (Tex* bar = g.img("IMAGE_DLG_STAGEPROGRESS")) g.draw(bar, x - 8, top + 180);
+  int lit = std::clamp(portraitLevel + 1, 1, 5);
+  if ((shownTicks / 40) % 2 == 0 && shownTicks < 800) lit--;
+  static const float kLitWidth[5] = {38, 74, 111, 148, 185};
+  if (lit > 0)
+    if (Tex* fill = g.img("IMAGE_DLG_MASTERSTAGEPROGBAR")) g.drawSrc(fill, 0, 0, kLitWidth[lit - 1], fill->ch(), x, top + 188);
+}
+
 float EndLevelDialog::paint(Gfx& g, bool draw) {
   if (duelEnd) return paintDuel(g, draw);
   if (msgMode && app.game == Game::Deluxe) {
@@ -1311,6 +1339,10 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   bool list = mode == QuickWin || mode == QuickLose;
   const float L = insL, R = 390;
   float y = insT + g.fontHeight(headerFont) + 16;
+  if (portraitStage >= 0) {
+    if (draw) paintPortrait(g, y - 8);
+    y += 209;
+  }
   auto text = [&](const char* font, float x, float base, const std::string& s, uint32_t c, Align al = Align::Left) {
     if (draw) g.drawString(font, x, base, s, c, 1, al);
   };

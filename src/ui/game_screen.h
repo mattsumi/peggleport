@@ -42,6 +42,8 @@ class EndLevelDialog : public Dialog {
   std::string dName[2];
   App::DuelSession dses;
   float paintDuel(Gfx& g, bool draw);
+  void paintPortrait(Gfx& g, float top);
+  int portraitStage = -1, portraitLevel = 0;
   void drawLayer(Gfx& g) override;
   void update() override;
   void onButton(int id) override;
