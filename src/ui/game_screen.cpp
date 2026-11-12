@@ -163,6 +163,11 @@ bool GameScreen::startLevel(const std::string& name) {
   demo_ = app.gameMode == GameMode::Demo;
   if (duelChallenge) {
     int oi = masterIndexByName(ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)]);
+    if (oi < 0) {
+      std::string low = ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)];
+      for (auto& ch : low) ch = (char)std::tolower((unsigned char)ch);
+      if (low == "rand") oi = std::clamp(randomMaster(CharacterDialog::randomChoice(app.game)), 0, app.game == Game::Nights ? 10 : 9);
+    }
     if (oi >= 0) cfg.master[1] = Board::masterByName(kMasterNames[oi]);
   }
   aiWait_ = 0;
