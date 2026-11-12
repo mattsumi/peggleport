@@ -184,6 +184,8 @@ float bitsFloat(int v) {
   return f;
 }
 
+bool angleSane(int bits) { return std::fabs(bitsFloat(bits)) <= 16.0f; }
+
 void syncBody(Ar& a, SavedSession& s) {
   a.i32(s.game); a.i32(s.mode); a.str(s.level); a.u64(s.content);
   a.i32(s.stage); a.i32(s.levelNo);
@@ -222,7 +224,7 @@ bool bodySane(const SavedSession& s) {
     const SavedDuel& d = s.duel;
     if (d.state < 0 || d.state > 2 || d.skill < -1 || d.skill > 10) return false;
     if (d.wait < 0 || d.wait > 100000 || d.tick < 0 || d.tick > 100000 || d.think < 0 || d.think > 5000) return false;
-    if (d.score2 < -100000000 || d.score2 > 1000000000 || !std::isfinite(bitsFloat(d.chosen))) return false;
+    if (d.score2 < -100000000 || d.score2 > 1000000000 || !angleSane(d.chosen)) return false;
     if ((s.flags & 2) != 0 && d.state != 0) return false;
   }
   if (challenge) {
@@ -243,7 +245,7 @@ bool bodySane(const SavedSession& s) {
     if (e.frame < last || e.frame > s.frames) return false;
     if (e.kind == 2 && (e.a < -1000000 || e.a > 1000000)) return false;
     if (e.kind == 4 && (e.a < 0 || e.a > 100000 || (e.b != 0 && e.b != 1))) return false;
-    if ((e.kind == 5 || e.kind == 6) && !std::isfinite(bitsFloat(e.a))) return false;
+    if ((e.kind == 5 || e.kind == 6) && !angleSane(e.a)) return false;
     last = e.frame;
   }
   return true;
