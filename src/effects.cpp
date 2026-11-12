@@ -1721,18 +1721,20 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
       SDL_FColor col{1, 1, 1, alpha};
       std::vector<SDL_Vertex> vs;
       std::vector<int> idx;
+      const float k = (float)b.W + 2.0f * (BX - 75.0f) > 650.0f ? (560.0f - e.y + 400.0f) / 400.0f : 1.0f;
+      const float cy = Y + 400.0f * (k - 1.0f);
       float th = 0.025f * (float)s0;
       for (int i = s0; i <= segs; i++, th += 0.025f) {
         float c = std::cos(th), sn = std::sin(th);
-        vs.push_back({{px(X + c * 420.0f), py(Y - sn * 400.0f)}, col, {u, v0}});
-        vs.push_back({{px(X + c * 320.0f), py(Y - sn * 300.0f)}, col, {u, v1}});
+        vs.push_back({{px(X + c * 420.0f * k), py(cy - sn * 400.0f * k)}, col, {u, v0}});
+        vs.push_back({{px(X + c * 320.0f * k), py(cy - sn * 300.0f * k)}, col, {u, v1}});
       }
       for (int i = 0; i < segs - s0; i++) { int q = i * 2; idx.insert(idx.end(), {q, q + 1, q + 2, q + 1, q + 3, q + 2}); }
       SDL_SetTextureBlendMode(t->t, SDL_BLENDMODE_BLEND);
       SDL_RenderGeometry(r_, t->t, vs.data(), (int)vs.size(), idx.data(), (int)idx.size());
       if (segs < 122 && !(e.life > 0 && e.life - 40 < e.age)) {
         float hth = 0.025f * (float)segs, hc = std::cos(hth), hs = std::sin(hth);
-        V2 outer{X + hc * 420.0f, Y - hs * 400.0f}, inner{X + hc * 320.0f, Y - hs * 300.0f};
+        V2 outer{X + hc * 420.0f * k, cy - hs * 400.0f * k}, inner{X + hc * 320.0f * k, cy - hs * 300.0f * k};
         float rot = PI / 2.1f - std::atan2(inner.y - outer.y, inner.x - outer.x);
         auto mix = [&](float wi) { return V2{inner.x * wi + outer.x * (1.0f - wi), inner.y * wi + outer.y * (1.0f - wi)}; };
         if (Tex* ss = img("IMAGE_STAR_STREAK"))
