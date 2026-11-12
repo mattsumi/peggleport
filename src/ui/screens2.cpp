@@ -836,8 +836,8 @@ void HelpScreen::drawLayer(Gfx& g) {
   }
   for (int r = 0; r < 4; r++) {
     float y = 170.0f + 90 * r;
-    int icol = nights ? (page == 5 ? -1 : page - 1 > 4 ? page - 2 : page - 1) : (page < 7 ? page : -1);
-    if (nights && page == 5 && r == 0)
+    int icol = nights ? (page == 5 ? -1 : page - 1 > 4 ? page - 2 : page - 1) : (page < 4 ? page : page == 4 ? -1 : page - 1);
+    if (page == (nights ? 5 : 4) && r == 0)
       if (Tex* mi = g.img("IMAGE_HELP_MODES")) g.draw(mi, 32, 170);
     if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, nights ? 72.0f : 75 + (68 - icons->cw()) / 2.0f, nights ? y : y - 2 + (68 - icons->ch()) / 2.0f, icol, r);
     if (hp.style) {
