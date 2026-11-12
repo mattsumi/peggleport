@@ -472,7 +472,7 @@ bool SessionKeeper::askToLeave() {
   if (!gs || !gs->keepsSession() || file(GameMode::Adventure).empty()) return false;
   const PlayerInfo* p = app_.curProfile;
   if (!p || p->b58 >= 3 || gs->board().result.shots <= 0) {
-    app_.finishOptionsDialog(false, false);
+    app_.finishOptionsDialog(true, false);
     app_.doToMenu();
     return true;
   }

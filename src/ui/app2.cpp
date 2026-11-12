@@ -245,7 +245,7 @@ void App::dialogButton(int dlg, int btn) {
       off(dlg);
       if (yes) {
         if (curProfile && curProfile->b58 < 255) { curProfile->b58++; curProfile->dirty = true; }
-        finishOptionsDialog(false, false);
+        finishOptionsDialog(true, false);
         doToMenu();
       }
       return;
@@ -342,7 +342,7 @@ void App::doAdventureQuestion() {
 void App::doConfirmMainMenuDialog() {
   if (sessionsOf(*this).askToLeave()) return;
   if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
-    finishOptionsDialog(false, false);
+    finishOptionsDialog(true, false);
     doToMenu();
     return;
   }
