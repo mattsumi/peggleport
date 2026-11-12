@@ -630,6 +630,7 @@ void MainMenu::onButton(int id) {
       break;
     case 3:
       app.gameMode = GameMode::Challenge;
+      if (sessionsOf(app).askToContinue(true)) break;
       startGame();
       break;
     case 4: app.doReplaysDialog(); break;

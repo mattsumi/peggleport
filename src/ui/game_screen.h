@@ -77,6 +77,7 @@ class GameScreen : public Screen {
   void restartLevel(bool fromMenu = true);
   bool hasProgress() const;
   bool keepsSession() const;
+  int betweenLevels() const;
   void dropSession() { sessionOff_ = true; }
   bool fillSession(SavedSession& s) const;
   void masterChosen(bool picked);
@@ -108,7 +109,8 @@ class GameScreen : public Screen {
   void applyProgress(const LevelOutcome& o, bool won);
   void submitStats();
   bool statsSent_ = false;
-  bool sessionOff_ = false;
+  bool sessionOff_ = false, endPending_ = false;
+  uint32_t randAfter_ = 0;
   GameMode statsMode_ = GameMode::None;
   void pushMouse();
   bool duel_ = false;

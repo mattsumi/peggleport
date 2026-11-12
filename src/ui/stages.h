@@ -63,6 +63,10 @@ class StageMgr {
   const std::vector<std::string>& credits() const { return credits_; }
   bool randomLevel(const PlayerInfo& p, int& stage, int& level, bool skipExcluded, int minAge, uint32_t rnd, bool retry = true);
   void resetUse();
+  struct UseMark { int stage = 0, level = 0, use = 0; };
+  std::vector<UseMark> useMarks() const;
+  int useCount() const { return useCounter_; }
+  void restoreUse(const std::vector<UseMark>& marks, int counter);
   void markUsed(int stage, int level) { if (auto* s = stage_(stage)) if (level >= 0 && level < (int)s->levels.size()) s->levels[level].lastUse = ++useCounter_; }
   std::string cfgError;
 

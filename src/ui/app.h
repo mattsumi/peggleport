@@ -285,6 +285,9 @@ class App : public WidgetHost {
   void stopMusic();
   Screen* helpOverlay() const { return overlay_.get(); }
   uint32_t rand();
+  uint32_t randState() const { return rng_; }
+  void setRandState(uint32_t v) { if (v) rng_ = v; }
+  int lastOpponent = -1, lastRolled = -1;
   CrtRand& crtRand() { return crt_; }
 
   void buttonDepress(int id) override {}

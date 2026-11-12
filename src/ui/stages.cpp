@@ -190,6 +190,22 @@ void StageMgr::resetUse() {
     for (auto& l : s.levels) l.lastUse = -1000;
 }
 
+std::vector<StageMgr::UseMark> StageMgr::useMarks() const {
+  std::vector<UseMark> out;
+  for (int s = 0; s < (int)stages_.size(); s++)
+    for (int l = 0; l < (int)stages_[s].levels.size(); l++)
+      if (stages_[s].levels[l].lastUse != -1000) out.push_back({s, l, stages_[s].levels[l].lastUse});
+  return out;
+}
+
+void StageMgr::restoreUse(const std::vector<UseMark>& marks, int counter) {
+  resetUse();
+  useCounter_ = counter;
+  for (const UseMark& m : marks)
+    if (auto* s = stage_(m.stage))
+      if (m.level >= 0 && m.level < (int)s->levels.size()) s->levels[m.level].lastUse = m.use;
+}
+
 bool StageMgr::randomLevel(const PlayerInfo& p, int& stage, int& level, bool skipExcluded, int minAge, uint32_t rnd, bool retry) {
   struct C { int s, l; };
   std::vector<C> c;

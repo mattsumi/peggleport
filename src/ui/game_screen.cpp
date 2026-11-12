@@ -182,14 +182,13 @@ bool GameScreen::startLevel(const std::string& name) {
       std::string low = ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)];
       for (auto& ch : low) ch = (char)std::tolower((unsigned char)ch);
       if (low == "rand") {
-        static int lastOpponent = -1;
         const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
         int pick = 0;
         for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
           pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
-          if (pick != lastOpponent) break;
+          if (pick != app.lastOpponent) break;
         }
-        lastOpponent = pick;
+        app.lastOpponent = pick;
         oi = std::clamp(pick, 0, app.game == Game::Nights ? 10 : 9);
       }
     }
@@ -235,7 +234,6 @@ bool GameScreen::choosesMaster() const {
 }
 
 int GameScreen::chosenMaster() {
-  static int lastRolled = -1;
   const int c = app.curProfile->char1;
   const bool keep = keepRoll_ && rolled_ >= 0 && rolled_ < 10;
   keepRoll_ = false;
@@ -244,9 +242,9 @@ int GameScreen::chosenMaster() {
   const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
   for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
     rolled_ = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
-    if (rolled_ != lastRolled) break;
+    if (rolled_ != app.lastRolled) break;
   }
-  lastRolled = rolled_;
+  app.lastRolled = rolled_;
   return rolled_;
 }
 
@@ -665,6 +663,11 @@ void GameScreen::update() {
     }
   }
   if (stageDialogDelay_ > 0 && --stageDialogDelay_ == 0) showStageDialog();
+  if (endPending_) {
+    endPending_ = false;
+    app.showEndLevel(pendingMode_, pendingOut_, app.scoreKey(levelFile_, board_.cfg.boardWidth), pendingTitle_, pendingRank_, pendingBest_);
+    app.setRandState(randAfter_);
+  }
   if (tipPaused_ && !app.getDialog(D_Tip)) { tipPaused_ = false; pause(false); }
   if (charPaused_ && !app.getDialog(D_Character)) {
     charPaused_ = false;

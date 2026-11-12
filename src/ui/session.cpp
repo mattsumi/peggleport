@@ -27,7 +27,7 @@ namespace pp::ui {
 namespace {
 
 constexpr uint32_t kMagic = 0x53535050;
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;
 constexpr size_t kHeadBytes = 20;
 
 struct Ar {
@@ -143,13 +143,28 @@ bool configSane(const BoardConfig& c) {
   if (c.boardWidth < 650 || c.boardWidth > 1400) return false;
   if (c.players != 1 || c.duel) return false;
   if (c.balls < 0 || c.balls > 10000 || c.orange < 0 || c.orange > 10000) return false;
-  if (c.startScore != 0 || c.startScore2 != 0) return false;
   for (int m : c.master)
     if (m < 0 || m >= masters::kPowerSlots) return false;
   if (c.masterIndex < -1 || c.masterIndex > 64) return false;
   if (c.tryNumber < 0 || c.tryNumber > 100000000) return false;
   if (c.ch.levelIndex < 0 || c.ch.levelCount < 0) return false;
   return true;
+}
+
+void syncChallenge(Ar& a, SavedChallenge& c) {
+  a.i32(c.trophy); a.i32(c.step); a.i32(c.score); a.i32(c.score2); a.i32(c.lives); a.i32(c.balls); a.i32(c.over);
+  a.flag(c.more);
+}
+
+void syncHistory(Ar& a, SavedHistory& h) {
+  a.u32(h.rng); a.i32(h.lastOpponent); a.i32(h.lastRolled); a.i32(h.useCounter);
+  uint32_t count = (uint32_t)h.use.size();
+  a.u32(count);
+  if (!a.out) {
+    if (a.bad || count > 4096 || a.left() / 12 < count) { a.bad = true; return; }
+    h.use.assign(count, {});
+  }
+  for (StageMgr::UseMark& m : h.use) { a.i32(m.stage); a.i32(m.level); a.i32(m.use); }
 }
 
 void syncBody(Ar& a, SavedSession& s) {
@@ -167,12 +182,31 @@ void syncBody(Ar& a, SavedSession& s) {
   for (ReplayEvent& e : s.log) {
     a.i32(e.frame); a.i32(e.tick); a.u8(e.kind); a.i32(e.a); a.i32(e.b);
   }
+  a.u8(s.flags);
+  syncHistory(a, s.hist);
+  if (s.mode == (int)GameMode::Challenge) syncChallenge(a, s.ch);
 }
 
 bool bodySane(const SavedSession& s) {
   if (s.game < 0 || s.game > 1) return false;
-  if (s.mode != (int)GameMode::Adventure && s.mode != (int)GameMode::QuickPlay) return false;
+  const bool challenge = s.mode == (int)GameMode::Challenge;
+  if (s.mode != (int)GameMode::Adventure && s.mode != (int)GameMode::QuickPlay && !challenge) return false;
   if (s.level.empty()) return false;
+  if (s.hist.rng == 0 || s.hist.lastOpponent < -1 || s.hist.lastOpponent > 64 || s.hist.lastRolled < -1 || s.hist.lastRolled > 64) return false;
+  if (s.hist.useCounter < 0 || s.hist.useCounter > 1000000000) return false;
+  for (const StageMgr::UseMark& m : s.hist.use)
+    if (m.stage < 0 || m.stage > 4096 || m.level < 0 || m.level > 4096 || m.use < -1000 || m.use > s.hist.useCounter) return false;
+  if (s.flags > 1) return false;
+  if (!challenge && (s.cfg.startScore != 0 || s.cfg.startScore2 != 0)) return false;
+  if (challenge) {
+    const SavedChallenge& c = s.ch;
+    if (s.cfg.startScore < -100000000 || s.cfg.startScore > 1000000000 || s.cfg.startScore2 < -100000000 || s.cfg.startScore2 > 1000000000) return false;
+    if (c.trophy < 0 || c.step < 0 || c.step > 100000 || c.lives < 0 || c.lives > 100000 || c.balls < 0 || c.balls > 100000 || c.over < 0 || c.over > 3) return false;
+    if (c.score < -100000000 || c.score > 1000000000 || c.score2 < -100000000 || c.score2 > 1000000000) return false;
+    if (c.over != 0 && s.flags != 0) return false;
+  } else if (s.ch.over != 0) {
+    return false;
+  }
   if (s.frames < 0 || s.frames > SavedSession::kMaxFrames || s.tick < 0 || s.tick > s.frames) return false;
   if (s.shots < 0 || s.ballsLeft < 0) return false;
   if (!configSane(s.cfg)) return false;
@@ -271,6 +305,7 @@ bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, boo
   if (!b.load(lb.base, lb.level, cfg, &err)) return false;
   haveSnap = false;
   size_t next = 0;
+  const bool ended = ch.over != 0;
   for (;;) {
     while (next < log.size() && log[next].frame <= b.frames) {
       const ReplayEvent& e = log[next++];
@@ -284,8 +319,9 @@ bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, boo
     if (b.frames >= frames) break;
     b.step();
     b.events.clear();
-    if (b.phase == Phase::Over) return false;
+    if (b.phase == Phase::Over && !ended) return false;
   }
+  if (ended != (b.phase == Phase::Over)) return false;
   if (next != log.size() || b.tick != tick || b.hash() != hash) return false;
   if (b.result.shots != shots || b.score[0] != score || b.ballsLeft[0] != ballsLeft) return false;
   board = std::move(b);
@@ -316,7 +352,7 @@ bool SessionKeeper::keep(const GameScreen& gs) {
 
 bool SessionKeeper::find(GameMode m) {
   ready_.reset();
-  if (m != GameMode::Adventure && m != GameMode::QuickPlay) return false;
+  if (m != GameMode::Adventure && m != GameMode::QuickPlay && m != GameMode::Challenge) return false;
   const std::filesystem::path path = file(m);
   std::error_code ec;
   if (path.empty() || !std::filesystem::exists(path, ec)) return false;
@@ -324,10 +360,15 @@ bool SessionKeeper::find(GameMode m) {
   const LevelInfo* li = m == GameMode::Adventure ? app_.curLevelInfo() : nullptr;
   std::string err;
   bool ok = SavedSession::load(path, r->saved) && r->saved.game == (app_.game == Game::Nights ? 1 : 0) && r->saved.mode == (int)m;
-  if (ok && m == GameMode::QuickPlay) li = app_.stages.levelByName(r->saved.level);
-  ok = ok && li && (m != GameMode::Adventure || li->file == r->saved.level) && loadLevelBundle(app_.vfs, r->saved.level, r->bundle, &err) &&
-       r->saved.rebuild(r->bundle, r->board, r->snap, r->haveSnap);
-  if (ok) {
+  if (ok && m != GameMode::Adventure) li = app_.stages.levelByName(r->saved.level);
+  if (ok && m == GameMode::Challenge) {
+    const TrophyInfo* t = app_.trophies.byId(r->saved.ch.trophy);
+    ok = t && r->saved.ch.step < (int)t->levels.size();
+  } else {
+    ok = ok && li && (m != GameMode::Adventure || li->file == r->saved.level);
+  }
+  ok = ok && loadLevelBundle(app_.vfs, r->saved.level, r->bundle, &err) && r->saved.rebuild(r->bundle, r->board, r->snap, r->haveSnap);
+  if (ok && li) {
     r->saved.stage = li->stage;
     r->saved.levelNo = li->index;
   }
@@ -357,8 +398,23 @@ bool SessionKeeper::resume() {
     app_.curLevel = r->saved.levelNo;
     app_.packStage = -1;
   }
+  if (app_.gameMode == GameMode::Challenge) {
+    const SavedChallenge& c = r->saved.ch;
+    app_.curChallenge = c.trophy;
+    app_.challengeStep = c.step;
+    app_.challengeLevel = r->saved.level;
+    app_.challengeScore = c.score;
+    app_.challengeScore2 = c.score2;
+    app_.challengeLives = c.lives;
+    app_.challengeBalls = c.balls;
+    app_.challengeMore = c.more;
+    app_.challengeKeepLives = false;
+    app_.endBodyOverride.clear();
+    app_.endHeaderOverride.clear();
+  }
   if (app_.curProfile) app_.applyColorblind(app_.curProfile->colorblind);
   app_.setScreen(std::make_unique<GameScreen>(app_, *r), App::Left);
+  app_.setRandState(r->saved.hist.rng);
   return true;
 }
 
@@ -437,7 +493,7 @@ class ContinueDialog : public Dialog {
 bool SessionKeeper::askToContinue(bool ask) {
   PlayerInfo* p = app_.curProfile;
   const GameMode mode = app_.gameMode;
-  if (!p || (mode != GameMode::Adventure && mode != GameMode::QuickPlay)) return false;
+  if (!p || (mode != GameMode::Adventure && mode != GameMode::QuickPlay && mode != GameMode::Challenge)) return false;
   if (mode == GameMode::Adventure) {
     if (ask && app_.game == Game::Deluxe && p->advCompletions > 0) return false;
     app_.curStage = std::clamp(p->advStage, 0, std::max(0, app_.numStages() - 1));
@@ -450,6 +506,12 @@ bool SessionKeeper::askToContinue(bool ask) {
   if (mode == GameMode::Adventure) {
     text = "Do you want to ^00FF00^continue^oldclr^ the level in progress or ^00FF00^restart^oldclr^ the level?\n\n^44DAFB^Score: " + withCommas(s.score) +
            "\nBalls Left: " + std::to_string(s.ballsLeft) + "\n";
+  } else if (mode == GameMode::Challenge) {
+    const TrophyInfo* t = app_.trophies.byId(s.ch.trophy);
+    text = "Do you want to ^00FF00^continue^oldclr^ the game in progress or start a ^00FF00^new game^oldclr^?\n\n^44DAFB^Challenge: " + (t ? t->name : std::string()) + "\n";
+    if (t && t->levels.size() > 1) text += "Level: " + std::to_string(s.ch.step + 1) + "/" + std::to_string(t->levels.size()) + "\n";
+    if (t && t->balls > 10) text += "Balls Left: " + std::to_string(s.ballsLeft) + "\n";
+    text += "Score: " + withCommas(s.score) + "\n";
   } else {
     text = "Do you want to ^00FF00^continue^oldclr^ the game in progress or start a ^00FF00^new game^oldclr^?\n\n^44DAFB^";
     const LevelInfo* li = app_.stages.levelByName(s.level);
@@ -504,15 +566,27 @@ bool SessionKeeper::askToLeave() {
   return true;
 }
 
-bool GameScreen::keepsSession() const {
-  if (!ready_ || done_ || viewer_ || demo_ || duel_ || sessionOff_ || !recording_ || !app.curProfile) return false;
-  if (app.gameMode != statsMode_) return false;
-  if (app.gameMode == GameMode::QuickPlay) {
-    if (board_.score[0] <= 0) return false;
-  } else if (app.gameMode != GameMode::Adventure) {
-    return false;
+int GameScreen::betweenLevels() const {
+  if (app.gameMode != GameMode::Challenge || !done_) return 0;
+  switch (pendingMode_) {
+    case EndLevelDialog::ChallengeLevelDone: return 1;
+    case EndLevelDialog::ChallengeLives: return 2;
+    case EndLevelDialog::ChallengeWin: return app.challengeMore ? 3 : 0;
+    default: return 0;
   }
-  return board_.phase != Phase::Over && board_.frames <= SavedSession::kMaxFrames && log_.size() <= SavedSession::kMaxEvents;
+}
+
+bool GameScreen::keepsSession() const {
+  if (!ready_ || viewer_ || demo_ || duel_ || sessionOff_ || !recording_ || !app.curProfile) return false;
+  if (app.gameMode != statsMode_ || board_.frames > SavedSession::kMaxFrames || log_.size() > SavedSession::kMaxEvents) return false;
+  if (done_) return betweenLevels() != 0;
+  if (board_.phase == Phase::Over) return false;
+  switch (app.gameMode) {
+    case GameMode::Adventure: return true;
+    case GameMode::QuickPlay: return board_.score[0] > 0;
+    case GameMode::Challenge: return app.challengeStep > 0 || board_.score[0] > 0;
+    default: return false;
+  }
 }
 
 bool GameScreen::fillSession(SavedSession& s) const {
@@ -531,6 +605,22 @@ bool GameScreen::fillSession(SavedSession& s) const {
   s.hash = board_.hash();
   s.cfg = cfg_;
   s.log = log_;
+  s.flags = charPaused_ ? 1 : 0;
+  if (app.gameMode == GameMode::Challenge) {
+    s.ch.trophy = app.curChallenge;
+    s.ch.step = app.challengeStep;
+    s.ch.score = app.challengeScore;
+    s.ch.score2 = app.challengeScore2;
+    s.ch.lives = app.challengeLives;
+    s.ch.balls = app.challengeBalls;
+    s.ch.more = app.challengeMore;
+    s.ch.over = betweenLevels();
+  }
+  s.hist.rng = app.randState();
+  s.hist.lastOpponent = app.lastOpponent;
+  s.hist.lastRolled = app.lastRolled;
+  s.hist.useCounter = app.stages.useCount();
+  s.hist.use = app.stages.useMarks();
   return true;
 }
 
@@ -545,6 +635,14 @@ GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
   haveSnap_ = r.haveSnap;
   recording_ = true;
   boardResets_ = 1;
+  if (r.saved.ch.over != 0) {
+    done_ = endShown_ = true;
+    endPending_ = true;
+    pendingMode_ = r.saved.ch.over == 1 ? (int)EndLevelDialog::ChallengeLevelDone : r.saved.ch.over == 2 ? (int)EndLevelDialog::ChallengeLives : (int)EndLevelDialog::ChallengeWin;
+    statsSent_ = true;
+    pendingOut_ = collectOutcome();
+    randAfter_ = r.saved.hist.rng;
+  }
   hudStage_ = a.curStage;
   hudLevel_ = a.curLevel;
   statsMode_ = a.gameMode;
@@ -559,7 +657,13 @@ GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
   haveMouse_ = true;
   ready_ = true;
   guide = true;
-  if (mouseBx_ != board_.mouseX || mouseBy_ != board_.mouseY) pushMouse();
+  if (!done_ && (mouseBx_ != board_.mouseX || mouseBy_ != board_.mouseY)) pushMouse();
+  if (done_) {
+    const LevelInfo* li = a.curLevelInfo();
+    pendingTitle_ = li ? li->title : levelFile_;
+  } else if (r.saved.flags & 1) {
+    showCharacterDialog();
+  }
   a.playMusic("level");
 }
 
