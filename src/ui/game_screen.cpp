@@ -742,6 +742,33 @@ static int tryBonus(int tryNumber) {
   return tryNumber == 1 ? 100000 : tryNumber == 2 ? 50000 : tryNumber == 3 ? 25000 : 0;
 }
 
+static void keepChallengeBest(PlayerInfo& p, const TrophyInfo& t, const Board& b, bool nights, int score) {
+  if (b.cfg.players > 1 || !t.opponents.empty()) return;
+  if (!nights) {
+    if (!t.scoreReset && t.lives <= 1) p.checkTrophyTopScore(t.id, score);
+    return;
+  }
+  const ChallengeRules& c = b.cfg.ch;
+  if (!c.active || b.cfg.clearLevel) return;
+  if (t.numOrange != 0 && t.numOrange != 25) return;
+  if (t.levels.size() > 1 && !t.scoreReset) return;
+  if (!c.noForceWin && !b.levelWon(false)) return;
+  int need = 0, left = 0, unique = 0;
+  for (int i = 0; i < 24; i++) {
+    need += c.styleShots[i];
+    left += b.styleReq[i];
+    unique += b.result.styleCount[i] > 0;
+  }
+  const bool scored = c.scoreReq != 0 || c.scoreCeil != 0;
+  const int goals = (scored ? 1 : 0) + (c.styleScoreReq > 0 ? 1 : 0) + (c.uniqueStyleReq > 0 ? 1 : 0) + (need > 0 ? 1 : 0);
+  if (goals > 1) return;
+  if (scored) p.checkTrophyTopScore(t.id, score, c.scoreCeil > 0);
+  else if (c.styleScoreReq > 0) p.checkTrophyTopScore(t.id, b.result.stylePoints);
+  else if (c.uniqueStyleReq > 0) p.checkTrophyTopScore(t.id, unique);
+  else if (need > 0) p.checkTrophyTopScore(t.id, need - left);
+  else p.checkTrophyTopScore(t.id, score);
+}
+
 void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   LevelOutcome o = oIn;
   PlayerInfo* p = app.curProfile;
@@ -780,6 +807,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
                : (app.gameMode == GameMode::Challenge ? EndLevelDialog::ChallengeLose : EndLevelDialog::QuickLose);
     if (app.gameMode == GameMode::Challenge) {
       const TrophyInfo* ct = app.trophies.byId(app.curChallenge);
+      if (p && ct) keepChallengeBest(*p, *ct, board_, app.game == Game::Nights, o.totalScore);
       const bool moreLevels = ct && app.challengeStep + 1 < (int)ct->levels.size();
       app.challengeMore = won && moreLevels;
       app.challengeBalls = o.ballsLeft;
