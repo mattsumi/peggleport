@@ -60,6 +60,7 @@ class Renderer {
   void setVisualOptions(const VisualOptions& v) { vis_ = v; }
   const VisualOptions& visualOptions() const { return vis_; }
   int canvasWidth() const { return canvasW_; }
+  float boardLeft() const { return BX; }
   V2 toBoard(float px, float py) const;
   void advance(const Board& b);
   std::vector<FxSound> takeSounds() { return std::exchange(fx_.sounds, {}); }

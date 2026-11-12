@@ -176,6 +176,7 @@ class GameScreen : public Screen {
   int heldButton_ = 0;
   int pauseCount_ = 0, pauseFade_ = 0;
   int mouseBx_ = 0, mouseBy_ = 0;
+  int boardLeft() const { return app.boardRenderer ? (int)app.boardRenderer->boardLeft() : 75; }
   bool haveMouse_ = false;
   std::string levelFile_;
   int pendingMode_ = 0, pendingRank_ = 0;

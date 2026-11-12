@@ -56,7 +56,7 @@ GameScreen::GameScreen(App& a, bool fromAdventure, bool newLevel) : Screen(a) {
     return;
   }
   levelFile_ = name;
-  mouseBx_ = (int)std::floor(a.mouseX) - 75;
+  mouseBx_ = (int)std::floor(a.mouseX) - boardLeft();
   mouseBy_ = (int)std::floor(a.mouseY) - 40;
   haveMouse_ = true;
   countLevelStart();
@@ -1089,7 +1089,7 @@ bool GameScreen::input(const Input& in) {
   };
   switch (in.type) {
     case Input::MouseMove:
-      mouseBx_ = (int)std::floor(in.x) - 75;
+      mouseBx_ = (int)std::floor(in.x) - boardLeft();
       mouseBy_ = (int)std::floor(in.y) - 40;
       haveMouse_ = true;
       mouseOverMenu_ = inMenuButton(in.x, in.y);
@@ -1100,7 +1100,7 @@ bool GameScreen::input(const Input& in) {
       mouseOverMenu_ = false;
       break;
     case Input::MouseDown:
-      mouseBx_ = (int)std::floor(in.x) - 75;
+      mouseBx_ = (int)std::floor(in.x) - boardLeft();
       mouseBy_ = (int)std::floor(in.y) - 40;
       haveMouse_ = true;
       if (in.button == 3 && ready_ && !replaying_ && inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && canSaveReplay() && board_.shotIndex > 0 && pauseCount_ == 0 &&
