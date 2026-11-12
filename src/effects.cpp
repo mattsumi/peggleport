@@ -637,7 +637,7 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
     }
     case Event::LevelDone: {
       if (b.result.cleared) {
-        FxEffect& r = fxAdd(7, 325.0f, 320.0f, 0);
+        FxEffect& r = fxAdd(7, (float)b.W / 2.0f, 320.0f, 0);
         r.age = -130;
         r.life = 0;
       }
@@ -1087,7 +1087,7 @@ void Renderer::fxFeverTally(const Board& b) {
     if (!first || first->age >= first->life - 30) {
       S.rainbowWait = false;
       S.rainbowAge = 0;
-      fxAdd(0x18, 325.0f, 500.0f, 0).life = 100000;
+      fxAdd(0x18, (float)b.W / 2.0f, 500.0f, 0).life = 100000;
       S.sound("RAINBOW");
     }
   }
@@ -1097,7 +1097,7 @@ void Renderer::fxFeverTally(const Board& b) {
     FxEffect& f = fxAdd(0x15, 400.0f, 300.0f, 0);
     f.life = 100000;
     f.i38 = 3;
-    FxText& t = fxText("", 325.0f, 205.0f, 0x26);
+    FxText& t = fxText("", (float)b.W / 2.0f, 205.0f, 0x26);
     t.vy = 0;
     t.life = 100000;
     t.scales = {{5.0f, 0}, {1.0f, 30}};
@@ -1750,7 +1750,7 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
       float ang = 0;
       if (e.age < 20) ang = (1.0f - (float)e.age / 20.0f) * -1.5707964f;
       else if (e.life - 20 < e.age) ang = (1.0f - (float)(e.life - e.age) / 20.0f) * 1.5707964f;
-      float bx = BX + 325.0f - (float)(int)(a->lw() / 2), by = BY + 105.0f;
+      float bx = BX + (float)b.W / 2.0f - (float)(int)(a->lw() / 2), by = BY + 105.0f;
       put(a, {0, 0, a->lw(), a->lh()}, bx, by, {0xffffffffu, Blend::Add}, a->lw(), a->lh(), ang, 225.0f, 420.0f);
       if (tp) put(tp, {0, 0, tp->lw(), tp->lh()}, bx, by, {0xffffffffu, Blend::Normal}, tp->lw(), tp->lh(), ang, 225.0f, 420.0f);
       break;
