@@ -1368,7 +1368,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     text(kBig, L, base, label, bigLabel);
     if (extra) text(kBig, L + g.textWidth(kBig, label), base, extra, 0xffff99);
     if (draw) g.drawString(kBig, R - g.textWidth(kBig, v), base, v, bigValue);
-    y += g.fontHeight(kBig) + 5;
+    y += g.fontHeight(kBig) + (countUp ? 5 : 0);
   };
   const bool advMode = mode == AdventureWin || mode == AdventureLose || mode == AdventureComplete;
   if (mode == AdventureWin || mode == AdventureComplete) {
@@ -1386,7 +1386,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     int t = out.tryNumber;
     bigRow(t == 1 ? "Win on 1st Try:" : t == 2 ? "Win on 2nd Try:" : t == 3 ? "Win on 3rd Try:" : "Try Bonus:", commas(cur[3]));
   }
-  y += 8;
+  y += nights ? 8 : 7;
   float sy = y;
   auto row = [&](float x0, float x1, const char* l, const std::string& v) {
     float base = sy + g.fontAscent(kPlain);
