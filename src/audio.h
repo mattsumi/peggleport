@@ -95,7 +95,10 @@ class Audio {
   int lvlBase_ = -1, intensity_ = 0, pendOrder_ = -1, pendRow_ = 0;
   std::vector<std::unique_ptr<Music>> fading_;
   bool sighDone_ = false;
-  void playLater(int delay, const std::string& id, float semis = 0, float vol = 1, int throttle = 0) { pending_.push_back({updates_ + delay, id, semis, vol, throttle}); }
+  void playLater(int delay, const std::string& id, float semis = 0, float vol = 1, int throttle = 0) {
+    if (delay <= 1) play(id, semis, vol, throttle);
+    else pending_.push_back({updates_ + delay - 1, id, semis, vol, throttle});
+  }
   int updates_ = 0;
   static void callback(void* user, SDL_AudioStream* s, int additional, int total);
 };
