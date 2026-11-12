@@ -763,7 +763,11 @@ void Board::startFever() {
     if (o.id == "fever") {
       o.collidable = true;
       o.visible = true;
-      o.canMove = true;
+      const int n = o.hasMover ? updatesToPhase(o.mv, o.mtick, 0.5f) : 0;
+      if (n > 0) {
+        o.canMove = true;
+        o.moveCount = n;
+      }
     } else if (o.id == "freeball" || o.id == "freeballcover" || o.id == "bumperhole") {
       o.collidable = false;
       o.visible = false;
