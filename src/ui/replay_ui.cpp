@@ -18,6 +18,35 @@ namespace pp::ui {
 
 static bool haveReplays(App& a) { return !listReplays(a.userDir / "replays", a.game == Game::Nights ? 1 : 0).empty(); }
 
+static std::string latin1ToUtf8(const std::string& s) {
+  std::string o;
+  for (unsigned char c : s) {
+    if (c < 0x80) {
+      o += (char)c;
+    } else {
+      o += (char)(0xC0 | (c >> 6));
+      o += (char)(0x80 | (c & 0x3F));
+    }
+  }
+  return o;
+}
+
+static std::string utf8ToLatin1(const std::string& s) {
+  std::string o;
+  for (size_t i = 0; i < s.size();) {
+    const unsigned char lead = (unsigned char)s[i++];
+    unsigned cp = lead;
+    size_t more = 0;
+    if (lead >= 0xF0) { cp = lead & 0x07u; more = 3; }
+    else if (lead >= 0xE0) { cp = lead & 0x0Fu; more = 2; }
+    else if (lead >= 0xC0) { cp = lead & 0x1Fu; more = 1; }
+    else if (lead >= 0x80) { o += '?'; continue; }
+    for (; more > 0 && i < s.size(); more--) cp = (cp << 6) | ((unsigned char)s[i++] & 0x3Fu);
+    o += cp < 256 ? (char)cp : '?';
+  }
+  return o;
+}
+
 class SaveReplayDialog : public Dialog {
  public:
   explicit SaveReplayDialog(App& a, bool show = false) : Dialog(a, show ? D_Replay2 : D_SaveReplay, true, show ? "Show Replay" : "Save Replay", "", "", BUTTONS_NONE), showing(show) {
@@ -69,7 +98,7 @@ class SaveReplayDialog : public Dialog {
   std::string pending;
   bool overwriteOk = false;
   std::filesystem::path dir() const { return app.userDir / "replays"; }
-  static std::string stemOf(const ReplayFile& f) { return pathToUtf8(f.path.stem()); }
+  static std::string stemOf(const ReplayFile& f) { return utf8ToLatin1(pathToUtf8(f.path.stem())); }
   const ReplayFile* selected() const { return list->select >= 0 && list->select < (int)files.size() ? &files[(size_t)list->select] : nullptr; }
   void refresh() {
     files = listReplays(dir(), app.game == Game::Nights ? 1 : 0);
@@ -120,7 +149,7 @@ class SaveReplayDialog : public Dialog {
       std::string n = edit->value;
       while (!n.empty() && n.back() == ' ') n.pop_back();
       if (!f || n.empty()) return;
-      const std::filesystem::path to = dir() / pathFromUtf8(n + replayExt(app.game == Game::Nights ? 1 : 0));
+      const std::filesystem::path to = dir() / pathFromUtf8(latin1ToUtf8(n) + replayExt(app.game == Game::Nights ? 1 : 0));
       std::error_code ec;
       if (std::filesystem::exists(to, ec)) return;
       std::filesystem::rename(f->path, to, ec);
@@ -159,9 +188,9 @@ class SaveReplayDialog : public Dialog {
     std::string n = edit->value;
     while (!n.empty() && n.back() == ' ') n.pop_back();
     if (n.empty()) return;
-    pending = n;
+    pending = latin1ToUtf8(n);
     std::error_code ec;
-    const std::filesystem::path to = dir() / pathFromUtf8(n + replayExt(app.game == Game::Nights ? 1 : 0));
+    const std::filesystem::path to = dir() / pathFromUtf8(pending + replayExt(app.game == Game::Nights ? 1 : 0));
     if (!overwriteOk && std::filesystem::exists(to, ec)) {
       app.doDialog(D_OverwriteReplay, true, "Overwrite Replay?", n + " already exists.  Do you want to overwrite it?", "", BUTTONS_YES_NO);
       return;
