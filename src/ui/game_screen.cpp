@@ -874,7 +874,7 @@ static void keepChallengeBest(PlayerInfo& p, const TrophyInfo& t, const Board& b
 
 void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   LevelOutcome o = oIn;
-  PlayerInfo* p = app.curProfile;
+  PlayerInfo* p = demo_ ? nullptr : app.curProfile;
   int rank = 0;
   bool newBest = false;
   EndLevelDialog::Mode mode = EndLevelDialog::QuickLose;
