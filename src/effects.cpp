@@ -149,7 +149,7 @@ int bucketIndex(const Board& b) {
 }
 }
 
-void Renderer::fxStyleText(const Board&, const std::string& name, int pts, float x, float y, bool big) {
+void Renderer::fxStyleText(const Board& b, const std::string& name, int pts, float x, float y, bool big) {
   FxState& S = fx_;
   if (S.frame - S.styleFrame >= 20 || std::fabs(S.styleX - x) >= 20 || std::fabs(S.styleY - y) >= 20) {
     S.styleX = x;
@@ -158,7 +158,7 @@ void Renderer::fxStyleText(const Board&, const std::string& name, int pts, float
   } else {
     S.styleStack++;
     y -= 50.0f * S.styleStack;
-    x += (S.styleX >= 325.0f ? -50.0f : 50.0f) * S.styleStack;
+    x += (S.styleX >= (float)b.W / 2.0f ? -50.0f : 50.0f) * S.styleStack;
   }
   S.styleFrame = S.frame;
   std::string pl = pts >= 10000 ? "+" + commaSep(pts) : "+" + std::to_string(pts);
