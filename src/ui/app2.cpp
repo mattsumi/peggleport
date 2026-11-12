@@ -325,7 +325,7 @@ void App::doConfirmMainMenuDialog() {
   Dialog* d = doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
   alignQuestionWithMenu(d);
 }
-void App::doConfirmRestartLevelDialog() {
+void App::doConfirmRestartLevelDialog(float top) {
   const char* title = "New Level?";
   const char* text = "Are you sure that you want to pick a new level?";
   const char* yes = "New Level";
@@ -343,12 +343,14 @@ void App::doConfirmRestartLevelDialog() {
   }
   Dialog* d = doDialog(D_RestartLevel, true, title, text, "", BUTTONS_YES_NO);
   d->setYesNo(yes, "NO");
-  alignQuestionWithMenu(d);
+  if (top > 0) d->scrollTarget = top;
+  else alignQuestionWithMenu(d);
 }
 
 void App::restartChallenge() {
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   if (!gs) return;
+  if (auto* e = getDialog(D_EndLevel)) e->doScrollOff();
   const TrophyInfo* t = trophies.byId(curChallenge);
   challengeStep = 0;
   challengeMore = false;
@@ -369,13 +371,14 @@ void App::showEndLevel(int mode, const LevelOutcome& o, const std::string& level
 }
 
 void App::endLevelButton(int id, int mode) {
-  if (auto* d = getDialog(D_EndLevel)) d->doScrollOff();
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   auto m = (EndLevelDialog::Mode)mode;
   if (id == 1000 && gs && (m == EndLevelDialog::ChallengeLevelDone || m == EndLevelDialog::ChallengeLives)) {
-    restartChallenge();
+    Dialog* e = getDialog(D_EndLevel);
+    doConfirmRestartLevelDialog(e ? e->y : -1.0f);
     return;
   }
+  if (auto* d = getDialog(D_EndLevel)) d->doScrollOff();
   if (id == 1001 && newMantel && game == Game::Nights && m != EndLevelDialog::AdventureComplete) {
     newMantel = false;
     challengeMore = false;

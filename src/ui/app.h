@@ -222,7 +222,7 @@ class App : public WidgetHost {
   void doConfirmRestartAdventureDialog();
   void doConfirmNewChallengeDialog();
   void doConfirmMainMenuDialog();
-  void doConfirmRestartLevelDialog();
+  void doConfirmRestartLevelDialog(float top = -1);
   void restartChallenge();
   void alignQuestionWithMenu(Dialog* d);
   void doToMenu();
