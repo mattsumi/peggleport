@@ -143,6 +143,8 @@ bool GameScreen::startLevel(const std::string& name) {
         cfg.ch = ChallengeRules{};
         cfg.ch.active = true;
         for (const auto& [k, v] : t->raw) cfg.ch.set(k, v);
+        if (auto bo = t->raw.find("BackgroundOverride"); bo != t->raw.end() && bo->second.size() > 7 && bo->second.compare(0, 7, "levels/") == 0)
+          lb_.background = bo->second.substr(7);
         if (t->scoreReq > 0) cfg.ch.scoreReq = t->scoreReq;
         if (t->scoreCeil > 0) cfg.ch.scoreCeil = t->scoreCeil;
         cfg.ch.levelIndex = std::max(0, app.challengeStep);
