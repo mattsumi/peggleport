@@ -226,13 +226,15 @@ int PlayerInfo::efficiencyBonus() const {
   return v >= 100000 ? v : 100000;
 }
 
-void PlayerInfo::checkTrophyTopScore(int id, int score) {
+void PlayerInfo::checkTrophyTopScore(int id, int score, bool lowerIsBetter) {
   if (score <= 0) return;
-  auto it = trophyTop.insert({id, score}).first;
-  if (it->second < score) {
-    it->second = score;
+  auto [it, added] = trophyTop.insert({id, score});
+  if (added) {
     dirty = true;
-  } else if (it->second == score) {
+    return;
+  }
+  if (lowerIsBetter ? it->second > score : it->second < score) {
+    it->second = score;
     dirty = true;
   }
 }

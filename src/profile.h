@@ -82,7 +82,7 @@ struct PlayerInfo {
   int i38 = 0;
   std::set<int> trophies;
   std::multiset<int> advScores;
-  std::map<int, int, std::greater<int>> trophyTop;
+  std::map<int, int> trophyTop;
   bool fEd = true, computerPlayer = true, fEe = true, colorblind = false, storyPending = true, fEf = false;
   int computerSkill = -1;
   uint8_t b54 = 0, b124 = 0, b128 = 0;
@@ -116,7 +116,7 @@ struct PlayerInfo {
   int tryNumber(bool nights) const { return nights ? advLevelAttempts + 1 : (advLevelAttempts < 1 ? 1 : advLevelAttempts); }
   int efficiencyBonus() const;
   void awardTrophy(int id) { if (trophies.insert(id).second) dirty = true; }
-  void checkTrophyTopScore(int id, int score);
+  void checkTrophyTopScore(int id, int score, bool lowerIsBetter = false);
   int trophyTopScore(int id) const { auto it = trophyTop.find(id); return it == trophyTop.end() ? 0 : it->second; }
   void submitAdventureScore(int score);
   void addTotalStats(const GameStats& s, bool current);
