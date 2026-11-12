@@ -282,7 +282,7 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::CoinFlip: play(e.a ? "FREEBALL" : "COINSPIN_NO"); break;
       case Event::LevelDone:
         play((b.cfg.duel && b.players > 1) ? "LEVELDONE" : e.a ? "LEVELWON" : "LEVELLOST", 0, 1, 1);
-        if (e.a && !(b.cfg.duel && b.players > 1)) {
+        if (b.result.cleared) {
           playLater(130, "TING", 0, 1, 1);
           playLater(160, "APPLAUSE", 0, 1, 1);
         }

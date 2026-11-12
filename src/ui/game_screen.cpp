@@ -786,6 +786,11 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
     }
   }
   newBest = rank == 1;
+  const bool aced = app.game == Game::Nights && won && !duel_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) && li && li->ace > 0 && o.totalScore >= li->ace;
+  if (app.audio && !o.cleared && (mode == EndLevelDialog::AdventureComplete || aced)) {
+    app.audio->playAfter(130, "TING");
+    app.audio->playAfter(160, "APPLAUSE");
+  }
   if (app.game == Game::Nights && p && won) {
     int after = 0;
     for (int i = 0; i < 4; i++) after |= MainMenu::mantelEarned(app, i) ? 1 << i : 0;

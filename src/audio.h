@@ -36,6 +36,7 @@ class Audio {
   void stopSample(const std::string& id);
   void stopLoops();
   void stopSounds();
+  void playAfter(int delay, const std::string& id) { playLater(delay, id, 0, 1, 1); }
   void dropQueued() { pending_.clear(); stopLoops(); }
   void setBoardLeaving(bool on) { leaving_ = on; }
   void fadeMusic(int frames);
