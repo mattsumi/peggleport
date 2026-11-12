@@ -198,8 +198,17 @@ void Slider::draw(Gfx& g) {
 
 
 bool EditBox::text(const std::string& t) {
-  for (unsigned char c : t) {
-    if (c < 32 || c == 127) continue;
+  for (size_t i = 0; i < t.size();) {
+    const unsigned char lead = (unsigned char)t[i++];
+    unsigned cp = lead;
+    size_t more = 0;
+    if (lead >= 0xF0) { cp = lead & 0x07u; more = 3; }
+    else if (lead >= 0xE0) { cp = lead & 0x0Fu; more = 2; }
+    else if (lead >= 0xC0) { cp = lead & 0x1Fu; more = 1; }
+    else if (lead >= 0x80) continue;
+    for (; more > 0 && i < t.size(); more--) cp = (cp << 6) | ((unsigned char)t[i++] & 0x3Fu);
+    if (cp < 32 || (cp >= 127 && cp < 160) || cp > 255) continue;
+    const unsigned char c = (unsigned char)cp;
     if (value.size() >= maxChars) break;
     std::string tryv = value;
     tryv.insert(tryv.begin() + caret, (char)c);
