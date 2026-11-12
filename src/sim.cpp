@@ -25,6 +25,8 @@ using namespace detail;
 
 namespace {
 
+float heldTo(float v, float lo, float hi) { return v >= lo ? (v <= hi ? v : hi) : (v < lo ? lo : 0.0f); }
+
 uint64_t fnvMix(uint64_t h, const void* p, size_t n) {
   const uint8_t* b = (const uint8_t*)p;
   for (size_t i = 0; i < n; i++) {
@@ -132,8 +134,8 @@ bool Board::makeObj(const Level& L, const Node& n, Obj& o) {
   float baseRot = 0;
   switch (o.shape) {
     case Shape::Circle:
-      o.pos = {n.f("x"), n.f("y")};
-      o.radius = n.f("radius");
+      o.pos = {heldTo(n.f("x"), -2000.0f, 3000.0f), heldTo(n.f("y"), -2000.0f, 3000.0f)};
+      o.radius = heldTo(n.f("radius"), 0.0f, 500.0f);
       break;
     case Shape::Line: {
       V2 a(n.f("x1"), n.f("y1")), b(n.f("x2"), n.f("y2"));
