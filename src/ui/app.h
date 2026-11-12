@@ -124,6 +124,7 @@ class App : public WidgetHost {
   Game homeGame = Game::Deluxe;
   std::function<void(Game)> homeHook;
   void setHomeGame(Game g);
+  void setGames(bool both, Game home);
   bool goHome();
   bool goHomeList(StartPlace place);
   bool startInList(const StartTarget& start);

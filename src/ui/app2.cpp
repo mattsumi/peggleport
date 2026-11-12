@@ -215,6 +215,20 @@ void App::finishOptionsDialog(bool apply, bool scrollOffIt) {
   pauseBoard(false);
 }
 
+void App::setGames(bool both, Game home) {
+  const bool changed = both != bothGames;
+  bothGames = both;
+  homeGame = home;
+  auto* old = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
+  if (!changed || !old || old->fromGame) return;
+  auto d = std::make_unique<OptionsDialog>(*this, false);
+  d->fullscreen->checked = old->fullscreen->checked;
+  d->colorblind->checked = old->colorblind->checked;
+  old->gone = true;
+  positionDialog(d.get(), 0x1b8);
+  dialogs_.push_back(std::move(d));
+}
+
 
 void App::dialogButton(int dlg, int btn) {
   bool yes = btn == ID_YES;

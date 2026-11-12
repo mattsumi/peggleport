@@ -424,7 +424,7 @@ void OptionsDialog::onButton(int id) {
     case 10: app.doConfirmNewChallengeDialog(); break;
     case 13: app.finishOptionsDialog(true, true); app.showEditor(); break;
     case 14: app.doVisualsDialog(); break;
-    case 15: app.finishOptionsDialog(true, true); app.requestGameFolders(); break;
+    case 15: app.requestGameFolders(); break;
     case 17: app.startDemo(); break;
     case 16:
       app.setHomeGame(app.homeGame == Game::Nights ? Game::Deluxe : Game::Nights);

@@ -294,13 +294,13 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
       }
       if (app.takeGameFoldersRequest() && o.chooseFolders) {
         if (o.chooseFolders(o.game)) {
+          app.finishOptionsDialog(true, false);
           next = GameRequest();
           next.game = o.game;
           result = RunResult::SwitchGame;
           app.requestQuit();
         } else {
-          app.bothGames = bothInstalled(o);
-          app.homeGame = homeOf(o);
+          app.setGames(bothInstalled(o), homeOf(o));
         }
         P.last = 0;
       }
