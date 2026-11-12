@@ -1421,11 +1421,17 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     y += lh * n + 6;
   }
   float buttons = (bRetry ? 2 : 1) * 36 + (bRetry ? 6 : 0) + insB + 8;
-  const float tipH = tip.empty() ? 0.0f : std::max(44.0f, g.wrappedHeight("PLAIN2", w - insL - insR, tip));
+  const char* kTip = "PLAINOUTLINE";
+  const float tipW = w - insL - insR - 42;
+  const float tipH = tip.empty() ? 0.0f : g.wrappedHeight(kTip, tipW, tip);
   bool room = y + buttons + tipH <= 535;
   if (!tip.empty() && room) {
-    if (draw) g.drawWrapped("PLAIN2", {insL, y, w - insL - insR, tipH}, tip, 0xfdfd87, 1, Align::Center);
-    y += tipH + 8;
+    const float tipTop = sy + g.fontAscent(kPlain);
+    if (draw) {
+      g.drawWrapped(kTip, {insL + 42, tipTop, tipW, tipH}, tip, nights ? 0x87fdfd : 0xfdfd87, 1, Align::Left);
+      if (Tex* icon = g.img("IMAGE_DLG_TIP")) g.draw(icon, insL - 5, tipTop + (tipH - icon->lh()) / 2);
+    }
+    y = tipTop + tipH + 8;
   }
   return y + buttons;
 }
