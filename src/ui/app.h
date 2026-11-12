@@ -346,7 +346,7 @@ class App : public WidgetHost {
 enum DialogId {
   D_DeleteUser = 2, D_ReturnToMenu = 4, D_Quit = 5, D_RestartLevel = 6, D_NewChallenge = 7, D_RestartAdventure = 8, D_CreateUser = 10,
   D_NameError = 11, D_ToMenu = 13, D_Tip = 14, D_HighScoreEntry = 16, D_Options = 19, D_RenameUser = 20, D_NameErrorRename = 21,
-  D_UserList = 24, D_WhichAdventure = 25, D_SaveGameError = 26, D_Replay1 = 27, D_Replay2 = 34, D_Locked = 38, D_SaveAll = 41, D_DeleteReplay = 42, D_ReplayError = 43, D_ImportProfile = 44,
+  D_UserList = 24, D_WhichAdventure = 25, D_SaveGameError = 26, D_Replay1 = 27, D_Replay2 = 34, D_Locked = 38, D_SaveAll = 41, D_DeleteReplay = 42, D_ReplayError = 43, D_ImportProfile = 44, D_SaveReplay = 47, D_OverwriteReplay = 48,
   D_EndLevel = 1, D_Character = 30, D_Pause = 40
 };
 

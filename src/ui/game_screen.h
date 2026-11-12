@@ -85,7 +85,8 @@ class GameScreen : public Screen {
   Board& board() { return viewer_ ? replay_ : board_; }
   LevelOutcome collectOutcome() const;
   bool levelDone() const { return done_; }
-  bool saveReplay(bool all, std::filesystem::path* pathOut);
+  bool saveReplay(bool all, std::filesystem::path* pathOut, const std::string& stem = std::string());
+  bool replayAllShots() const { return replayAll_; }
   bool canSaveReplay() const { return recording_ && haveSnap_ && !log_.empty(); }
   bool startViewer(const ReplayData& d);
   bool viewing() const { return viewer_; }

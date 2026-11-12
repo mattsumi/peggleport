@@ -20,7 +20,7 @@ namespace pp::ui {
 
 
 void ListBox::draw(Gfx& g) {
-  g.fill(0, 0, w, h, 0x505050);
+  g.fill(0, 0, w, h, back);
   g.pushClip(0, 0, w, h);
   int n = visibleItems() + 1;
   for (int i = 0; i < n; i++) {

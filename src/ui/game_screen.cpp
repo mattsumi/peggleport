@@ -471,7 +471,7 @@ void GameScreen::onButton(int id) {
   if (id == kReplayIR) startReplay();
 }
 
-bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut) {
+bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut, const std::string& stem) {
   if (!canSaveReplay()) return false;
   ReplayData d;
   d.game = app.game == Game::Nights ? 1 : 0;
@@ -487,7 +487,7 @@ bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut) {
   char stamp[32];
   std::time_t t = (std::time_t)d.when;
   std::strftime(stamp, sizeof stamp, "%Y%m%d_%H%M%S", std::localtime(&t));
-  const std::filesystem::path path = app.userDir / "replays" / pathFromUtf8(levelFile_ + "_" + stamp + replayExt(d.game));
+  const std::filesystem::path path = app.userDir / "replays" / pathFromUtf8(stem.empty() ? levelFile_ + "_" + stamp + replayExt(d.game) : stem + replayExt(d.game));
   if (!d.save(path)) return false;
   if (pathOut) *pathOut = path;
   return true;

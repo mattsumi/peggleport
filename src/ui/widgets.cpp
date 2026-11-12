@@ -199,6 +199,7 @@ void Slider::draw(Gfx& g) {
 
 
 bool EditBox::text(const std::string& t) {
+  if (selectAll && !t.empty()) { value.clear(); caret = 0; selectAll = false; }
   for (size_t i = 0; i < t.size();) {
     const unsigned char lead = (unsigned char)t[i++];
     unsigned cp = lead;
@@ -220,6 +221,8 @@ bool EditBox::text(const std::string& t) {
   return true;
 }
 bool EditBox::key(int k, int mod) {
+  if (selectAll && (k == SDLK_BACKSPACE || k == SDLK_DELETE)) { value.clear(); caret = 0; selectAll = false; return true; }
+  if (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_HOME || k == SDLK_END) selectAll = false;
   if (k == SDLK_BACKSPACE) {
     if (caret > 0) { value.erase(value.begin() + caret - 1); caret--; }
     return true;
@@ -248,7 +251,8 @@ void EditBox::draw(Gfx& g) {
   float ty = (h + asc * 0.8f) / 2;
   const float shift = textShift(g);
   if (clipText) g.pushClip(textPad - 1, 0, w - 2 * textPad + 2, h);
-  g.drawString(font, textPad - shift, ty, value, ink);
+  if (selectAll && !value.empty()) g.fill(textPad - shift, 0, g.textWidth(font, value) + 2, h, 0x000080);
+  g.drawString(font, textPad - shift, ty, value, selectAll ? 0xffffff : ink);
   if (focused && (tick / 40) % 2 == 0) {
     float cx = textPad - shift + g.textWidth(font, value.substr(0, caret));
     g.fill(cx, 3, 1, h - 6, ink);

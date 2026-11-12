@@ -315,7 +315,7 @@ void App::dialogButton(int dlg, int btn) {
       off(dlg);
       return;
     case D_Options: finishOptionsDialog(yes, true); return;
-    case D_Replay1: case D_Replay2: case D_SaveAll: case D_DeleteReplay: case D_ReplayError: replayDialogButton(dlg, btn); return;
+    case D_Replay1: case D_Replay2: case D_SaveAll: case D_DeleteReplay: case D_ReplayError: case D_SaveReplay: case D_OverwriteReplay: replayDialogButton(dlg, btn); return;
     case D_RenameUser: finishRenameUserDialog(yes); return;
     case D_UserList: finishUserDialog(yes); return;
     case D_ImportProfile: importDialogButton(dlg, btn); return;

@@ -123,6 +123,7 @@ class EditBox : public Widget {
   float textPad = 4;
   bool clipText = false;
   bool paper = false;
+  bool selectAll = false;
   uint32_t ink = 0xffffff;
   bool wantsFocus() const override { return true; }
   void update() override { tick++; }
