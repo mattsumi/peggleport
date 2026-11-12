@@ -425,7 +425,7 @@ void LevelScreen::drawLayer(Gfx& g) {
     float sx = kSlot[i][0], sy = kSlot[i][1];
     g.fill(sx - 10, sy - 10, kSlotW + 20, kSlotH + 20, 0x000000);
     if (!s || i >= (int)s->levels.size()) continue;
-    float cx = kTileHit[i][0] + (float)((int)(kTileHitW - 200) / 2), cy = kTileHit[i][1] + (float)((int)(kBtnH - 177) / 2);
+    float cx = kTileHit[i][0] + (float)((int)(kTileHitW - 200) / 2), cy = kTileHit[i][1] + (float)((int)(kTileHitH - 177) / 2);
     Tex* t = other ? og->picture("levels/cached_thumbnails/" + s->levels[i].file) : g.img("levels/cached_thumbnails/" + s->levels[i].file);
     if (!t) t = other ? og->picture("levels/" + s->levels[i].file) : g.img("levels/" + s->levels[i].file);
     bool ok = canSelect(i);
