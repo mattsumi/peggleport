@@ -893,8 +893,8 @@ static const HelpPage kHelpNights[13] = {
 int HelpScreen::numPages() const { return app.game == Game::Nights ? 13 : 8; }
 
 HelpScreen::HelpScreen(App& a, bool fb) : Screen(a), fromBoard(fb) {
-  patchButton(1, "Previous", "IMAGE_DLG_BROWNBUTTON1", 224, 541);
-  patchButton(2, "Next", "IMAGE_DLG_BROWNBUTTON1", 468, 541);
+  Button* prev = patchButton(1, "Previous", "IMAGE_DLG_BROWNBUTTON2", 266, 553);
+  patchButton(2, "Next", "IMAGE_DLG_BROWNBUTTON2", prev->x + prev->w + 22, 553);
   auto* done = addButton(0, Button::Kind::Simple, "IMAGE_HELP_BUTTONOVERLAY");
   done->x = 738; done->y = 536;
   done->w = 62; done->h = 62;
@@ -913,6 +913,7 @@ void HelpScreen::keyDown(int key, int) {
 void HelpScreen::drawLayer(Gfx& g) {
   g.fill(0, 0, 800, 600, 0x000020);
   if (Tex* bg = g.img("IMAGE_HELP_SCREEN")) g.draw(bg, 0, 0);
+  if (Tex* ov = g.img("IMAGE_HELP_BUTTONOVERLAY")) g.draw(ov, 224, 541);
   const bool nights = app.game == Game::Nights;
   const HelpPage& hp = nights ? kHelpNights[page] : kHelp[page];
   g.drawString("OVERLOAD24GRAD1", 100, 50, "How to Play", 0xb6ffff);
