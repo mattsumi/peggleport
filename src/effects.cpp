@@ -1373,7 +1373,7 @@ void Renderer::fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& o
       if (e.y > 630.0f) e.life = e.age;
       break;
     case 0x11:
-      if (e.x < 0 || e.x > 650) e.vx = -e.vx;
+      if (e.x < 0 || e.x > (float)b.W) e.vx = -e.vx;
       if (e.y > 630) e.life = e.age;
       break;
     default: break;
