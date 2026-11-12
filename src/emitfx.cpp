@@ -58,6 +58,8 @@ struct Particle {
   int age = 0, life = 1, fadeAt = 0, fadeIn = 0;
 };
 
+float heldTo(float v, float lo, float hi, float other) { return v >= lo ? (v <= hi ? v : hi) : (v < lo ? lo : other); }
+
 struct Emitter {
   const Node* node = nullptr;
   std::string image;
@@ -101,11 +103,11 @@ struct EmitFx {
       m.randomStart = n.flag("random_start");
       m.visible = n.flag("visible");
       m.layer = n.flag("background") ? 0 : n.flag("foreground2") ? 3 : n.flag("foreground") ? 2 : 1;
-      m.randRate = n.f("rand_rate");
-      m.rateMul = n.has("hardware_rate") ? n.f("hardware_rate") : 1.0f;
-      m.fadeAt = n.has("alpha_fade_at") ? n.f("alpha_fade_at") : 0.5f;
-      m.fadeInto = n.has("alpha_into") ? n.f("alpha_into") : 0.1f;
-      m.duration = n.has("duration") ? n.f("duration") : 0.75f;
+      m.randRate = heldTo(n.f("rand_rate"), 0.0f, 1000.0f, 0.0f);
+      m.rateMul = heldTo(n.has("hardware_rate") ? n.f("hardware_rate") : 1.0f, 0.0f, 1000.0f, 1.0f);
+      m.fadeAt = heldTo(n.has("alpha_fade_at") ? n.f("alpha_fade_at") : 0.5f, 0.0f, 1000.0f, 0.5f);
+      m.fadeInto = heldTo(n.has("alpha_into") ? n.f("alpha_into") : 0.1f, 0.0f, 1000.0f, 0.1f);
+      m.duration = heldTo(n.has("duration") ? n.f("duration") : 0.75f, 0.0f, 1000.0f, 0.75f);
       m.spiral = n.f("spiral_count");
       m.pending = n.has("fast_forward") ? (int)n.i("fast_forward") : 100;
       m.rate.load(n.val("rate"), 0.0f);
