@@ -451,7 +451,7 @@ void MainMenu::placeButtons() {
   bOptions->x = 0x108; bOptions->y = 0x22a;
   bReplay->x = 0x1a1; bReplay->y = 0x22a;
   bLink->x = 0x13b;
-  bLink->y = isNights ? 0x88 : 0x8e;
+  bLink->y = (float)(isNights ? 0x88 : 0x8e);
 }
 
 void MainMenu::updateBubbles() {
