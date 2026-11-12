@@ -11,9 +11,19 @@ namespace pp {
 
 const float* Board::sapBox(int id) const {
   if (id < SAP_BALL) return &objs[(size_t)id].x0;
+  const int uid = id - SAP_BALL;
+  if (uid > 0) {
+    size_t lo = 0, hi = balls.size();
+    while (lo < hi) {
+      const size_t mid = (lo + hi) / 2;
+      if (balls[mid].uid < uid) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo < balls.size() && balls[lo].uid == uid) return &balls[lo].bx0;
+  }
   for (const Ball& b : balls) {
-    if (b.uid == id - SAP_BALL) return &b.bx0;
-    if (b.hatUid == id - SAP_BALL) return &b.hx0;
+    if (b.uid == uid) return &b.bx0;
+    if (b.hatUid == uid) return &b.hx0;
   }
   return nullptr;
 }
@@ -93,14 +103,17 @@ void Board::sapRemove(int id) {
 }
 
 void Board::sapSortList(std::vector<SapEnd>& list, int axis) {
-  auto val = [&](const SapEnd& e) {
-    const float* b = sapBox(e.id);
-    return b ? b[axis + (e.start ? 0 : 2)] : 0.0f;
-  };
-  for (size_t i = 1; i < list.size(); i++) {
+  thread_local std::vector<float> key;
+  const size_t n = list.size();
+  key.resize(n);
+  for (size_t i = 0; i < n; i++) {
+    const float* b = sapBox(list[i].id);
+    key[i] = b ? b[axis + (list[i].start ? 0 : 2)] : 0.0f;
+  }
+  for (size_t i = 1; i < n; i++) {
     size_t j = i;
     while (j > 0) {
-      if (val(list[j]) > val(list[j - 1])) break;
+      if (key[j] > key[j - 1]) break;
       const SapEnd A = list[j - 1], B = list[j];
       const bool aball = A.id >= SAP_BALL, bball = B.id >= SAP_BALL;
       if (A.start && !B.start) {
@@ -124,6 +137,7 @@ void Board::sapSortList(std::vector<SapEnd>& list, int axis) {
         }
       }
       std::swap(list[j - 1], list[j]);
+      std::swap(key[j - 1], key[j]);
       j--;
     }
   }
