@@ -800,8 +800,8 @@ HelpScreen::HelpScreen(App& a, bool fb) : Screen(a), fromBoard(fb) {
 }
 void HelpScreen::onButton(int id) {
   if (id == 0) { app.endHelpScreen(); }
-  else if (id == 1) page = std::max(0, page - 1);
-  else if (id == 2) page = std::min(numPages() - 1, page + 1);
+  else if (id == 1) page = page > 0 ? page - 1 : numPages() - 1;
+  else if (id == 2) page = page + 1 < numPages() ? page + 1 : 0;
 }
 void HelpScreen::keyDown(int key, int) {
   if (key == SDLK_ESCAPE || key == SDLK_RETURN) app.endHelpScreen();
