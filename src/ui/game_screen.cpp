@@ -949,11 +949,13 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   if (p && app.game == Game::Deluxe && !duel_ && !demo_ && !viewer_) {
     const TrophyInfo* ct = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
     const bool barred = ct && ((ct->levels.size() > 1 && !ct->scoreReset) || (ct->numOrange != 0 && ct->numOrange != 25) || ct->clearLevel);
-    if (!barred)
+    if (!barred) {
       for (auto* t : app.trophies.forScoreOnLevel(levelFile_, o.totalScore)) {
         p->awardTrophy(t->id);
         p->checkTrophyTopScore(t->id, o.totalScore);
       }
+      if (app.gameMode == GameMode::Challenge) app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+    }
   }
   if (p && !won && !duel_ && !demo_ && !viewer_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay))
     app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
