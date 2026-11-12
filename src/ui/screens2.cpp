@@ -1004,7 +1004,7 @@ void TrophyScreen::keyDown(int key, int) {
   else if (key == SDLK_LEFT && bPrev->visible) onButton(101);
   else if (key == SDLK_RIGHT && bNext->visible) onButton(102);
 }
-static void drawTrophyInfo(Gfx& g, const std::string& name, const std::string& desc, int best, bool nights) {
+static void drawTrophyInfo(Gfx& g, const std::string& name, const std::string& desc, int best, bool nights, float dy = 0) {
   const std::string head = "OVERLOAD16OUTLINE", small = "OVERLOAD12OUTLINE", plain = "PLAINOUTLINE";
   const float space = g.fontLineSpacing(head) - 4.0f, pad = g.fontAscentPadding(head);
   const int lines = std::max(1, (int)(g.wrappedHeight(head, 200, name, space) / space + 0.5f));
@@ -1015,6 +1015,8 @@ static void drawTrophyInfo(Gfx& g, const std::string& name, const std::string& d
     top = tall ? 340.0f : 348.0f;
     below = (tall ? 328.0f : 348.0f) + headH + 15.0f;
   }
+  top += dy;
+  below += dy;
   g.drawWrapped(head, {300, top - pad, 200, 0}, name, 0xffff00, 1, Align::Center, space);
   if (best > 0) {
     const std::string line = "Your Best: " + commas(best);
@@ -1047,7 +1049,10 @@ void TrophyScreen::drawLayer(Gfx& g) {
     }
   }
   if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
-  g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, pg.name, 0xb7ffff, 1, Align::Center);
+  const Game pageGame = theirs ? og->game : app.game;
+  const bool firstOwnPage = (theirs ? page - ownPages() : page) == 0;
+  const char* header = pageGame == Game::Nights && firstOwnPage ? "Initiate Challenges" : "Master Challenges";
+  g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, header, 0xb7ffff, 1, Align::Center);
   g.drawString("OVERLOAD12OUTLINE", 0x1b8, 0x1f9, "Page " + std::to_string(page + 1), 0xffff00, 1, Align::Left);
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
@@ -1066,9 +1071,14 @@ void TrophyScreen::drawLayer(Gfx& g) {
   if (hovered >= 0 && hovered < 5 && hovered < (int)pg.trophies.size()) {
     const TrophyInfo& t = pg.trophies[hovered];
     drawTrophyInfo(g, t.name.empty() ? pg.name : t.name, t.desc.empty() ? pg.desc : t.desc, marks ? marks->trophyTopScore(t.id) : 0, (theirs ? og->game : app.game) == Game::Nights);
-  } else if (og) {
-    const std::string name = gameTitle(theirs ? og->game : app.game);
-    g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", name) / 2, 365, name, 0xffff00);
+  } else {
+    float dy = 0;
+    if (og) {
+      const std::string name = gameTitle(pageGame);
+      g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", name) / 2, 365, name, 0xffff00);
+      dy = g.fontLineSpacing("OVERLOAD16OUTLINE");
+    }
+    drawTrophyInfo(g, pg.name, pg.desc, 0, pageGame == Game::Nights, dy);
   }
 }
 

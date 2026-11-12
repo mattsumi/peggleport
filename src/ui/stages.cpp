@@ -236,7 +236,14 @@ void TrophyMgr::parseCfg(const std::string& text) {
   for (auto& it : items) {
     if (!it.isGroup || !ieq(it.key, "Page")) continue;
     TrophyPage pg;
-    pg.name = it.label;
+    for (size_t i = 0; i < it.label.size(); i++) {
+      if (it.label[i] == '\\' && i + 1 < it.label.size()) {
+        const char c = it.label[++i];
+        pg.name.push_back(c == 'n' ? '\n' : c == 't' ? '\t' : c);
+      } else {
+        pg.name.push_back(it.label[i]);
+      }
+    }
     for (auto& k : it.kids) {
       if (!k.isGroup) {
         auto v = cfgValues(k.label);
