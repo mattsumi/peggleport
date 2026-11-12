@@ -837,7 +837,6 @@ void GameScreen::onLeave() {
     if (app.game == Game::Deluxe && !played) p->uncountLevelStart();
     else if (app.game == Game::Nights && played) p->countFailedTry();
   }
-  submitStats();
   app.saveProfile();
 }
 
