@@ -822,7 +822,12 @@ void Renderer::doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0
           }
         } else if (hitImg) {
           float rot = std::atan2(prev.y - cur.y, cur.x - prev.x);
-          putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {0xffffffffu, Blend::Normal}, 1.0f, rot);
+          if (b.cfg.nights) {
+            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {(col << 8) | 0xffu, Blend::Normal}, 1.0f, rot);
+            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
+          } else {
+            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {0xffffffffu, Blend::Normal}, 1.0f, rot);
+          }
         }
         break;
       }
