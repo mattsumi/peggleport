@@ -186,6 +186,8 @@ void AdventureScreen::keyDown(int key, int) {
 
 static const float kSlot[5][2] = {{43, 85}, {304, 85}, {568, 85}, {43, 334}, {568, 334}};
 static const float kSlotW = 190, kSlotH = 175;
+static const float kTileHit[5][2] = {{14, 62}, {276, 62}, {540, 62}, {13, 312}, {539, 312}};
+static const float kTileHitW = 250, kTileHitH = 215;
 
 LevelScreen::LevelScreen(App& a) : Screen(a) {
   a.playMusic(a.game == Game::Deluxe ? "beats:60" : "music/menu.ogg");
@@ -207,7 +209,7 @@ LevelScreen::LevelScreen(App& a) : Screen(a) {
     auto b = std::make_unique<Button>();
     b->id = i;
     b->kind = Button::Kind::Simple;
-    b->x = kSlot[i][0]; b->y = kSlot[i][1]; b->w = kSlotW; b->h = kSlotH;
+    b->x = kTileHit[i][0]; b->y = kTileHit[i][1]; b->w = kTileHitW; b->h = kTileHitH;
     b->hoverSound = "";
     b->clickSound = "BUTTON1";
     b->tickRef = &updateCount;
@@ -946,7 +948,7 @@ TrophyScreen::TrophyScreen(App& a) : Screen(a) {
     auto b = std::make_unique<Button>();
     b->id = i;
     b->kind = Button::Kind::Simple;
-    b->x = kSlot[i][0]; b->y = kSlot[i][1]; b->w = kSlotW; b->h = kSlotH;
+    b->x = kTileHit[i][0]; b->y = kTileHit[i][1]; b->w = kTileHitW; b->h = kTileHitH;
     b->hoverSound = ""; b->clickSound = "BUTTON1"; b->tickRef = &updateCount;
     bSlot[i] = add(std::move(b));
   }
