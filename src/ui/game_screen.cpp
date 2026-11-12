@@ -396,10 +396,79 @@ void GameScreen::replayFinished() {
     (void)d;
     return;
   }
-  Dialog* d = app.doDialog(D_Replay1, true, "Instant Replay Finished!", "Hit ^FF44FF^Done Button^oldclr^ to Return to Game.\nHit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "", BUTTONS_YES_NO);
-  d->setYesNo("Done", canSaveReplay() ? "Save Replay" : "Close");
-  pause(true);
-  replayDlgPaused_ = true;
+  showReplayPanel();
+}
+
+namespace {
+constexpr int kReplayIR = 9101, kReplaySave = 9102, kReplayDone = 9103;
+}
+
+void GameScreen::showReplayPanel() {
+  if (!rbReplay_) {
+    rbReplay_ = embeddedButton(kReplayIR, "IMAGE_DLG_INSTANTREPLAY", 0, 0);
+    rbSave_ = patchButton(kReplaySave, "Save", "IMAGE_DLG_PURPLEBUTTON", 0, 0);
+    rbDone_ = patchButton(kReplayDone, "Done", "IMAGE_DLG_PURPLEBUTTON", 0, 0);
+  }
+  replayPanel_ = true;
+  layoutReplayPanel();
+}
+
+void GameScreen::layoutReplayPanel() {
+  const float dw = (float)(canvasWidth() - 800);
+  Button* const b[3] = {rbReplay_, rbSave_, rbDone_};
+  const float top[3] = {395, 468, 539};
+  for (int i = 0; i < 3; i++) {
+    if (!b[i]) continue;
+    b[i]->x = 736 + dw;
+    b[i]->y = top[i];
+    b[i]->visible = replayPanel_;
+    b[i]->enabled = i != 1 || canSaveReplay();
+  }
+}
+
+void GameScreen::drawReplayHousing(Gfx& g) {
+  Tex* top = g.img("IMAGE_DLG_REPLAYTOP");
+  Tex* seg = g.img("IMAGE_DLG_REPLAYSEGMENT");
+  if (!top || !seg) return;
+  const float x = 726 + (float)(canvasWidth() - 800);
+  float y = 385;
+  g.draw(top, x, y);
+  y += top->lh() - 2;
+  for (int i = 0; i < 2; i++) {
+    g.draw(seg, x, y);
+    y += seg->lh() - 2;
+  }
+}
+
+void GameScreen::drawReplayText(Gfx& g) {
+  const float dw = (float)(canvasWidth() - 800);
+  const float cx = 400 + dw / 2;
+  static const int kInset[10] = {10, 7, 6, 4, 3, 3, 2, 1, 1, 1};
+  for (int r = 0; r < 81; r++) {
+    const int d = std::min(r, 80 - r);
+    const int ins = d < 10 ? kInset[d] : 0;
+    g.fill(cx - 206 + (float)ins, 157 + (float)r, 412 - 2.0f * (float)ins, 1, 0x000000, 100.0f / 255.0f);
+  }
+  const std::string font = "OVERLOAD16OUTLINE";
+  const auto centred = [&](float y, const std::string& tagged, const std::string& plain) {
+    g.drawString(font, std::floor(cx - std::floor(g.textWidth(font, plain) / 2)), y, tagged, 0xffffff, 1, Align::Left);
+  };
+  centred(189, "Instant Replay Finished!", "Instant Replay Finished!");
+  centred(213, "Hit ^FF44FF^Done Button^oldclr^ to Return to Game.", "Hit Done Button to Return to Game.");
+  centred(237, "Hit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "Hit Instant Replay Button to Watch Again.");
+  g.drawString(font, 99, 85, "Replay", 0xffff00, 1, Align::Left);
+  g.drawString(font, 637 + dw, 85, "Replay", 0xffff00, 1, Align::Left);
+}
+
+void GameScreen::onButton(int id) {
+  if (!replayPanel_) return;
+  if (id == kReplaySave) {
+    if (canSaveReplay()) app.doSaveReplayDialog();
+    return;
+  }
+  replayPanel_ = false;
+  layoutReplayPanel();
+  if (id == kReplayIR) startReplay();
 }
 
 bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut) {
@@ -596,7 +665,6 @@ void GameScreen::update() {
     }
   }
   if (stageDialogDelay_ > 0 && --stageDialogDelay_ == 0) showStageDialog();
-  if (replayDlgPaused_ && !app.getDialog(D_Replay1) && !app.getDialog(D_SaveAll)) { replayDlgPaused_ = false; pause(false); }
   if (tipPaused_ && !app.getDialog(D_Tip)) { tipPaused_ = false; pause(false); }
   if (charPaused_ && !app.getDialog(D_Character)) {
     charPaused_ = false;
@@ -606,6 +674,7 @@ void GameScreen::update() {
     charChosen_ = duel_;
     return;
   }
+  if (replayPanel_) return;
   if (pauseCount_ > 0) return;
   if (!app.windowFocused) return;
   if (!spinHeld_.empty() && !app.getDialog(D_Slot)) {
@@ -931,6 +1000,10 @@ void GameScreen::drawLayer(Gfx& g) {
     hud_.alpha = pauseCount_ == 0 && !app.anyDialog() ? app.renderAlpha : 1.0f;
     app.boardRenderer->draw(replaying_ || viewer_ ? replay_ : board_, lb_, hud_);
   }
+  if (replayPanel_) {
+    layoutReplayPanel();
+    drawReplayHousing(g);
+  }
 }
 
 void GameScreen::drawOverlay(Gfx& g) {
@@ -938,6 +1011,7 @@ void GameScreen::drawOverlay(Gfx& g) {
   float dw = (float)(canvasWidth() - 800);
   std::string corner = replaying_ ? std::string("Instant Replay") : cornerText();
   if (!corner.empty()) g.drawString("OVERLOAD16OUTLINE", 588 + dw / 2, 28, corner, 0xffffff, 1, Align::Center);
+  if (replayPanel_) drawReplayText(g);
   if (board_.phase == Phase::Over && board_.result.cleared && !demo_ && overTicks < 100 && !endShown_)
     g.drawString("OVERLOAD16OUTLINE", 75 + 325 + dw / 2, 40 + 440, "Click to Continue", 0xffffff, 0.6f + 0.4f * std::sin(updateCount * 0.08f), Align::Center);
   if (pauseFade_ > 0 && !app.anyDialog()) {
@@ -958,6 +1032,7 @@ static bool inReplayButton(float x, float y, float dw) { return x >= 736 + dw &&
 static bool inMenuButton(float x, float y) { return x >= 12 && x < 63 && y >= 540 && y < 591; }
 
 bool GameScreen::input(const Input& in) {
+  if (replayPanel_) return Panel::input(in);
   if (demo_ && (in.type == Input::MouseDown || in.type == Input::KeyDown)) { app.doToMenu(); return true; }
   const auto menuLive = [&]() { return inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0; };
   const auto replayLive = [&]() {
@@ -1017,6 +1092,7 @@ bool GameScreen::input(const Input& in) {
 }
 
 void GameScreen::keyDown(int key, int) {
+  if (replayPanel_) return;
   if (replaying_ && key == SDLK_ESCAPE) { stopReplay(); if (viewer_) app.doToMenu(); return; }
   if (key == SDLK_ESCAPE) {
     if (!app.getDialog(D_Options) && !done_) app.doOptionsDialog();

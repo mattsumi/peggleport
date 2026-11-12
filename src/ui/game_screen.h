@@ -69,6 +69,7 @@ class GameScreen : public Screen {
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
   bool input(const Input& in) override;
+  void onButton(int id) override;
   void keyDown(int key, int mod) override;
   void lostFocus() override;
   void onLeave() override;
@@ -120,7 +121,12 @@ class GameScreen : public Screen {
   int replayTicks_ = 0;
   void clickBoard();
   std::vector<ReplayEvent> log_;
-  bool recording_ = false, viewer_ = false, replayDlgPaused_ = false;
+  bool recording_ = false, viewer_ = false, replayPanel_ = false;
+  Button *rbReplay_ = nullptr, *rbSave_ = nullptr, *rbDone_ = nullptr;
+  void showReplayPanel();
+  void layoutReplayPanel();
+  void drawReplayHousing(Gfx& g);
+  void drawReplayText(Gfx& g);
   BoardConfig cfg_;
   ReplayData view_;
   size_t viewIdx_ = 0;
