@@ -389,14 +389,14 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
       }
     } else {
       if (pageGame == Game::Deluxe) g.drawWrapped("OVERLOAD12OUTLINE", {panelX, 410, panelW, 60}, modeHint, 0x88ff88, 1, Align::Center);
-      else g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, modeHint, 0x88ff88, 1, Align::Center);
+      else g.drawWrapped("PLAINOUTLINE", {panelX, 395, panelW, 60}, modeHint, 0xffffff, 1, Align::Center);
     }
     return;
   }
   if (pageGame == Game::Nights && hovered >= 0 && hovered < 5 && s && hovered < (int)s->levels.size() && !canSelect(hovered)) {
     std::string t = "Level locked!", body = "Complete this level\nin adventure mode to unlock!";
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", t) / 2, 365, t, 0xffff00);
-    g.drawWrapped("PLAIN", {303, 395, 190, 80}, body, 0xff4444, 1, Align::Center);
+    g.drawWrapped("PLAINOUTLINE", {303, 395, 190, 80}, body, 0xff4444, 1, Align::Center);
     return;
   }
   bool randomOver = hovered == 5;
@@ -412,7 +412,8 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
     std::string hint = !modeHint.empty() ? modeHint
                        : randomOver ? "Can't decide on a level?  Select one randomly!"
                                     : "Play any level that\nyou have unlocked in Adventure Mode!";
-    g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, hint, 0x88ff88, 1, Align::Center);
+    if (pageGame == Game::Nights && !modeHint.empty()) g.drawWrapped("PLAINOUTLINE", {panelX, 395, panelW, 60}, hint, 0xffffff, 1, Align::Center);
+    else g.drawWrapped("PLAIN", {panelX, 365 + 40 + 10, panelW, 60}, hint, 0x88ff88, 1, Align::Center);
   }
 }
 
