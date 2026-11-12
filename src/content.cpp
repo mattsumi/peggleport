@@ -1,6 +1,7 @@
 #include "content.h"
 
 #include "log.h"
+#include "ui/cfg.h"
 
 #include <filesystem>
 #include <fstream>
@@ -36,7 +37,7 @@ static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
 }
 
 static void parseStages(const std::string& text, const std::string& pack, std::vector<StageLevel>& out) {
-  std::istringstream in(text);
+  std::istringstream in(ui::cfgStripComments(text));
   std::string line;
   int stage = -1;
   while (std::getline(in, line)) {
