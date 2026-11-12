@@ -767,7 +767,12 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
     }
     lightImg = img(light[k]);
   }
-  if (auto t = objImage(o.image)) {
+  Tex* objTex = objImage(o.image);
+  if (objTex && b.W > 650 && !o.fromBase) {
+    const float half = (float)(b.W - 650) * 0.5f, cx = o.pos.x + rot({o.imgDx, o.imgDy}, o.rot).x, reach = std::max(objTex->lw(), objTex->lh()) * 0.5f;
+    if (cx - reach > half + 650.0f || cx + reach < half) objTex = nullptr;
+  }
+  if (auto t = objTex) {
     V2 off = rot({o.imgDx, o.imgDy}, o.rot);
     float lw = t->lw(), lh = t->lh();
     sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y + (b.cfg.nights && o.shape == Shape::Hole ? 2.0f : 0.0f), lw, lh, o.rot, a, false, 0xffffff, o.mirror);
