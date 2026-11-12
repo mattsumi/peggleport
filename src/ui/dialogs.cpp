@@ -413,7 +413,7 @@ void OptionsDialog::sliderChanged(int id, double v) {
   else if (id == 1) app.settings.sfx = (float)v;
   else app.settings.fever = (float)v;
   app.applySettings();
-  if (id == 1) app.playSample("BUTTON1");
+  if (id == 1 && !sfx->dragging) app.playSample("BUTTON1");
 }
 
 void OptionsDialog::checkboxChanged(int id, bool on) {

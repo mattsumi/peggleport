@@ -175,6 +175,7 @@ bool Slider::mouseDown(float lx, float ly, int button, int clicks) {
 bool Slider::mouseUp(float lx, float ly, int button) {
   if (!dragging) return false;
   dragging = false;
+  if (host) host->sliderChanged(id, value);
   return true;
 }
 void Slider::mouseMove(float lx, float ly) {
