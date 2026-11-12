@@ -406,7 +406,7 @@ void CharacterDialog::drawInfo(Gfx& g) {
     for (int i = 0; i < (int)lines.size() && i < fit; i++) {
       std::string l = lines[(size_t)i];
       if (i == fit - 1 && (int)lines.size() > fit) l += "...";
-      g.drawString(small, mid, top + g.fontAscent(small) + ls * (float)i, l, 0xffffff, 1, Align::Center);
+      g.drawString(small, mid, top + g.fontAscent(small) - g.fontAscentPadding(small) + ls * (float)i, l, 0xffffff, 1, Align::Center);
     }
     if (pw) g.draw(pw, 185, h - pw->lh() - 6);
     return;
