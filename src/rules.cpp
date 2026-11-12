@@ -1185,22 +1185,25 @@ static bool inPolyN(const float (*pt)[2], int n, float px, float py) {
 bool Board::inFlipperZone(const Obj& o) const {
   if (o.zoneMode == 1) return true;
   if (o.zoneMode == 2) return false;
+  const float wideShift = (float)(W - 650);
   if (cfg.nights) {
     static const float NA[5][2] = {{0, 448}, {50, 460}, {92, 470}, {95, 523}, {0, 530}};
     static const float NB[5][2] = {{644, 450}, {600, 455}, {558, 460}, {555, 523}, {644, 530}};
     const float x = o.pos.x, y = o.pos.y;
+    const float xr = x - wideShift;
     if (400.0 <= (double)y) {
       if (x < 150.0f && inPolyN(NA, 5, x, y)) return true;
-      if (500.0 < (double)x && inPolyN(NB, 5, x, y)) return true;
+      if (500.0 < (double)xr && inPolyN(NB, 5, xr, y)) return true;
     }
     return false;
   }
   static const float A[4][2] = {{0, 380}, {110, 470}, {110, 600}, {0, 600}};
   static const float B[4][2] = {{650, 380}, {540, 470}, {540, 600}, {650, 600}};
   float x = o.pos.x, y = o.pos.y;
+  const float xr = x - wideShift;
   if (400.0f <= y) {
     if (x < 150.0f && (x < 80.0f || inPoly4(A, x, y))) return true;
-    if (500.0f < x && (570.0f < x || inPoly4(B, x, y))) return true;
+    if (500.0f < xr && (570.0f < xr || inPoly4(B, xr, y))) return true;
   }
   return false;
 }
