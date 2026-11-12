@@ -487,12 +487,14 @@ std::vector<std::string> Gfx::wrap(const std::string& font, float width, const s
       }
     }
   };
+  size_t run = 0;
   auto place = [&](const std::string& w) {
+    const size_t spaces = std::max<size_t>(1, run);
     float ww = wordWidth(w), sp = fp_->width(font, " ");
-    if (curW > 0 && curW + sp + ww > width) {
+    if (curW > 0 && curW + sp * (float)spaces + ww > width) {
       flush();
     }
-    if (curW > 0 || (!cur.empty() && stripColorCodes(cur).size() > 0)) { cur += " "; curW += sp; }
+    if (curW > 0 || (!cur.empty() && stripColorCodes(cur).size() > 0)) { cur.append(spaces, ' '); curW += sp * (float)spaces; }
     cur += w;
     curW += ww;
     trackColor(w);
@@ -517,9 +519,10 @@ std::vector<std::string> Gfx::wrap(const std::string& font, float width, const s
   };
   while (i <= s.size()) {
     if (i == s.size() || s[i] == ' ' || s[i] == '\n') {
-      if (!word.empty()) addWord(word);
+      if (!word.empty()) { addWord(word); run = 0; }
       word.clear();
-      if (i < s.size() && s[i] == '\n') flush();
+      if (i < s.size() && s[i] == ' ') run++;
+      if (i < s.size() && s[i] == '\n') { flush(); run = 0; }
     } else {
       word.push_back(s[i]);
     }
