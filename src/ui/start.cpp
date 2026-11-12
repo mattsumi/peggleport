@@ -2,7 +2,9 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <system_error>
@@ -10,6 +12,8 @@
 
 #include "gamepaths.h"
 #include "log.h"
+#include "ui/app.h"
+#include "ui/dialog.h"
 
 namespace pp::ui {
 
@@ -116,6 +120,76 @@ std::string folderKey(const fs::path& p) {
   return pathToUtf8(c);
 }
 
+const int kFolderDialog = 62;
+
+struct BoxAnswer {
+  int hit = -1;
+  bool closed = false;
+};
+
+class FolderBox : public Dialog {
+ public:
+  FolderBox(App& a, const std::string& text, const std::vector<std::string>& buttons, std::shared_ptr<BoxAnswer> answer)
+      : Dialog(a, kFolderDialog, true, "Game Folders", text, buttons.size() == 1 ? buttons[0] : std::string(), buttons.size() == 1 ? BUTTONS_FOOTER : BUTTONS_YES_NO), answer_(std::move(answer)) {
+    if (buttons.size() > 1) setYesNo(buttons[0], buttons[1]);
+    if (buttons.size() > 2) last_ = patchButton(ID_CLOSE, buttons[2], "IMAGE_DLG_BUTTON3", 0, 0);
+    escapeButton = last_ ? ID_CLOSE : ID_NO;
+  }
+  ~FolderBox() override { answer_->closed = true; }
+
+  float preferredHeight(float width) override { return Dialog::preferredHeight(width) + (last_ ? buttonH + 5 : 0); }
+
+  void place() {
+    if (!last_) return;
+    layoutButtons();
+    last_->x = yesBtn->x;
+    last_->y = yesBtn->y;
+    last_->w = noBtn->x + noBtn->w - yesBtn->x;
+    last_->h = buttonH;
+    yesBtn->y -= buttonH + 5;
+    noBtn->y = yesBtn->y;
+  }
+
+  void drawLayer(Gfx& g) override {
+    place();
+    Dialog::drawLayer(g);
+  }
+
+  void onButton(int id) override {
+    if (answer_->hit < 0) answer_->hit = id == ID_NO ? 1 : id == ID_CLOSE ? 2 : 0;
+    doScrollOff();
+  }
+
+ private:
+  std::shared_ptr<BoxAnswer> answer_;
+  Button* last_ = nullptr;
+};
+
+int gameMessage(App& app, const GameWait& wait, const std::string& text, const std::vector<std::string>& buttons) {
+  std::string shown;
+  for (char c : text) {
+    shown += c;
+    if (c == '^') shown += c;
+  }
+  auto answer = std::make_shared<BoxAnswer>();
+  auto box = std::make_unique<FolderBox>(app, shown, buttons, answer);
+  FolderBox* raw = box.get();
+  const bool alone = !app.anyDialog();
+  app.positionDialog(raw, alone ? 366 : 440);
+  if (alone && app.screenName() == "mainmenu") {
+    raw->x = 410 - raw->w / 2;
+    raw->y = 280;
+  }
+  raw->y = std::max(10.0f, std::min(raw->y, 590 - raw->h));
+  raw->place();
+  raw->doScroll(true);
+  app.addDialog(kFolderDialog, std::move(box));
+  app.pauseBoard(true);
+  wait([&] { return answer->closed; });
+  app.pauseBoard(false);
+  return answer->hit;
+}
+
 }
 
 StartDialogs systemDialogs() {
@@ -126,6 +200,16 @@ StartDialogs systemDialogs() {
 }
 
 GameFolders::GameFolders(fs::path storeFile, FindSources sources, StartDialogs dialogs) : storeFile_(std::move(storeFile)), sources_(std::move(sources)), dialogs_(std::move(dialogs)) {}
+
+void GameFolders::setGame(App* app, GameWait wait) {
+  app_ = app;
+  wait_ = std::move(wait);
+}
+
+int GameFolders::ask(const std::string& title, const std::string& text, const std::vector<std::string>& buttons, bool problem) {
+  if (app_ && wait_) return gameMessage(*app_, wait_, text, buttons);
+  return dialogs_.message ? dialogs_.message(window_, title, text, buttons, problem) : -1;
+}
 
 fs::path GameFolders::defaultStoreFile() {
   char* p = SDL_GetPrefPath("PegglePort", "PegglePort");
@@ -207,7 +291,7 @@ void GameFolders::drop(Game g) {
 
 void GameFolders::tell(const std::string& text, bool problem) {
   if (problem) log::warn("start", text);
-  if (dialogs_.message) dialogs_.message(window_, "PegglePort", text, {"OK"}, problem);
+  ask("PegglePort", text, {"OK"}, problem);
 }
 
 void GameFolders::tellNoChooser() {
@@ -259,7 +343,7 @@ bool GameFolders::askForAnyGame(const std::string& problem) {
   }
   bool warn = !problem.empty();
   for (;;) {
-    if (dialogs_.message(window_, "PegglePort", text, {kChoose, "Quit"}, warn) != 0) return false;
+    if (ask("PegglePort", text, {kChoose, "Quit"}, warn) != 0) return false;
     FolderAnswer a = dialogs_.folder(window_, "Choose the folder Peggle Deluxe or Peggle Nights is installed in", startFolder(Game::Deluxe));
     if (a.status == FolderAnswer::Status::Unavailable) {
       tellNoChooser();
@@ -278,7 +362,7 @@ bool GameFolders::askForGame(Game g) {
   const std::string title = gameTitle(g);
   std::string text;
   for (;;) {
-    if (!text.empty() && dialogs_.message(window_, "PegglePort", text, {kChoose, "Cancel"}, true) != 0) return false;
+    if (!text.empty() && ask("PegglePort", text, {kChoose, "Cancel"}, true) != 0) return false;
     FolderAnswer a = dialogs_.folder(window_, "Choose the folder " + title + " is installed in", startFolder(g));
     if (a.status == FolderAnswer::Status::Unavailable) {
       tellNoChooser();
@@ -311,9 +395,9 @@ bool GameFolders::askForGame(Game g) {
 bool GameFolders::chooseFolders(Game running) {
   if (!dialogs_.message) return false;
   std::string text;
-  for (int i = 0; i < 2; i++) text += std::string(gameTitle(gameAt(i))) + ": " + (dir_[i].empty() ? std::string("not found") : pathToUtf8(dir_[i])) + "\n";
-  text += "\nWhich game do you want to choose a folder for?";
-  int hit = dialogs_.message(window_, "Game Folders", text, {gameTitle(Game::Deluxe), gameTitle(Game::Nights), "Close"}, false);
+  for (int i = 0; i < 2; i++) text += std::string(gameTitle(gameAt(i))) + ":\n" + (dir_[i].empty() ? std::string("not found") : pathToUtf8(dir_[i])) + "\n\n";
+  text += "Which game do you want to choose a folder for?";
+  int hit = ask("Game Folders", text, {gameTitle(Game::Deluxe), gameTitle(Game::Nights), "Close"}, false);
   if (hit != 0 && hit != 1) return false;
   Game g = gameAt(hit);
   std::string before = has(g) ? folderKey(dir(g)) : std::string();

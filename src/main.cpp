@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "gamefind.h"
 #include "gamepaths.h"
@@ -42,6 +43,7 @@ pp::ui::RunResult playGame(const pp::ui::GameRequest& request, pp::Vfs& vfs, pp:
   options.gameDir = [&](pp::Game g) { return folders.dir(g); };
   options.home = [&] { return folders.home(); };
   options.setHome = [&](pp::Game g) { folders.setHome(g); };
+  options.setGame = [&](pp::ui::App* app, pp::ui::GameWait wait) { folders.setGame(app, std::move(wait)); };
   return pp::ui::runApp(options, vfs, window, next, error);
 }
 

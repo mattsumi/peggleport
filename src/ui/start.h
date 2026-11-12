@@ -11,6 +11,8 @@ struct SDL_Window;
 
 namespace pp::ui {
 
+class App;
+
 struct FolderAnswer {
   enum class Status { Chosen, Cancelled, Unavailable };
   Status status = Status::Cancelled;
@@ -24,6 +26,8 @@ struct StartDialogs {
 
 StartDialogs systemDialogs();
 
+using GameWait = std::function<void(const std::function<bool()>& done)>;
+
 class GameFolders {
  public:
   GameFolders(std::filesystem::path storeFile, FindSources sources, StartDialogs dialogs);
@@ -32,6 +36,7 @@ class GameFolders {
   static std::filesystem::path programDir();
 
   void setWindow(SDL_Window* window) { window_ = window; }
+  void setGame(App* app, GameWait wait);
   void detect();
   bool has(Game g) const { return !dir_[gameIndex(g)].empty(); }
   const std::filesystem::path& dir(Game g) const { return dir_[gameIndex(g)]; }
@@ -47,6 +52,7 @@ class GameFolders {
   void tell(const std::string& text, bool problem = true);
 
  private:
+  int ask(const std::string& title, const std::string& text, const std::vector<std::string>& buttons, bool problem);
   int adopt(const std::filesystem::path& chosen);
   std::filesystem::path writeStartLog() const;
   void remember(Game g, const std::filesystem::path& dir);
@@ -60,6 +66,8 @@ class GameFolders {
   std::filesystem::path dir_[2];
   FoundGames lastSearch_;
   SDL_Window* window_ = nullptr;
+  App* app_ = nullptr;
+  GameWait wait_;
 };
 
 }

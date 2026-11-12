@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -271,6 +272,13 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
     L.leftTicks = window.leftSound() ? 110 : 0;
     if (!L.leftTicks) window.dropLeftGame();
     Pacer P;
+    if (o.setGame) {
+      o.setGame(&app, [&](const std::function<bool()>& done) {
+        P.last = 0;
+        while (!app.wantsQuit() && !done()) paceOnce(L, P);
+        P.last = 0;
+      });
+    }
     bool told = !(o.start.handOver && o.start.askedAt);
     while (!app.wantsQuit()) {
       paceOnce(L, P);
@@ -306,6 +314,7 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
       }
     }
 
+    if (o.setGame) o.setGame(nullptr, nullptr);
     if (!(SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED))) SDL_GetWindowSize(win, &app.settings.winW, &app.settings.winH);
     app.shutdown();
     for (SDL_Gamepad* g : L.pads) SDL_CloseGamepad(g);

@@ -23,6 +23,7 @@ struct RunOptions {
   std::function<std::filesystem::path(Game)> gameDir;
   std::function<Game()> home;
   std::function<void(Game)> setHome;
+  std::function<void(App*, std::function<void(const std::function<bool()>&)>)> setGame;
 };
 
 enum class RunResult { Quit, SwitchGame, Failed };
