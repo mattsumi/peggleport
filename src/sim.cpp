@@ -253,8 +253,35 @@ void Board::addLevel(const Level& L, bool fromBase) {
   linkFollowers(L, nodeOf, first, emitNodes, emitFirst);
 }
 
+static float boundRadius(const Obj& o) {
+  if (o.shape == Shape::Circle) return o.radius;
+  if (o.shape == Shape::Hole) return std::sqrt(o.hw * o.hw + o.hh * o.hh);
+  float r = 0.0f;
+  for (const V2& v : o.local) r = std::max(r, std::sqrt(v.x * v.x + v.y * v.y) * std::fabs(o.scale));
+  return r;
+}
+
 void Board::widen() {
   float dw = (float)(W - 650), k = W / 650.0f;
+  for (auto& o : objs) {
+    if (o.fromBase || o.pegType != 0 || o.shape == Shape::None || o.mv.sub != -1) continue;
+    float lo = o.x0, hi = o.x1;
+    if (o.hasMover) {
+      if (o.shape == Shape::Line) continue;
+      const float br = boundRadius(o);
+      const int period = std::max(1, o.mv.pause1 > 0 ? o.mv.pause1 + o.mv.time + o.mv.pause2 : o.mv.time);
+      const int stride = std::max(1, period / 20000);
+      lo = 1e9f;
+      hi = -1e9f;
+      for (int t = 0; t < period; t += stride) {
+        float x = o.pos.x, y = o.pos.y, r = o.rot;
+        o.mv.calc(t, x, y, r);
+        lo = std::min(lo, x - br);
+        hi = std::max(hi, x + br);
+      }
+    }
+    if (hi < 0.0f || lo > 650.0f) o.visible = o.collidable = false;
+  }
   float bumper = 0.0f;
   for (const auto& o : objs)
     if (o.fromBase && o.id == "fever" && o.shape == Shape::Circle) bumper = std::max(bumper, o.radius);
