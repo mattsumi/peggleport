@@ -25,6 +25,11 @@ namespace pp::ui {
 
 namespace {
 
+struct Pacer {
+  uint64_t last = 0;
+  double acc = 0;
+};
+
 struct Live {
   SDL_Window* win = nullptr;
   SDL_Renderer* ren = nullptr;
@@ -34,6 +39,18 @@ struct Live {
   bool hidden = false;
   GameWindow* window = nullptr;
   int leftTicks = 0;
+  Pacer* pacer = nullptr;
+  SDL_ThreadID thread = 0;
+  int busy = 0;
+  bool redrawing = false;
+};
+
+struct Busy {
+  explicit Busy(Live& l) : live(l) { live.busy++; }
+  ~Busy() { live.busy--; }
+  Busy(const Busy&) = delete;
+  Busy& operator=(const Busy&) = delete;
+  Live& live;
 };
 
 static bool handleGamepad(Live& L, const SDL_Event& e) {
@@ -135,18 +152,13 @@ static void handleEvent(Live& L, SDL_Event& e) {
 
 static void pumpEvents(Live& L) {
   SDL_Event e;
-  while (SDL_PollEvent(&e)) handleEvent(L, e);
+  while (SDL_PollEvent(&e)) {
+    Busy busy(L);
+    handleEvent(L, e);
+  }
 }
 
-struct Pacer {
-  uint64_t last = 0;
-  double acc = 0;
-};
-
-static void paceOnce(Live& L, Pacer& P) {
-  pumpEvents(L);
-  L.hidden = (SDL_GetWindowFlags(L.win) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0;
-  uint64_t now = SDL_GetTicksNS();
+static void advance(Live& L, Pacer& P, uint64_t now) {
   if (!P.last) P.last = now;
   P.acc = std::min(P.acc + (double)(now - P.last) / 1e6, 200.0);
   P.last = now;
@@ -158,15 +170,42 @@ static void paceOnce(Live& L, Pacer& P) {
       if (--L.leftTicks == 0) L.window->dropLeftGame();
     }
   }
+}
+
+static void showFrame(Live& L, const Pacer& P) {
+  L.app->renderAlpha = (float)(P.acc / 10.0);
+  L.app->frame();
+  SDL_RenderPresent(L.ren);
+}
+
+static void paceOnce(Live& L, Pacer& P) {
+  pumpEvents(L);
+  Busy busy(L);
+  L.hidden = (SDL_GetWindowFlags(L.win) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0;
+  uint64_t now = SDL_GetTicksNS();
+  advance(L, P, now);
   if (L.hidden) {
     SDL_Delay(16);
     return;
   }
-  L.app->renderAlpha = (float)(P.acc / 10.0);
-  L.app->frame();
-  SDL_RenderPresent(L.ren);
+  showFrame(L, P);
   double ms = (double)(SDL_GetTicksNS() - now) / 1e6;
   if (ms < 2.0) SDL_DelayNS((uint64_t)((2.0 - ms) * 1e6));
+}
+
+static bool redrawWhileResizing(void* userdata, SDL_Event* e) {
+  if (e->type != SDL_EVENT_WINDOW_EXPOSED) return true;
+  Live& L = *static_cast<Live*>(userdata);
+  if (L.busy > 0 || L.redrawing || !L.app || !L.pacer || L.app->wantsQuit()) return true;
+  if (SDL_GetCurrentThreadID() != L.thread || e->window.windowID != SDL_GetWindowID(L.win)) return true;
+  int w = 0, h = 0;
+  if ((SDL_GetWindowFlags(L.win) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0) return true;
+  if (!SDL_GetWindowSizeInPixels(L.win, &w, &h) || w <= 0 || h <= 0) return true;
+  L.redrawing = true;
+  advance(L, *L.pacer, SDL_GetTicksNS());
+  showFrame(L, *L.pacer);
+  L.redrawing = false;
+  return true;
 }
 
 }
@@ -272,6 +311,9 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
     L.leftTicks = window.leftSound() ? 110 : 0;
     if (!L.leftTicks) window.dropLeftGame();
     Pacer P;
+    L.pacer = &P;
+    L.thread = SDL_GetCurrentThreadID();
+    SDL_AddEventWatch(redrawWhileResizing, &L);
     if (o.setGame) {
       o.setGame(&app, [&](const std::function<bool()>& done) {
         P.last = 0;
@@ -314,6 +356,7 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
       }
     }
 
+    SDL_RemoveEventWatch(redrawWhileResizing, &L);
     if (o.setGame) o.setGame(nullptr, nullptr);
     if (!(SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED))) SDL_GetWindowSize(win, &app.settings.winW, &app.settings.winH);
     app.shutdown();
