@@ -58,7 +58,7 @@ void ListBox::wheel(float d) {
 }
 
 
-UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "", "", BUTTONS_YES_NO) {
+UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "", "", BUTTONS_OK_CANCEL) {
   rope = true;
   auto l = std::make_unique<ListBox>();
   l->gfx = &a.gfx;
