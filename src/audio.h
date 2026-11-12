@@ -46,6 +46,7 @@ class Audio {
   void setFeverVolume(float v) { feverVol_ = v; }
   void setFocusMuted(bool on);
   void onEvents(const std::vector<Event>& ev, const Board& b);
+  void addBallSound(const Board& b);
   void tick();
   void tickMusic();
   void playFx(const std::vector<FxSound>& s);

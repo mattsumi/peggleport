@@ -336,6 +336,11 @@ void Audio::playFx(const std::vector<FxSound>& s) {
   for (const auto& f : s) play(f.id, f.semis, f.vol, f.throttle);
 }
 
+void Audio::addBallSound(const Board& b) {
+  const int wait = 64 - 4 * b.ballsLeft[b.cur];
+  if (wait >= 0) playLater(wait, "ADD_BALL");
+}
+
 void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
   if (lvlBase_ >= 0 && music_ && !music_->fixed) {
     const int n = b.orangeLeft, ni = n <= 3 ? 6 : n <= 6 ? 5 : n <= 10 ? 4 : n <= 15 ? 3 : n <= 20 ? 2 : 1;
@@ -373,8 +378,8 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
           playLater(160, "APPLAUSE", 0, 1, 1);
         }
         break;
-      case Event::ExtraBall: play(e.a == 0 ? "EXTRABALL" : e.a == 1 ? "EXTRABALL2" : "EXTRABALL3"); playLater(20, "ADD_BALL"); break;
-      case Event::FreeBall: if (e.a != 2) { play("FREEBALL"); playLater(20, "ADD_BALL"); } break;
+      case Event::ExtraBall: play(e.a == 0 ? "EXTRABALL" : e.a == 1 ? "EXTRABALL2" : "EXTRABALL3"); addBallSound(b); break;
+      case Event::FreeBall: if (e.a != 2) { play("FREEBALL"); addBallSound(b); } break;
       case Event::Bump: play(e.a ? "FIREBALLBOUNCE" : "RICHOCHET", 0, 1, 2); break;
       case Event::PointBoost: play("POINTBOOST"); break;
       case Event::Fever:
