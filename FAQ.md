@@ -50,7 +50,7 @@ On Linux the folder window needs a desktop portal or `zenity`. If neither is the
 Press `F10` in the game. The log starts with every place it looked at and ends with the folder each game is read from.
 
 **How do I change a game folder, or add the other game?**
-Use **Game Folders...** in the game's Options. It shows both folders, asks which game you mean and opens the folder window.
+Use **Game Folders...** in the game's Options. A box shows both folders and asks which game you mean, then the folder window opens. If the folder you pick is the wrong one, the game says so and lets you choose again. Options stays open behind all of this, so when you are done you are back where you were. If you change the folder of the game you are playing, it opens again from the new folder.
 
 **Do Deluxe and Nights share profiles?**
 You are the same player in both. When you go to the other game it picks the player with your name, and if there is none yet it makes one for you without asking for your name again. Your progress is kept for each game on its own, so your Deluxe adventure and your Nights adventure do not mix. High scores, replays and mods are kept for each game too, the same way the originals do.
