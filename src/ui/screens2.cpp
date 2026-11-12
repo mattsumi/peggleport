@@ -443,9 +443,10 @@ void LevelScreen::drawLayer(Gfx& g) {
     if (!s || i >= (int)s->levels.size()) continue;
     float sx = kSlot[i][0], sy = kSlot[i][1];
     bool ok = canSelect(i);
-    const char* tf = "PLAIN";
+    const char* tf = "OVERLOAD16OUTLINE2";
     std::string name = s->levels[i].title;
-    g.drawString(tf, sx + (kSlotW - g.textWidth(tf, name)) / 2, sy + 26 + g.fontAscent(tf), name, hovered == 5 ? 0xfff600 : 0x93c814);
+    const float nameW = g.textWidth(tf, name);
+    g.drawString(tf, kTileHit[i][0] + (float)((int)(kTileHitW - nameW) / 2), kTileHit[i][1] + 26 + g.fontAscent(tf), name, hovered == 5 ? 0xfff600 : 0x93c814);
     if (bLevel[i]->overAlpha > 0)
       if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) {
         const float a = bLevel[i]->overAlpha;
