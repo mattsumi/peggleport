@@ -849,7 +849,7 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
   if (y + hgt > 0x244 && (y = 0x244 - hgt) < 10) y = 10;
   Dialog* other = nullptr;
   for (auto& o : dialogs_)
-    if (!o->gone && o.get() != d && o->dialogId != D_WhichAdventure) other = o.get();
+    if (!o->gone && !o->scrollingOff && o.get() != d) other = o.get();
   float x;
   if (!other) {
     bool menuUp = cur_ && std::string(cur_->name()) == "mainmenu";
