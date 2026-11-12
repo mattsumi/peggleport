@@ -4,6 +4,7 @@
 #include <memory>
 #include <cstdint>
 #include <algorithm>
+#include <filesystem>
 #include <vector>
 #include <string>
 
@@ -83,7 +84,7 @@ class GameScreen : public Screen {
   Board& board() { return viewer_ ? replay_ : board_; }
   LevelOutcome collectOutcome() const;
   bool levelDone() const { return done_; }
-  bool saveReplay(bool all, std::string* pathOut);
+  bool saveReplay(bool all, std::filesystem::path* pathOut);
   bool canSaveReplay() const { return recording_ && haveSnap_ && !log_.empty(); }
   bool startViewer(const ReplayData& d);
   bool viewing() const { return viewer_; }

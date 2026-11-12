@@ -8,6 +8,7 @@
 #include <ctime>
 #include <filesystem>
 
+#include "gamepaths.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
 #include "ui/replay.h"
@@ -42,7 +43,7 @@ class ReplayFileDialog : public Dialog {
   ListBox* list;
   Button *del, *folder;
   std::vector<ReplayFile> files;
-  std::string dir() const { return (app.userDir / "replays").string(); }
+  std::filesystem::path dir() const { return app.userDir / "replays"; }
   static std::string label(const ReplayFile& f) {
     const ReplayData& h = f.head;
     std::string t = h.title.empty() ? h.level : h.title;
@@ -82,7 +83,7 @@ class ReplayFileDialog : public Dialog {
     } else if (id == 102) {
       std::error_code ec;
       std::filesystem::create_directories(dir(), ec);
-      std::string url = "file://" + dir();
+      std::string url = "file://" + pathToUtf8(dir());
       SDL_OpenURL(url.c_str());
     } else {
       Dialog::onButton(id);
@@ -106,7 +107,7 @@ class ReplayFileDialog : public Dialog {
   }
 };
 
-static bool haveReplays(App& a) { return !listReplays((a.userDir / "replays").string(), a.game == Game::Nights ? 1 : 0).empty(); }
+static bool haveReplays(App& a) { return !listReplays(a.userDir / "replays", a.game == Game::Nights ? 1 : 0).empty(); }
 
 void App::doReplaysDialog() {
   if (!haveReplays(*this)) {
@@ -148,10 +149,10 @@ void App::replayDialogButton(int dlg, int btn) {
       return;
     case D_SaveAll: {
       off(dlg);
-      std::string path;
+      std::filesystem::path path;
       bool ok = gs && gs->saveReplay(!yes, &path);
       Dialog* d = doDialog(D_Tip, true, ok ? "Replay Saved" : "Save Replay",
-                           ok ? "Your replay was saved as\n" + std::filesystem::path(path).filename().string() + "\n\nView it with the Replays button on the main menu." : "The replay could not be saved.", "OK", BUTTONS_FOOTER);
+                           ok ? "Your replay was saved as\n" + pathToUtf8(path.filename()) + "\n\nView it with the Replays button on the main menu." : "The replay could not be saved.", "OK", BUTTONS_FOOTER);
       (void)d;
       return;
     }
@@ -172,7 +173,7 @@ void App::replayDialogButton(int dlg, int btn) {
   }
 }
 
-void App::playReplayFile(const std::string& path) {
+void App::playReplayFile(const std::filesystem::path& path) {
   ReplayData d;
   if (!ReplayData::load(path, d) || d.game != (game == Game::Nights ? 1 : 0)) {
     doDialog(D_ReplayError, true, "Replay Load Error", "There was an error loading the replay.", "OK", BUTTONS_FOOTER);

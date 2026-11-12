@@ -265,7 +265,7 @@ class App : public WidgetHost {
   void doConfirmDeleteReplay(const std::string& name);
   void doSaveReplayDialog();
   void replayDialogButton(int dlg, int btn);
-  void playReplayFile(const std::string& path);
+  void playReplayFile(const std::filesystem::path& path);
   void dialogButton(int dialogId, int buttonId);
   void finishOptionsDialog(bool apply, bool scrollOff);
   void positionDialog(Dialog* d, float width, bool fromMenu = false);

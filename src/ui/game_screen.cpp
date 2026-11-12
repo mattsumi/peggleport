@@ -1,4 +1,5 @@
 #include "ui/game_screen.h"
+#include "gamepaths.h"
 #include "ui/session.h"
 #include "ui/screens.h"
 #include "log.h"
@@ -401,7 +402,7 @@ void GameScreen::replayFinished() {
   replayDlgPaused_ = true;
 }
 
-bool GameScreen::saveReplay(bool all, std::string* pathOut) {
+bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut) {
   if (!canSaveReplay()) return false;
   ReplayData d;
   d.game = app.game == Game::Nights ? 1 : 0;
@@ -417,7 +418,7 @@ bool GameScreen::saveReplay(bool all, std::string* pathOut) {
   char stamp[32];
   std::time_t t = (std::time_t)d.when;
   std::strftime(stamp, sizeof stamp, "%Y%m%d_%H%M%S", std::localtime(&t));
-  std::string path = (app.userDir / "replays" / (levelFile_ + "_" + stamp + replayExt(d.game))).string();
+  const std::filesystem::path path = app.userDir / "replays" / pathFromUtf8(levelFile_ + "_" + stamp + replayExt(d.game));
   if (!d.save(path)) return false;
   if (pathOut) *pathOut = path;
   return true;

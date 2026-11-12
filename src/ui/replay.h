@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -21,16 +22,17 @@ struct ReplayData {
   int score = 0, shots = 0, startTick = 0;
   BoardConfig cfg;
   std::vector<ReplayEvent> log;
-  bool save(const std::string& path) const;
-  static bool load(const std::string& path, ReplayData& out);
+  bool save(const std::filesystem::path& path) const;
+  static bool load(const std::filesystem::path& path, ReplayData& out);
 };
 
 struct ReplayFile {
-  std::string path, name;
+  std::filesystem::path path;
+  std::string name;
   ReplayData head;
 };
 
-std::vector<ReplayFile> listReplays(const std::string& dir, int game);
+std::vector<ReplayFile> listReplays(const std::filesystem::path& dir, int game);
 std::string replayExt(int game);
 
 }
