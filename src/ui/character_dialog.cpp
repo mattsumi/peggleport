@@ -9,7 +9,11 @@
 namespace pp::ui {
 
 static const float kW = 520, kGridX[2] = {30, 360}, kGridY = 105, kCellW = 61, kCellH = 62, kPitchX = 71, kPitchY = 72, kRandW = 130, kRandH = 25;
-static const float kInfoY = 72, kInfoW = 184, kInfoBottom = 394;
+static const float kInfoW = 184;
+static const float kTwoH = 525, kBoxX = 175, kBoxY = 110, kBoxW = 170, kBoxH = 34, kLevelDX = 20, kLevelW = 130, kLevelH = 27, kLevelGap = 5;
+static const float kNameX[2] = {90, 425}, kNameY = 100, kJointDX = 8, kFootX = 172;
+static const float kPanelX = 167, kPanelY = 297, kPanelW = 186, kPanelBottom = 410;
+static const bool kInfoAlways = true;
 static const float kSoloW = 400, kSoloGridY = 70, kSoloInfoX = 180, kSoloInfoY = 80, kSoloPagerGap = 9;
 static const int kNightsOrder[12] = {0, 1, 5, 2, 3, 4, 6, 8, 7, 9, 10, 11};
 static const char* kChosenSound[11] = {"POWERUP_GUIDE", "POWERUP_MULTIBALL", "POWERUP_PYRAMID", "POWERUP_SPACEBLAST", "POWERUP_FLIPPERS", "POWERUP_SPOOKYBALL",
@@ -22,6 +26,16 @@ static std::string trimQ(std::string s) {
   s = s.substr(a, b - a + 1);
   if (s.size() >= 2 && s.front() == '"' && s.back() == '"') s = s.substr(1, s.size() - 2);
   return s;
+}
+
+namespace {
+struct JointsWidget : Widget {
+  Tex* art = nullptr;
+  void draw(Gfx& g) override {
+    if (!art) return;
+    for (int i = 0; i < 3; i++) g.draw(art, 0, kLevelH * (float)i);
+  }
+};
 }
 
 int CharacterDialog::mastersMet(Game g, const PlayerInfo* p) {
@@ -39,23 +53,29 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
     const int stored = a.curProfile->computerSkill;
     skill = stored >= -1 && stored <= 1 ? stored : 2;
   }
-  auto mk = [&](int id, const char* label, bool v) {
+  auto mk = [&](int id, const char* label, bool v, bool level) {
     auto c = std::make_unique<Checkbox>();
     c->id = id;
-    c->image = a.gfx.img("IMAGE_DLG_BUTTON2");
-    c->style = 1;
+    c->image = a.gfx.img(level ? "IMAGE_DLG_BUTTON2" : "IMAGE_DLG_BUTTON1");
+    c->style = level ? 3 : 2;
     c->label = label;
     c->checked = v;
-    c->labelX = 30;
-    c->w = a.gfx.textWidth("BUTTON", label) + 36;
-    c->h = c->image ? c->image->lh() / 3 : 24;
+    c->w = level ? kLevelW : kBoxW;
+    c->h = level ? kLevelH : kBoxH;
+    c->labelX = level ? (c->w - a.gfx.textWidth("BUTTON", label)) / 2 : 40;
+    if (!level) c->labelY = 3;
     return add(std::move(c));
   };
   if (two) {
-    cbFriend = mk(0, "Play a Friend", !computer);
-    cbComputer = mk(1, "Play Computer", computer);
+    auto j = std::make_unique<JointsWidget>();
+    j->art = a.gfx.img("IMAGE_DLG_LJOINT");
+    j->id = -1;
+    j->mouseVisible = false;
+    joints = add(std::move(j));
+    cbFriend = mk(0, "Play a Friend", !computer, false);
+    cbComputer = mk(1, "Play Computer", computer, false);
     static const char* kLevel[4] = {"Easy", "Normal", "Hard", "Master"};
-    for (int i = 0; i < 4; i++) cbSkill[i] = mk(2 + i, kLevel[i], skill == i - 1);
+    for (int i = 0; i < 4; i++) cbSkill[i] = mk(2 + i, kLevel[i], skill == i - 1, true);
   }
   count = a.game == Game::Nights ? 11 : 10;
   if (two && a.curProfile) {
@@ -92,8 +112,8 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
         if (!key.empty() && mods[k].key() == key) modSel[r] = (int)k;
     }
   w = two ? kW : kSoloW;
-  if (!two && yesBtn)
-    if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
+  if (yesBtn)
+    if (Tex* pb = a.gfx.img(two ? "IMAGE_DLG_PLAYBUTTON2" : "IMAGE_DLG_PLAYBUTTON1")) {
       yesBtn->image = pb;
       yesBtn->kind = Button::Kind::Embedded;
       yesBtn->labelOnEmbedded = true;
@@ -104,13 +124,13 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
 
 float CharacterDialog::preferredHeight(float) {
   const bool nights = app.game == Game::Nights;
-  if (two) return nights ? 590.0f : 572.0f;
+  if (two) return nights ? kTwoH + 37 : kTwoH;
   return (nights ? 520.0f : 480.0f) + (mods.empty() ? 0.0f : kRandH + kSoloPagerGap);
 }
 
 void CharacterDialog::place() {
   const float hgt = preferredHeight(w);
-  const float top = two ? std::max(8.0f, (600 - hgt) / 2) : std::max(8.0f, std::min(60.0f, 596 - hgt));
+  const float top = two ? (app.game == Game::Deluxe ? 40.0f : std::max(8.0f, (600 - hgt) / 2)) : std::max(8.0f, std::min(60.0f, 596 - hgt));
   resize((800 - w) / 2, top, w, hgt);
   layoutBoxes();
 }
@@ -149,14 +169,25 @@ void CharacterDialog::layoutBoxes() {
     }
     return;
   }
-  float x = kW / 2 - 92, y = 399;
-  cbFriend->x = x; cbFriend->y = y;
-  cbComputer->x = x; cbComputer->y = y + 28;
+  if (yesBtn && yesBtn->kind == Button::Kind::Embedded && yesBtn->image) {
+    yesBtn->w = yesBtn->image->lw();
+    yesBtn->h = yesBtn->image->lh() / 2;
+    yesBtn->x = kFootX + 32;
+    yesBtn->y = h - 112 + 24;
+  }
+  cbFriend->x = kBoxX; cbFriend->y = kBoxY;
+  cbComputer->x = kBoxX; cbComputer->y = kBoxY + kBoxH;
+  const float ly = kBoxY + 2 * kBoxH + kLevelGap;
   for (int i = 0; i < 4; i++) {
-    cbSkill[i]->x = i % 2 == 0 ? x + 14 : cbSkill[i - 1]->x + cbSkill[i - 1]->w + 4;
-    cbSkill[i]->y = y + 56 + 28 * (float)(i / 2);
+    cbSkill[i]->x = kBoxX + kLevelDX;
+    cbSkill[i]->y = ly + kLevelH * (float)i;
     cbSkill[i]->visible = computer;
   }
+  joints->x = kBoxX + kJointDX;
+  joints->y = ly - 20.5f;
+  joints->w = 21;
+  joints->h = kLevelH * 3 + 15;
+  joints->visible = computer;
 }
 
 void CharacterDialog::checkboxChanged(int id, bool on) {
@@ -257,36 +288,27 @@ void CharacterDialog::drawCell(Gfx& g, int r, int i) {
   Tex* shadows = g.img("IMAGE_CHR_CHARACTERSHADOWS");
   Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
   Tex* selFrame = g.img("IMAGE_DLG_SELECTORFRAME");
-  const bool deluxe = app.game == Game::Deluxe;
   const bool open = cellOpen(i);
   const bool chosen = modSel[r] < 0 && cellMaster(i) == sel[r];
   float cx, cy, cw, ch;
   cellRect(r, i, &cx, &cy, &cw, &ch);
-  if (!two) {
-    const Mode look = chosen || (open && i == hover) ? Mode() : Mode(1.0f, 0x9b9b9b);
-    if (cellRandom(i)) {
-      if (Tex* t = g.img("IMAGE_DLG_RANDOM")) g.draw(t, cx, cy, look);
-    } else if (Tex* t = open ? chars : shadows) {
-      g.drawCel(t, cx, cy, cellMaster(i), 0, look);
-    }
-    if (!open)
-      if (Tex* lock = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lock, cx, cy, Mode(60 / 255.0f));
-    if (Tex* fr = chosen ? selFrame : frame) g.drawBox(fr, cx - 8, cy - 8, cw + 14, ch + 14);
-    return;
-  }
-  if (i == 10 && deluxe) {
+  const Mode look = chosen || (open && i == hover) ? Mode() : Mode(1.0f, 0x9b9b9b);
+  if (two && cellRandom(i) && !mods.empty()) {
     if (frame) g.drawBox(frame, cx, cy, cw, ch);
     g.drawString("PLAIN2", cx + cw / 2, cy + ch / 2 + g.fontAscent("PLAIN2") / 2 - 2, "Random", 0xffffff, 1, Align::Center);
-  } else if (i < 10) {
-    Tex* t = open ? chars : shadows;
-    if (t) g.drawCel(t, cx, cy, i, 0);
-    if (!open && chars) g.fill(cx, cy, chars->cw(), chars->ch(), 0x000000, 110 / 255.0f);
-  } else if (Tex* q = g.img("IMAGE_DLG_QUESTIONMARK")) {
-    g.draw(q, cx, cy);
+    return;
   }
-  if (chosen || (open && i == hover)) {
-    if (Tex* fr = chosen ? selFrame : frame) g.drawBox(fr, cx - 4, cy - 4, cw + 8, ch + 8);
+  if (cellRandom(i)) {
+    if (Tex* t = g.img("IMAGE_DLG_RANDOM")) g.draw(t, cx, cy, look);
+  } else if (two && i >= 10) {
+    if (Tex* q = g.img("IMAGE_DLG_QUESTIONMARK")) g.draw(q, cx, cy, look);
+  } else if (Tex* t = open ? chars : shadows) {
+    if (two && r == 1) g.drawCelMirror(t, cx, cy, cellMaster(i), 0, look);
+    else g.drawCel(t, cx, cy, cellMaster(i), 0, look);
   }
+  if (!open && !cellRandom(i) && !(two && i >= 10))
+    if (Tex* lock = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lock, cx, cy, Mode(60 / 255.0f));
+  if (Tex* fr = chosen ? selFrame : frame) g.drawBox(fr, cx - 8, cy - 8, cw + 14, ch + 14);
 }
 
 void CharacterDialog::drawLayer(Gfx& g) {
@@ -294,9 +316,9 @@ void CharacterDialog::drawLayer(Gfx& g) {
   Dialog::drawLayer(g);
   Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
   Tex* selFrame = g.img("IMAGE_DLG_SELECTORFRAME");
-  const char* kRow[2] = {"Player 1", computer ? "Computer" : "Player 2"};
+  const std::string kRow[2] = {app.curProfile && !app.curProfile->name.empty() ? app.curProfile->name : std::string("Player 1"), "Player 2"};
   for (int r = 0; r < players(); r++) {
-    if (two) g.drawString("PLAIN2", gridX(r) + (kPitchX + kCellW) / 2, gridY() - 14, kRow[r], 0xffff80, 1, Align::Center);
+    if (two) g.drawString("OVERLOAD16OUTLINE", kNameX[r], kNameY, kRow[r], 0xffffff, 1, Align::Center);
     if (page > 0) {
       const int first = (page - 1) * 10, m = std::min(10, (int)mods.size() - first);
       for (int k = 0; k < m; k++) {
@@ -322,6 +344,8 @@ void CharacterDialog::drawLayer(Gfx& g) {
     }
   }
   drawInfo(g);
+  if (two)
+    if (Tex* pw = g.img("IMAGE_DLG_PLAYWIDGET2")) g.draw(pw, kFootX, h - pw->lh() - 6);
 }
 
 void CharacterDialog::drawInfo(Gfx& g) {
@@ -329,10 +353,11 @@ void CharacterDialog::drawInfo(Gfx& g) {
   const int selCell0 = modSel[0] >= 0 ? kModCell + modSel[0] : sel[0];
   const int who = two && hover >= 0 ? hover : selCell0;
   const bool random = who < kModCell && (two ? who == 10 && deluxe : who == randomChoice(app.game));
-  const float ix = two ? (kW - kInfoW) / 2 : kSoloInfoX, iy = two ? kInfoY : kSoloInfoY;
+  if (two && who < kModCell && !kInfoAlways) return;
+  const float ix = two ? kPanelX : kSoloInfoX, iy = two ? kPanelY : kSoloInfoY;
   const float mid = ix + kInfoW / 2;
   if (two) {
-    if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, ix - 5, iy - 5, kInfoW + 10, kInfoW + 10);
+    if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, ix - 4, iy - 4, kCellW + 8, kCellH + 8);
   } else {
     if (Tex* fr = g.img("IMAGE_DLG_SELECTORFRAME")) g.drawBox(fr, ix - 8, iy - 8, kInfoW + 16, kInfoW + 16);
   }
@@ -340,7 +365,8 @@ void CharacterDialog::drawInfo(Gfx& g) {
   if (who >= kModCell) {
     const size_t k = (size_t)(who - kModCell);
     if (k < mods.size()) {
-      drawModIcon(g, mods[k], ix, iy, kInfoW, kInfoW, true);
+      if (two) drawModIcon(g, mods[k], ix, iy, kCellW, kCellH, false);
+      else drawModIcon(g, mods[k], ix, iy, kInfoW, kInfoW, true);
       name = mods[k].name;
       power = mods[k].powerName;
       desc = mods[k].description;
@@ -351,6 +377,9 @@ void CharacterDialog::drawInfo(Gfx& g) {
     if (art) {
       const float sw = std::min(art->cw(), kInfoW);
       g.drawSrc(art, (art->cw() - sw) / 2, 0, sw, art->ch(), ix + (kInfoW - sw) / 2, iy);
+    } else if (two) {
+      if (who < 10)
+        if (Tex* chars = g.img("IMAGE_CHR_CHARACTERS")) g.drawCel(chars, ix, iy, who, 0);
     } else if (Tex* big = g.img("IMAGE_CHR_CHARACTER" + std::to_string(who + 1))) {
       g.draw(big, ix + (kInfoW - big->lw()) / 2, iy);
     }
@@ -382,26 +411,18 @@ void CharacterDialog::drawInfo(Gfx& g) {
     if (pw) g.draw(pw, 185, h - pw->lh() - 6);
     return;
   }
-  float ty = kInfoY + kInfoW + 25;
-  g.drawString("OVERLOAD16OUTLINE", kW / 2, ty + g.fontAscent("OVERLOAD16OUTLINE"), name, 0xffffff, 1, Align::Center);
-  ty += g.fontHeight("OVERLOAD16OUTLINE") + 2;
-  if (!power.empty()) {
-    g.drawString("PLAIN2", kW / 2, ty + g.fontAscent("PLAIN2"), power, 0x88ff88, 1, Align::Center);
-    ty += g.fontHeight("PLAIN2") + 4;
-  }
-  if (who < kModCell) {
-    g.drawWrapped("PLAIN", {ix + 4, ty, kInfoW - 8, 60}, desc, 0xffffff, 1, Align::Center);
-    return;
-  }
+  const float tx = ix + kCellW + 10;
+  g.drawString("OVERLOAD12OUTLINE", tx, iy + g.fontAscent("OVERLOAD12OUTLINE"), name, 0xffffff, 1);
+  if (!power.empty()) g.drawString("PLAIN2", tx, iy + g.fontHeight("OVERLOAD12OUTLINE") + g.fontAscent("PLAIN2") + 2, power, 0x88ff88, 1);
   std::vector<std::pair<std::string, uint32_t>> lines;
-  for (auto& l : g.wrap("PLAIN", kInfoW - 8, desc)) lines.push_back({l, 0xffffff});
-  for (auto& l : g.wrap("PLAIN", kInfoW - 8, powerDesc)) lines.push_back({l, 0xb0ffb0});
-  const float ls = g.fontLineSpacing("PLAIN");
-  const int fit = ls > 0 ? std::max(1, (int)((kInfoBottom - ty) / ls)) : 4;
+  for (auto& l : g.wrap("PLAIN", kPanelW, desc)) lines.push_back({l, 0xffffff});
+  for (auto& l : g.wrap("PLAIN", kPanelW, powerDesc)) lines.push_back({l, 0xb0ffb0});
+  const float ls = g.fontLineSpacing("PLAIN"), ty = iy + kCellH + 8;
+  const int fit = ls > 0 ? std::max(1, (int)((kPanelBottom - ty) / ls)) : 3;
   for (int i = 0; i < (int)lines.size() && i < fit; i++) {
     std::string l = lines[(size_t)i].first;
     if (i == fit - 1 && (int)lines.size() > fit) l += "...";
-    g.drawString("PLAIN", kW / 2, ty + g.fontAscent("PLAIN") + ls * (float)i, l, lines[(size_t)i].second, 1, Align::Center);
+    g.drawString("PLAIN", ix, ty + g.fontAscent("PLAIN") + ls * (float)i, l, lines[(size_t)i].second, 1);
   }
 }
 

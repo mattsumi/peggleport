@@ -40,6 +40,7 @@ class CharacterDialog : public Dialog {
   int count = 10;
   bool computer = true;
   int skill = 0;
+  Widget* joints = nullptr;
   Checkbox *cbFriend = nullptr, *cbComputer = nullptr, *cbSkill[4] = {nullptr, nullptr, nullptr, nullptr};
   void checkboxChanged(int id, bool on) override;
   void layoutBoxes();

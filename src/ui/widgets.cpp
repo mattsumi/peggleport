@@ -148,7 +148,7 @@ void Button::draw(Gfx& g) {
 
 void Checkbox::draw(Gfx& g) {
   if (!image) return;
-  float rows = style == 0 ? 4.0f : 3.0f, ch = image->lh() / rows;
+  float rows = style == 0 || style == 2 ? 4.0f : 3.0f, ch = image->lh() / rows;
   int row;
   if (style == 0) row = checked ? (over ? 3 : 2) : (over ? 1 : 0);
   else row = checked ? 2 : (over ? 1 : 0);
