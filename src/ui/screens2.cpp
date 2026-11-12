@@ -447,7 +447,7 @@ void LevelScreen::drawLayer(Gfx& g) {
     std::string name = s->levels[i].title;
     g.drawString(tf, sx + (kSlotW - g.textWidth(tf, name)) / 2, sy + 26 + g.fontAscent(tf), name, hovered == 5 ? 0xfff600 : 0x93c814);
     if (bLevel[i]->overAlpha > 0)
-      if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) g.draw(sel, sx - 4, sy, Mode(bLevel[i]->overAlpha));
+      if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) g.draw(sel, kTileHit[i][0] + 4, kTileHit[i][1], Mode(bLevel[i]->overAlpha));
     if (ok && normal && marks && marks->clearedLevels.count(s->levels[i].file))
       if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 60, sy + 177);
     if (ok && normal && (other ? og->game : app.game) == Game::Nights && marks && marks->acedLevels.count(s->levels[i].file))
