@@ -373,7 +373,7 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
   b128 = r.u8();
   clearedLevels.clear();
   for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) clearedLevels.insert(r.str());
-  advCompletions = r.i32();
+  advCompletions = std::clamp(r.i32(), 0, 1000000);
   b58 = r.u8();
   tipsMask = r.i32();
   advScore = r.i32();
