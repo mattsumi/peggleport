@@ -82,6 +82,10 @@ Inside you find `settings.ini` and a `userdata` folder with profiles (`users.dat
 **What are the controls?**
 Move the mouse to aim, left click to fire. The mouse wheel nudges the aim in small steps. Hold the right mouse button to fast forward when you play alone. `G` shows or hides the aim guide, `Esc` pauses. A game controller also works: the stick or the D-pad aims, the A button fires.
 
+**What happens when I leave an Adventure level in the middle?**
+It is kept for you, the way the original does it. Fire a shot, open the level's menu and press **Main Menu**: the game asks **Leave Game?** and tells you the session will be saved. Press **Leave** and the level waits for you exactly as it was, with the pegs, your score, the balls, the ball in the air and your Master's power. It only asks the first three times for each player. After that it saves and leaves without a question. Closing the window in the middle of a level keeps it too.
+The next time you press **Adventure** (and pick the game, if you have both), **Continue Game?** shows your score and the balls you have left. **Continue** goes on right where you stopped. **Restart Level** starts the level again and counts as another try. **Cancel** leaves everything as it is. In Peggle Nights, once you have finished the adventure, there is also **New Game**, which asks if you want to start the whole adventure over. Every player has one kept level for each game.
+
 **Is the gameplay the same as the original?**
 That is the goal and I have put most of the work into it: the physics, scoring, powers and level behaviour are meant to match. If you ever see the ball bounce differently from the original, or a score that does not add up, please open an issue with the level and what you did.
 
