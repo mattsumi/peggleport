@@ -946,7 +946,11 @@ void App::input(const Input& in) {
     Dialog* d = dialogs_[i].get();
     if (d->gone) continue;
     d->input(din);
-    if (d->modal) return;
+    if (d->modal) {
+      if (d->dialogId == D_Character)
+        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->menuThroughDialog(in);
+      return;
+    }
   }
   if (!cur_) return;
   if (in.type == Input::MouseDown && !cur_->mouseVisible) return;

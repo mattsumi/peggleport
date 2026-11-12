@@ -71,6 +71,7 @@ class GameScreen : public Screen {
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
   bool input(const Input& in) override;
+  void menuThroughDialog(const Input& in);
   void onButton(int id) override;
   void keyDown(int key, int mod) override;
   void lostFocus() override;

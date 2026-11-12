@@ -829,6 +829,7 @@ void GameScreen::submitStats() {
 }
 
 void GameScreen::onLeave() {
+  if (charPaused_) app.killDialog(D_Character);
   PlayerInfo* p = app.curProfile;
   if (sessionsOf(app).keep(*this)) {
     app.saveProfile();
@@ -1137,6 +1138,17 @@ bool GameScreen::input(const Input& in) {
     default: break;
   }
   return true;
+}
+
+void GameScreen::menuThroughDialog(const Input& in) {
+  if (!charPaused_ || done_ || in.button != 1) return;
+  const bool over = inMenuButton(in.x, in.y);
+  if (in.type == Input::MouseDown) {
+    if (over) heldButton_ = 1;
+  } else if (in.type == Input::MouseUp && heldButton_ == 1) {
+    heldButton_ = 0;
+    if (over) app.doOptionsDialog();
+  }
 }
 
 void GameScreen::keyDown(int key, int) {
