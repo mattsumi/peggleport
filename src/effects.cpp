@@ -663,7 +663,7 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
       break;
     }
     case Event::CoinSpin: {
-      FxEffect& c = fxAdd(T_COIN, 325.0f, 280.0f, 0);
+      FxEffect& c = fxAdd(T_COIN, (float)b.W / 2.0f, 280.0f, 0);
       c.life = 250;
       c.i30 = e.b;
       c.i34 = e.a;
