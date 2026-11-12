@@ -268,6 +268,26 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
         im->h = y1 - y0;
         cropY = y0;
       }
+      {
+        const int ym0 = im->h / 6, ym1 = im->h * 2 / 3;
+        auto colMean = [&](int x) {
+          long sum = 0;
+          for (int y = ym0; y < ym1; y++)
+            for (int c = 0; c < 3; c++) sum += im->rgba[((size_t)y * im->w + x) * 4 + c];
+          return (float)sum / (float)((ym1 - ym0) * 3);
+        };
+        const int most = std::max(1, (int)std::lround(3 * im->scale));
+        int tl = 0, tr = 0;
+        while (tl < most && std::fabs(colMean(tl) - colMean(tl + 1)) > 3.0f) tl++;
+        while (tr < most && std::fabs(colMean(im->w - 1 - tr) - colMean(im->w - 2 - tr)) > 3.0f) tr++;
+        if (tl + tr > 0) {
+          const int nw = im->w - tl - tr;
+          std::vector<uint8_t> c((size_t)nw * im->h * 4);
+          for (int y = 0; y < im->h; y++) std::memcpy(&c[(size_t)y * nw * 4], &im->rgba[((size_t)y * im->w + tl) * 4], (size_t)nw * 4);
+          im->rgba = std::move(c);
+          im->w = nw;
+        }
+      }
     }
     const int w = im->w, h = im->h;
     const float sc = im->scale;
