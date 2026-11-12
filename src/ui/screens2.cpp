@@ -675,7 +675,7 @@ static const HelpPage kHelp[8] = {
       {"Hold down the right mouse button to speed up time.", "This is helpful when waiting for moving objects.", ""},
       {"Use the mouse wheel to make small angle adjustments.", "This is useful for getting the exact shot that you want.", ""},
       {"The left and right arrow keys will also make small angle adjustments.", "Hitting the enter key will fire the ball.", ""}}},
-    {"Instructions", {"There are four types of pegs in Peggle.", "Pegs can be both round and rectangular."},
+    {"Pegs", {"There are four types of pegs in Peggle.", "Pegs can be both round and rectangular."},
      {{"Clear all of the orange pegs on a level to beat the level.", "", ""},
       {"Orange pegs are worth 10x the value of blue pegs.", "", ""},
       {"The purple peg is worth 50x the value of the blue pegs.", "This peg changes location on every shot.", ""},
