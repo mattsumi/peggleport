@@ -2,10 +2,35 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <vector>
 
 #include "image.h"
+#include "ui/app.h"
 
 namespace pp::ui {
+
+namespace {
+
+struct PlayedLevel {
+  Game game;
+  int stage, level;
+};
+
+const size_t kRemembered = 10;
+std::vector<PlayedLevel> playedLately;
+
+bool wasPlayedLately(Game g, int stage, int level) {
+  for (const PlayedLevel& p : playedLately)
+    if (p.game == g && p.stage == stage && p.level == level) return true;
+  return false;
+}
+
+}
+
+void notePlayed(Game g, int stage, int level) {
+  playedLately.push_back({g, stage, level});
+  if (playedLately.size() > kRemembered) playedLately.erase(playedLately.begin());
+}
 
 bool challengesOpenFor(Game g, const PlayerInfo& p) { return g == Game::Nights ? p.maxStage >= 3 : p.advCompletions > 0; }
 
@@ -69,6 +94,38 @@ Tex* OtherGame::picture(const std::string& idOrPath) {
     }
   }
   return T.valid() ? &T : nullptr;
+}
+
+bool OtherGame::drawLevel(App& app, bool afterLevel, LevelDraw& out) const {
+  if (!app.curProfile) return false;
+  const uint32_t rnd = app.rand();
+  const bool duel = app.gameMode == GameMode::Duel;
+  auto choices = [&](bool leaveOutLately) {
+    std::vector<LevelDraw> c;
+    auto add = [&](bool theirs, const StageMgr& from, const PlayerInfo& who, Game g) {
+      for (int s = 0; s < from.numStages(); s++) {
+        const StageInfo* st = from.stage(s);
+        for (int l = 0; st && l < (int)st->levels.size(); l++) {
+          if (!theirs && afterLevel && s == app.curStage && l == app.curLevel) continue;
+          if (!who.isLevelUnlocked(s, l)) continue;
+          if (duel && st->levels[(size_t)l].excludeRand) continue;
+          if (leaveOutLately && wasPlayedLately(g, s, l)) continue;
+          c.push_back({theirs, s, l});
+        }
+      }
+    };
+    if (!duel || app.modeOpen(GameMode::Duel)) add(false, app.stages, *app.curProfile, app.game);
+    if (!duel || duelOpen()) add(true, stages, *player, game);
+    return c;
+  };
+  std::vector<LevelDraw> c = choices(afterLevel);
+  if (c.empty() && afterLevel) {
+    playedLately.clear();
+    c = choices(false);
+  }
+  if (c.empty()) return false;
+  out = c[rnd % c.size()];
+  return true;
 }
 
 int OtherGame::lastOpenStage() const { return std::clamp(player->maxStage, 0, std::max(0, stages.numStages() - 1)); }

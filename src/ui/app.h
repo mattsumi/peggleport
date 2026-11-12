@@ -130,6 +130,7 @@ class App : public WidgetHost {
   bool goHomeList(StartPlace place);
   bool startInList(const StartTarget& start);
   OtherGame* otherLevels();
+  OtherGame* otherFiles();
   bool otherOpen(GameMode mode);
   bool modeOpen(GameMode mode) const;
   int listPage = -1;
@@ -237,6 +238,7 @@ class App : public WidgetHost {
   bool hasBoard() const;
   void showEndLevel(int mode, const struct LevelOutcome& o, const std::string& level, const std::string& title, int rank, bool newBest);
   void endLevelButton(int id, int mode);
+  bool playNewLevel();
   void doDialogScroll(int id, bool modal, const std::string& header, const std::string& lines, const std::string& footer, int mode);
   bool challengeMore = false;
   std::string resolveChallengeLevel(const std::string& token);

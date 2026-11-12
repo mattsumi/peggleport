@@ -17,6 +17,7 @@
 #include "ui/dialogs.h"
 #include "ui/character_dialog.h"
 #include "ui/game_screen.h"
+#include "ui/other_game.h"
 #include "ui/screens.h"
 
 namespace pp::ui {
@@ -393,6 +394,37 @@ void App::showEndLevel(int mode, const LevelOutcome& o, const std::string& level
   dialogs_.push_back(std::move(d));
 }
 
+bool App::playNewLevel() {
+  auto* gs = dynamic_cast<GameScreen*>(cur_.get());
+  if (!gs || !curProfile) return false;
+  int s = curStage, l = curLevel;
+  if (OtherGame* o = otherFiles()) {
+    LevelDraw d;
+    if (!o->drawLevel(*this, true, d)) return false;
+    notePlayed(d.theirs ? o->game : game, d.stage, d.level);
+    if (d.theirs) {
+      StartTarget t;
+      t.place = StartPlace::Level;
+      t.mode = gameMode;
+      t.stage = d.stage;
+      t.level = d.level;
+      t.duel = duelSes;
+      requestGameSwitch(o->game, t);
+      return true;
+    }
+    s = d.stage;
+    l = d.level;
+  } else if (!stages.randomLevel(*curProfile, s, l, gameMode == GameMode::Duel, 10, rand()) || s < 0) {
+    return false;
+  }
+  curStage = s;
+  curLevel = l;
+  curProfile->levelSelectStage = s;
+  curProfile->dirty = true;
+  gs->nextLevel();
+  return true;
+}
+
 void App::endLevelButton(int id, int mode) {
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   auto m = (EndLevelDialog::Mode)mode;
@@ -413,17 +445,7 @@ void App::endLevelButton(int id, int mode) {
     else doToMenu();
     return;
   }
-  if (id == 0 && gs && curProfile && (m == EndLevelDialog::QuickWin || m == EndLevelDialog::QuickLose)) {
-    int s = curStage, l = curLevel;
-    if (stages.randomLevel(*curProfile, s, l, gameMode == GameMode::Duel, 10, rand()) && s >= 0) {
-      curStage = s;
-      curLevel = l;
-      curProfile->levelSelectStage = s;
-      curProfile->dirty = true;
-      gs->nextLevel();
-      return;
-    }
-  }
+  if (id == 0 && (m == EndLevelDialog::QuickWin || m == EndLevelDialog::QuickLose) && playNewLevel()) return;
   bool win = m == EndLevelDialog::AdventureWin || m == EndLevelDialog::QuickWin || m == EndLevelDialog::ChallengeWin || m == EndLevelDialog::AdventureComplete;
   if (m == EndLevelDialog::AdventureComplete) {
     if (game == Game::Nights) {

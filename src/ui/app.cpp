@@ -307,6 +307,11 @@ bool App::takeGameSwitchRequest(GameRequest& r) {
 }
 
 void App::gameSwitchRefused(const GameRequest& r) {
+  if (r.start.place == StartPlace::Level && dynamic_cast<GameScreen*>(cur_.get())) {
+    cfg.otherDir.clear();
+    if (!playNewLevel()) static_cast<GameScreen*>(cur_.get())->restartLevel(false);
+    return;
+  }
   if (game == homeGame || r.game != homeGame) return;
   bothGames = false;
   homeGame = game;
@@ -345,8 +350,10 @@ bool App::goHomeList(StartPlace place) {
   return true;
 }
 
-OtherGame* App::otherLevels() {
-  if (!bothGames || game != homeGame || cfg.otherDir.empty()) return nullptr;
+OtherGame* App::otherLevels() { return game == homeGame ? otherFiles() : nullptr; }
+
+OtherGame* App::otherFiles() {
+  if (!bothGames || cfg.otherDir.empty()) return nullptr;
   if (!other_) {
     const Game theirs = otherGame(game);
     auto o = std::make_unique<OtherGame>(theirs);
@@ -402,7 +409,7 @@ void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictu
 bool App::startInList(const StartTarget& start) {
   if (!curProfile || !bothGames) return false;
   const bool list = start.place == StartPlace::LevelList || start.place == StartPlace::ChallengeList;
-  if (list != (game == homeGame)) return false;
+  if (list != (game == homeGame) && start.place != StartPlace::Level) return false;
   if (start.place == StartPlace::Level) {
     const StageInfo* s = stages.stage(start.stage);
     if (!s || !s->level(start.level) || (start.mode != GameMode::QuickPlay && start.mode != GameMode::Duel)) return false;
@@ -411,6 +418,10 @@ bool App::startInList(const StartTarget& start) {
     curLevel = start.level;
     packStage = s->pack ? start.stage : -1;
     duelSes = start.duel;
+    if (game == homeGame && !s->pack) {
+      curProfile->levelSelectStage = start.stage;
+      curProfile->dirty = true;
+    }
     stages.markUsed(curStage, curLevel);
     showBoard(false, true);
     return true;

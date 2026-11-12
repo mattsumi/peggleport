@@ -284,34 +284,37 @@ void LevelScreen::onButtonLeave(int id) { if (id >= 0 && id < 5) { hovered = id;
 
 void LevelScreen::doPlay(int id) {
   int lvl = id;
+  if (og && id >= 5) {
+    LevelDraw d;
+    if (!og->drawLevel(app, false, d)) return;
+    other = d.theirs;
+    stage = d.stage;
+    lvl = d.level;
+  }
   if (other) {
-    int s = stage;
-    if (id >= 5) {
-      s = -1;
-      lvl = -1;
-      if (!groupOpen() || !og->stages.randomLevel(*og->player, s, lvl, app.gameMode == GameMode::Duel, 0, app.rand()) || s < 0) return;
-    }
-    const StageInfo* st = og->stages.stage(s);
+    const StageInfo* st = og->stages.stage(stage);
     const LevelInfo* li = st ? st->level(lvl) : nullptr;
     if (!li) return;
     StartTarget t;
     t.place = pick ? StartPlace::Challenge : StartPlace::Level;
     t.mode = app.gameMode;
-    t.stage = s;
+    t.stage = stage;
     t.level = lvl;
     t.duel = app.duelSes;
     t.challenge = app.curChallenge;
     t.challengeLevel = li->file;
+    notePlayed(og->game, stage, lvl);
     app.requestGameSwitch(og->game, t);
     return;
   }
-  if (id >= 5) {
+  if (id >= 5 && !og) {
     if (!app.curProfile || !groupOpen()) return;
     int s = -1, l = -1;
     if (!app.stages.randomLevel(*app.curProfile, s, l, app.gameMode == GameMode::Duel, 0, app.rand()) || s < 0) return;
     stage = s;
     lvl = l;
   }
+  if (og) notePlayed(app.game, stage, lvl);
   app.curLevel = lvl;
   app.curStage = stage;
   if (app.gameMode == GameMode::Challenge)
