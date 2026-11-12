@@ -888,9 +888,9 @@ static void addEmitter(std::vector<PropDef>& v) {
   v.push_back(PB("orient_rot_to_vel", "Face direction", false, "Look"));
   v.push_back(PB("random_start", "Random start", false, "Look"));
   v.push_back(PVF("alpha", "Opacity", 1, 0, 1, 0.05, false, "Look"));
-  v.push_back(PVF("color.r", "Red", 1, 0, 1, 0.05, true, "Look"));
-  v.push_back(PVF("color.g", "Green", 1, 0, 1, 0.05, true, "Look"));
-  v.push_back(PVF("color.b", "Blue", 1, 0, 1, 0.05, true, "Look"));
+  v.push_back(PVF("color.r", "Red", 1, 0, 100, 0.05, true, "Look"));
+  v.push_back(PVF("color.g", "Green", 1, 0, 100, 0.05, true, "Look"));
+  v.push_back(PVF("color.b", "Blue", 1, 0, 100, 0.05, true, "Look"));
   v.push_back(PVF("scale.value", "Size", 1, 0, 50, 0.1, true, "Look"));
   v.push_back(PVF("scale.velocity", "Size change", 0, -50, 50, 0.1, true, "Look"));
   v.push_back(PF("scale.rand", "Size random", 0, 0, 50, 0.1, true, "Look"));
@@ -908,7 +908,7 @@ static void addEmitter(std::vector<PropDef>& v) {
   v.push_back(PS("trigger_obj", "Trigger object id", "Rate"));
   v.push_back(PVF("velocity.x", "Speed X", 0, -1000, 1000, 0.1, true, "Motion"));
   v.push_back(PVF("velocity.y", "Speed Y", 0, -1000, 1000, 0.1, true, "Motion"));
-  v.push_back(PF("velocity.x_rand", "Speed X random", 0, 0, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("velocity.x_rand", "Speed X random", 0, -1000, 1000, 0.1, true, "Motion"));
   v.push_back(PF("velocity.y_rand", "Speed Y random", 0, 0, 1000, 0.1, true, "Motion"));
   v.push_back(PF("velocity.acc_x", "Acceleration X", 0, -100, 100, 0.01, true, "Motion"));
   v.push_back(PF("velocity.gravity", "Gravity", 0, -100, 100, 0.01, true, "Motion"));
@@ -919,7 +919,7 @@ static void addEmitter(std::vector<PropDef>& v) {
   v.push_back(PF("polar.rot_vel_rand", "Spin random", 0, 0, 100, 0.01, true, "Motion"));
   v.push_back(PVF("rotation.value", "Rotation", 0, -100, 100, 0.05, true, "Motion"));
   v.push_back(PVF("rotation.velocity", "Rotation speed", 0, -100, 100, 0.05, true, "Motion"));
-  v.push_back(PF("rotation.rand", "Rotation random", 0, 0, 100, 0.05, true, "Motion"));
+  v.push_back(PF("rotation.rand", "Rotation random", 0, 0, 1000, 0.05, true, "Motion"));
 }
 static void addPeg(std::vector<PropDef>& v) {
   v.push_back(PB("is_peg", "Is a peg", false, "Peg"));
@@ -1009,7 +1009,7 @@ const std::vector<PropDef>& moverProps() {
   v.push_back(PF("post_delay_phase", "Post delay phase", 0, -10, 10, 0.05, false, "Mover"));
   v.push_back(PF("max_angle", "Max angle (rad)", 0, -7, 7, 0.05, false, "Mover"));
   v.push_back(PF("move_rotation", "Path rot (rad)", 0, -7, 7, 0.05, false, "Mover"));
-  v.push_back(PF("rotation", "Rotation (rad)", 0, -7, 7, 0.05, false, "Mover"));
+  v.push_back(PF("rotation", "Rotation (rad)", 0, -100, 100, 0.05, false, "Mover"));
   v.push_back(PF("sub_x", "Follow start X", 0, -2000, 3000, 1, true, "Follow"));
   v.push_back(PF("sub_y", "Follow start Y", 0, -2000, 3000, 1, true, "Follow"));
   return v;
