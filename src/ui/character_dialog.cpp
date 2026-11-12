@@ -125,13 +125,13 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
 
 float CharacterDialog::preferredHeight(float) {
   const bool nights = app.game == Game::Nights;
-  if (two) return nights ? kTwoH + 37 : kTwoH;
+  if (two) return nights ? kTwoH + 40 : kTwoH;
   return (nights ? 520.0f : 480.0f) + (mods.empty() ? 0.0f : kRandH + kSoloPagerGap);
 }
 
 void CharacterDialog::place() {
   const float hgt = preferredHeight(w);
-  const float top = two ? (app.game == Game::Deluxe ? 40.0f : std::max(8.0f, (600 - hgt) / 2)) : std::max(8.0f, std::min(60.0f, 596 - hgt));
+  const float top = two ? 40.0f : std::max(8.0f, std::min(60.0f, 596 - hgt));
   resize((800 - w) / 2, top, w, hgt);
   layoutBoxes();
 }
