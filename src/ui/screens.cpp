@@ -351,7 +351,7 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   };
   bReplay = brown(4, "Replays", 7);
   bOptions = brown(5, "Options", 9);
-  bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demos", 11);
+  bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demo", 11);
   bQuit = patchButton(7, "Quit", "IMAGE_DLG_PURPLEBUTTON", 7, 0x215);
   bQuit->hoverPitch = 12;
   online::addMainMenuButton(*this);
