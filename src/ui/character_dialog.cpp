@@ -450,7 +450,10 @@ bool CharacterDialog::input(const Input& in) {
         sel[r] = cellMaster(i);
         modSel[r] = -1;
         picked[r] = true;
-        app.playSample(cellRandom(i) ? "LEVELDONE" : kChosenSound[std::clamp(sel[r], 0, 10)]);
+        const char* pick = cellRandom(i) ? "LEVELDONE" : kChosenSound[std::clamp(sel[r], 0, 10)];
+        if (app.audio && !pickSound.empty()) app.audio->stopSample(pickSound);
+        app.playSample(pick);
+        pickSound = pick;
         if (!two && in.clicks == 2) onButton(ID_FOOTER);
       }
       return true;

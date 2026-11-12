@@ -33,6 +33,7 @@ class CharacterDialog : public Dialog {
   std::vector<ModMaster> mods;
   int modSel[2] = {-1, -1};
   bool picked[2] = {false, false};
+  std::string pickSound;
   int page = 0;
   int pageCount() const { return 1 + ((int)mods.size() + 9) / 10; }
   void pagerRect(int player, float* x, float* y, float* w, float* h) const;
