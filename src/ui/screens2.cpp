@@ -29,8 +29,8 @@ static std::string commas(long long v) {
   return v < 0 ? "-" + r : r;
 }
 
-static uint32_t rankColor(int rank) {
-  uint32_t hue = (0x46 + rank * 0xf5) & 0xff;
+static uint32_t rankColor(int rank, bool nights) {
+  uint32_t hue = ((nights ? 0xdc : 0x46) + rank * 0xf5) & 0xff;
   return hslToRgb((int)hue, 0xff, 0x80);
 }
 
@@ -72,7 +72,7 @@ void AdventureScreen::drawHighScores(Gfx& g, float x, float y) {
   float ax = x + 10, nameX = ax + 0x28, scoreR = nameX + 0xdc;
   for (int r = 1; r <= 10; r++) {
     uint32_t col = 0xffffff;
-    if (r <= (int)hs.size()) col = rankColor(r);
+    if (r <= (int)hs.size()) col = rankColor(r, nights);
     g.drawString("OVERLOAD12OUTLINE", ax, ay, std::to_string(r) + ".", col);
     if (r <= (int)hs.size()) {
       g.drawString("OVERLOAD12OUTLINE", nameX, ay, hs[r - 1].name, col);
@@ -91,7 +91,7 @@ void AdventureScreen::drawPersonalHighScores(Gfx& g, float x, float y) {
   std::vector<int> sc;
   if (p) for (auto it = p->advScores.rbegin(); it != p->advScores.rend(); ++it) sc.push_back(*it);
   for (int r = 1; r <= 10; r++) {
-    uint32_t col = r <= (int)sc.size() ? rankColor(r) : 0xffffff;
+    uint32_t col = r <= (int)sc.size() ? rankColor(r, nights) : 0xffffff;
     g.drawString("OVERLOAD12OUTLINE", ax, ay, std::to_string(r) + ".", col);
     if (r <= (int)sc.size()) {
       g.drawString("OVERLOAD12OUTLINE", nameX, ay, p->name, col);
