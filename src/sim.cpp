@@ -370,7 +370,7 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   for (int p = 0; p < 4; p++) master[p] = cfg.master[p] >= masters::kFirstPower && !masters::byPower(cfg.master[p]) ? 0 : cfg.master[p];
   setupPegs();
   if (!cfg.pegTypes.empty()) applyPegTypes();
-  int balls0 = cfg.balls > 0 ? cfg.balls : (cfg.duel ? 6 : 10);
+  int balls0 = cfg.balls > 0 ? std::min(cfg.balls, 99) : (cfg.duel ? 6 : 10);
   for (int p = 0; p < players; p++) ballsLeft[p] = balls0;
   score[0] = cfg.startScore;
   if (players > 1) score[1] = cfg.startScore2;
