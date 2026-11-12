@@ -839,7 +839,7 @@ void HelpScreen::drawLayer(Gfx& g) {
     int icol = nights ? (page == 5 ? -1 : page - 1 > 4 ? page - 2 : page - 1) : (page < 4 ? page : page == 4 ? -1 : page - 1);
     if (page == (nights ? 5 : 4) && r == 0)
       if (Tex* mi = g.img("IMAGE_HELP_MODES")) g.draw(mi, 32, 170);
-    if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, nights ? 72.0f : 75 + (68 - icons->cw()) / 2.0f, nights ? y : y - 2 + (68 - icons->ch()) / 2.0f, icol, r);
+    if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, 72.0f, y, icol, r);
     if (hp.style) {
       if (!hp.row[r][0][0]) continue;
       g.drawString("PLAIN2", 170, y + 19, hp.row[r][0], 0xffffaa);
