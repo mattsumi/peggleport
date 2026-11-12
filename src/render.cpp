@@ -1203,8 +1203,9 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   fxDrawTexts(b, 0);
   fxDrawTexts(b, 1);
   SDL_SetRenderClipRect(r_, &objClip);
+  const float launcherShift = (float)(b.W - 650) * 0.5f;
   for (auto& bl : b.balls)
-    if (bl.bx0 <= 425.0f && 225.0f < bl.bx1 && bl.by0 <= 127.0f && -73.0f < bl.by1) drawBall(b, bl, false);
+    if (bl.bx0 <= 425.0f + launcherShift && 225.0f + launcherShift < bl.bx1 && bl.by0 <= 127.0f && -73.0f < bl.by1) drawBall(b, bl, false);
   if (b.phase == Phase::Aim) zenOn_ = b.turns[b.cur] > 0 && b.master[b.cur] == Board::P_ZEN;
   if (zenOn_ && !b.balls.empty()) {
     SDL_SetRenderClipRect(r_, &canvasClip);
