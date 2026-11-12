@@ -732,8 +732,9 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
     case WELCOME:
       local_ = r.u8();
       mi_.players = std::clamp((int)r.u8(), 2, 4);
-      local_ = std::min(local_, mi_.players - 1);
       mi_.party = r.u8() != 0;
+      if (!mi_.party) mi_.players = 2;
+      local_ = std::min(local_, mi_.players - 1);
       mi_.seed = r.u32();
       mi_.boardWidth = (int)std::clamp<uint32_t>(r.u32(), 650u, 1400u);
       mi_.contentHash = r.u64();
