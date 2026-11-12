@@ -795,12 +795,7 @@ static const HelpPage kHelp[8] = {
       {"It's rumored that there's a level of Peggle Mastery beyond Grand Master.", "Supposedly, clearing every level can help you attain this rank!", ""},
       {"Click the Open Folder button in the Show Replays dialog to locate replays.", "Send replays to friends from here, or drop friends' replays in here to view.", ""}}}};
 
-static const HelpPage kHelpNights[14] = {
-    {"Instructions", {"", ""},
-     {{"Click where you want the ball to go.", "", ""},
-      {"Hit all ^FF8933^ORANGE PEGS and BRICKS^oldclr^ to win!", "", ""},
-      {"Beat the level before running out of balls.", "", ""},
-      {"Get the ball in the bucket for a free ball!", "", ""}}},
+static const HelpPage kHelpNights[13] = {
     {"Controls", {"Move your mouse cursor to where you want the ball to go.", "The Launcher will automatically aim so that the ball heads to that point."},
      {{"Click the left mouse button to fire the ball.", "The ball will head right to where your mouse pointer was when you clicked.", ""},
       {"Hold down the right mouse button to speed up time.", "This is helpful when waiting for moving objects.", ""},
@@ -873,7 +868,7 @@ static const HelpPage kHelpNights[14] = {
      true},
 };
 
-int HelpScreen::numPages() const { return app.game == Game::Nights ? 14 : 8; }
+int HelpScreen::numPages() const { return app.game == Game::Nights ? 13 : 8; }
 
 HelpScreen::HelpScreen(App& a, bool fb) : Screen(a), fromBoard(fb) {
   patchButton(1, "Previous", "IMAGE_DLG_BROWNBUTTON1", 224, 541);
@@ -906,22 +901,10 @@ void HelpScreen::drawLayer(Gfx& g) {
   for (int i = 0; i < 2; i++)
     if (hp.head[i][0]) g.drawWrapped("PLAIN2", {60, 110.0f + 18 * i, 680, 20}, hp.head[i], 0xffffaa, 1, Align::Center);
   Tex* icons = g.img("IMAGE_HELP_ICONS");
-  if (nights && page == 0) {
-    static const int ic[4][2] = {{0, 0}, {1, 1}, {2, 3}, {3, 1}};
-    static const char* two[3] = {"Two players take turns shooting the ball.", "The goal is to score more points than your opponent.",
-                                 "You are penalized if you fail to hit an orange peg on a shot!"};
-    const bool duel = app.hasBoard() && app.gameMode == GameMode::Duel;
-    if (duel) g.drawString("OVERLOAD16OUTLINE", 400, 140, "Two Player Rules", 0xffffff, 1, Align::Center);
-    for (int r = 0; r < (duel ? 3 : 4); r++) {
-      if (icons) g.drawCel(icons, 75 + (68 - icons->cw()) / 2, 170.0f + 90 * r - 2 + (68 - icons->ch()) / 2, ic[r][0], ic[r][1]);
-      g.drawString("PLAIN2", 400, 170.0f + 90 * r + 40, duel ? two[r] : hp.row[r][0], 0xffffff, 1, Align::Center);
-    }
-    return;
-  }
   for (int r = 0; r < 4; r++) {
     float y = 170.0f + 90 * r;
-    int icol = nights ? (page == 5 ? -1 : page - 1 > 4 ? page - 2 : page - 1) : (page < 4 ? page : page == 4 ? -1 : page - 1);
-    if (page == (nights ? 5 : 4) && r == 0)
+    int icol = page < 4 ? page : page == 4 ? -1 : page - 1;
+    if (page == 4 && r == 0)
       if (Tex* mi = g.img("IMAGE_HELP_MODES")) g.draw(mi, 32, 170);
     if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, 72.0f, y, icol, r);
     if (hp.style) {
