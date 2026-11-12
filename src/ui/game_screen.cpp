@@ -196,6 +196,7 @@ bool GameScreen::startLevel(const std::string& name) {
     if (oi >= 0) cfg.master[1] = Board::masterByName(kMasterNames[oi]);
   }
   aiWait_ = 0;
+  aiFixed_ = -100;
   cfg.liveSpin = !demo_;
   if (app.audio) app.audio->dropQueued();
   spinHeld_.clear();
