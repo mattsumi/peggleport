@@ -759,11 +759,11 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
     float lw = t->lw(), lh = t->lh();
     sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y + (b.cfg.nights && o.shape == Shape::Hole ? 2.0f : 0.0f), lw, lh, o.rot, a, false, 0xffffff, o.mirror);
   }
-  if (feverSlot && lightImg && o.flash > 0) {
+  if (feverSlot && o.flash > 0) {
     float hx = BX + o.pos.x, hy = BY + o.pos.y;
     const char* gl = o.subId == 1 || o.subId == 5 ? "IMAGE_BONUSGLOW_BLUE" : o.subId == 2 || o.subId == 4 ? "IMAGE_BONUSGLOW_GREEN" : "IMAGE_BONUSGLOW";
     if (Tex* g = img(gl)) put(g, {0, 0, g->lw(), g->lh()}, (float)(int)(hx - (int)(g->lw() / 2)), (float)(int)(hy - 55), {0xffffffffu, Blend::Add});
-    if ((o.flash / 15) % 2 == 0)
+    if (lightImg && (o.flash / 15) % 2 == 0)
       put(lightImg, {0, 0, lightImg->lw(), lightImg->lh()}, (float)(int)(hx - (int)(lightImg->lw() / 2)), (float)(int)(hy - lift - 40), {0x808080ffu, Blend::Add});
   }
 }
