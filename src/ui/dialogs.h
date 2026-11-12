@@ -15,16 +15,17 @@ class ListBox : public Widget {
   bool centered = true;
   std::string font = "PLAIN";
   float itemH = 16;
+  static constexpr float topInset = 4;
   std::function<void(int idx, int clicks)> onClick;
   Gfx* gfx = nullptr;
-  int visibleItems() const { return (int)(h / itemH); }
+  int visibleItems() const { return (int)((h - topInset) / itemH); }
   void draw(Gfx& g) override;
   bool mouseDown(float lx, float ly, int button, int clicks) override;
   void mouseMove(float lx, float ly) override;
   void mouseLeave() override { over = false; hilite = -1; }
   void wheel(float d);
   void reveal();
-  int indexAt(float ly) const { int i = top + (int)(ly / itemH); return i >= 0 && i < (int)lines.size() ? i : -1; }
+  int indexAt(float ly) const { if (ly < topInset) return -1; int i = top + (int)((ly - topInset) / itemH); return i >= 0 && i < (int)lines.size() ? i : -1; }
 };
 
 class UserDialog : public Dialog {

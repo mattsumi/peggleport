@@ -26,7 +26,7 @@ void ListBox::draw(Gfx& g) {
   for (int i = 0; i < n; i++) {
     int idx = top + i;
     if (idx >= (int)lines.size()) break;
-    float y = i * itemH;
+    float y = topInset + i * itemH;
     uint32_t col = 0xffff50;
     if (idx == select) {
       g.fill(0, y, w, itemH, 0xf45d02);
@@ -34,8 +34,9 @@ void ListBox::draw(Gfx& g) {
     } else if (idx == hilite) {
       col = 0xffffff;
     }
-    if (centered) g.drawString(font, w / 2, y + g.fontAscent(font), lines[idx], col, 1, Align::Center);
-    else g.drawString(font, 4, y + g.fontAscent(font), lines[idx], col, 1);
+    const float base = y + g.fontAscent(font) + (float)(int)((itemH - g.fontHeight(font)) / 2);
+    if (centered) g.drawString(font, w / 2, base, lines[idx], col, 1, Align::Center);
+    else g.drawString(font, 4, base, lines[idx], col, 1);
   }
   g.popClip();
   if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, -8, -8, w + 16, h + 16);
