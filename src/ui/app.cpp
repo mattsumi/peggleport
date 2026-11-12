@@ -699,6 +699,7 @@ void App::showMainMenu() {
   duelSes = DuelSession{};
   killDialog(D_Options);
   if (cur_ && std::string(cur_->name()) == "mainmenu") return;
+  if (audio) audio->stopSounds();
   if (goHome()) return;
   playMusic("fadeout");
   Dir leave = Right;

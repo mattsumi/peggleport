@@ -236,6 +236,16 @@ void Audio::stopLoops() {
   chainLoop_ = false;
 }
 
+void Audio::stopSounds() {
+  std::lock_guard<std::mutex> lk(mu_);
+  for (auto& v : voices_) {
+    v.loop = false;
+    v.pos = (double)v.s->pcm.size() / 2;
+  }
+  fireLoop_ = false;
+  chainLoop_ = false;
+}
+
 void Audio::playFx(const std::vector<FxSound>& s) {
   for (const auto& f : s) play(f.id, f.semis, f.vol, f.throttle);
 }
