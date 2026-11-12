@@ -54,6 +54,19 @@ class OnlineGameScreen : public Screen {
     wantFire_ = false;
     rematchAsked_ = false;
     wheelNudge_ = 0;
+    statusKey_.clear();
+    if (ready_) noteStatus();
+  }
+
+  void noteStatus() {
+    const std::string note = net_->linkNote();
+    const std::string checked = std::to_string(net_->hashesCompared), rollbacks = std::to_string(match_.rollbacks);
+    const std::string key = (note.rfind("Direct UDP link", 0) == 0 ? std::string("Direct UDP link") : note) + "|" + checked + "|" + rollbacks;
+    if (key == statusKey_) return;
+    statusKey_ = key;
+    std::string line = std::string(info_.party ? "Peg Party" : "Online Duel") + " | you are " + rawName(local_);
+    if (!note.empty()) line += " | " + linkText(note, false);
+    pp::log::info("net", line + " | checked by host: " + checked + " | rollbacks: " + rollbacks);
   }
 
   std::string rawName(int p) const {
@@ -181,6 +194,7 @@ class OnlineGameScreen : public Screen {
         if (match_.over()) state_ = Over;
       }
     }
+    noteStatus();
     arrange();
   }
 
@@ -224,40 +238,6 @@ class OnlineGameScreen : public Screen {
     g.drawWrapped(kCardFont, {px + kCardPad, cardY_ + kCardBodyTop, kCardW - 2 * kCardPad, cardH_ - kCardBodyTop}, card_.body, 0xffffff, 1, Align::Center);
   }
 
-  void drawStrip(Gfx& g, float cw) {
-    const char* font = "PLAIN";
-    const float gap = 18, room = cw - 12;
-    const std::string note = net_->linkNote();
-    std::string link = linkText(note, false), you = "you are " + drawableText(rawName(local_));
-    std::vector<std::string> parts = {info_.party ? "Peg Party" : "Online Duel", you, link, "checked by host: " + std::to_string(net_->hashesCompared), "rollbacks: " + std::to_string(match_.rollbacks)};
-    auto total = [&] {
-      float sum = 0;
-      int n = 0;
-      for (const auto& t : parts)
-        if (!t.empty()) { sum += g.textWidth(font, t); n++; }
-      return sum + gap * (float)std::max(0, n - 1);
-    };
-    if (total() > room) parts[2] = linkText(note, true);
-    if (total() > room) {
-      const float lead = g.textWidth(font, "you are ");
-      const float left = room - (total() - g.textWidth(font, parts[1])) - lead;
-      parts[1] = "you are " + fitText(g, font, rawName(local_), std::max(30.0f, left));
-    }
-    g.fill(0, 584, cw, 16, 0x000000, 0.55f);
-    float x = 6;
-    bool first = true;
-    for (const auto& t : parts) {
-      if (t.empty()) continue;
-      if (!first) {
-        g.fill(x + gap / 2 - 1, 588, 1, 9, 0xdddddd, 0.5f);
-        x += gap;
-      }
-      first = false;
-      g.drawString(font, x, 596, t, 0xdddddd, 1, Align::Left);
-      x += g.textWidth(font, t);
-    }
-  }
-
   void drawLayer(Gfx& g) override {
     float cw = (float)canvasWidth();
     if (!ready_) {
@@ -284,7 +264,6 @@ class OnlineGameScreen : public Screen {
       }
       app.boardRenderer->draw(vb, lb_, hud);
     }
-    drawStrip(g, cw);
     if (info_.party) {
       float y = 104;
       for (int p = 0; p < info_.players; p++) {
@@ -316,7 +295,7 @@ class OnlineGameScreen : public Screen {
   int local_ = 0;
   bool ready_ = false, wantFire_ = false, menu_ = false, rematchAsked_ = false, peerGone_ = false;
   float mx_ = 325, my_ = 300, wheelNudge_ = 0;
-  std::string message_;
+  std::string message_, statusKey_;
   Card card_;
   float cardY_ = 170, cardH_ = 250;
   Button *bRematch_, *bLeave_, *bKeep_;
