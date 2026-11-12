@@ -921,7 +921,7 @@ void HelpScreen::drawLayer(Gfx& g) {
   std::snprintf(pg, sizeof pg, "Page %d of %d", page + 1, numPages());
   g.drawString("OVERLOAD24GRAD1", nights ? 700 - g.textWidth("OVERLOAD24GRAD1", pg) : 540, 50, pg, 0xb6ffff);
   for (int i = 0; i < 2; i++)
-    if (hp.head[i][0]) g.drawWrapped("PLAIN2", {60, 110.0f + 18 * i, 680, 20}, hp.head[i], 0xffffaa, 1, Align::Center);
+    if (hp.head[i][0]) g.drawWrapped("PLAINOUTLINE", {60, 110.0f + 18 * i, 680, 20}, hp.head[i], 0xffffaa, 1, Align::Center);
   Tex* icons = g.img("IMAGE_HELP_ICONS");
   for (int r = 0; r < 4; r++) {
     float y = 170.0f + 90 * r;
@@ -931,14 +931,14 @@ void HelpScreen::drawLayer(Gfx& g) {
     if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, 72.0f, y, icol, r);
     if (hp.style) {
       if (!hp.row[r][0][0]) continue;
-      g.drawString("PLAIN2", 170, y + 19, hp.row[r][0], 0xffffaa);
-      g.drawString("PLAIN2", 690, y + 19, hp.row[r][1], 0xffffaa, 1, Align::Right);
+      g.drawString("PLAINOUTLINE", 170, y + 19, hp.row[r][0], 0xffffaa);
+      g.drawString("PLAINOUTLINE", 690, y + 19, hp.row[r][1], 0xffffaa, 1, Align::Right);
       std::string d = hp.row[r][2];
-      float ly = y + (d.find('\n') == std::string::npos ? 46.0f : 38.0f);
+      float ly = y + (d.find('\n') == std::string::npos ? 46.0f : 40.0f);
       size_t p = 0;
       while (p <= d.size()) {
         size_t e = d.find('\n', p);
-        g.drawString("PLAIN2", 200, ly, d.substr(p, e == std::string::npos ? std::string::npos : e - p), 0xffffff);
+        g.drawString("PLAINOUTLINE", 200, ly, d.substr(p, e == std::string::npos ? std::string::npos : e - p), 0xffffff);
         ly += 18;
         if (e == std::string::npos) break;
         p = e + 1;
@@ -949,7 +949,7 @@ void HelpScreen::drawLayer(Gfx& g) {
     for (int k = 0; k < 3; k++) if (hp.row[r][k][0]) n++;
     float off = n <= 1 ? 16.0f : n == 2 ? 8.0f : 0.0f;
     for (int k = 0; k < 3; k++)
-      if (hp.row[r][k][0]) g.drawString("PLAIN2", 170, y + 23 + off + 18.0f * k, hp.row[r][k], 0xffffff);
+      if (hp.row[r][k][0]) g.drawString("PLAINOUTLINE", 170, y + 23 + off + 18.0f * k, hp.row[r][k], 0xffffff);
   }
 }
 
