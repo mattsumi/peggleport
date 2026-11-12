@@ -1,5 +1,6 @@
 #include "vfs.h"
 
+#include "gamepaths.h"
 #include "log.h"
 
 #include <cctype>
@@ -69,7 +70,7 @@ static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
 
 bool loadPak(const fs::path& p, Pak& out, std::string* err) {
   auto fail = [&](const std::string& m) {
-    if (err) *err = p.string() + ": " + m;
+    if (err) *err = pathToUtf8(p) + ": " + m;
     return false;
   };
   if (!slurp(p, out.data)) return fail("cannot read");
@@ -120,10 +121,10 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   fs::path mainPak = gameDir / "main.pak";
   auto pak = std::make_shared<Pak>();
   if (!loadPak(mainPak, *pak, err)) {
-    pp::log::error("game", "cannot open " + mainPak.string() + (err && !err->empty() ? ": " + *err : std::string()));
+    pp::log::error("game", "cannot open " + pathToUtf8(mainPak) + (err && !err->empty() ? ": " + *err : std::string()));
     return false;
   }
-  pp::log::info("game", "game data: " + gameDir.string() + " (" + std::to_string(pak->entries.size()) + " files in main.pak)");
+  pp::log::info("game", "game data: " + pathToUtf8(gameDir) + " (" + std::to_string(pak->entries.size()) + " files in main.pak)");
   Layer L;
   L.kind = Layer::PakFile;
   L.label = "main.pak";
@@ -141,14 +142,14 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
     auto lp = std::make_shared<Pak>();
     std::string e2;
     if (!loadPak(p, *lp, &e2)) {
-      pp::log::warn("game", "skipped level pack " + p.filename().string() + ": " + e2);
+      pp::log::warn("game", "skipped level pack " + pathToUtf8(p.filename()) + ": " + e2);
       continue;
     }
-    pp::log::info("game", "level pack " + p.filename().string() + " (" + std::to_string(lp->entries.size()) + " files)");
+    pp::log::info("game", "level pack " + pathToUtf8(p.filename()) + " (" + std::to_string(lp->entries.size()) + " files)");
     Layer P;
     P.kind = Layer::PakFile;
     P.isLevelPack = true;
-    P.label = "levelpacks/" + p.filename().string();
+    P.label = "levelpacks/" + pathToUtf8(p.filename());
     P.pak = lp;
     for (uint32_t i = 0; i < lp->entries.size(); i++) P.pakIndex.emplace(normKey(lp->entries[i].name), i);
     layers_.push_back(std::move(P));
@@ -165,15 +166,15 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
 bool Vfs::mountMod(const fs::path& modDir, std::string* err) {
   std::error_code ec;
   if (!fs::is_directory(modDir, ec)) {
-    if (err) *err = "mod directory not found: " + modDir.string();
-    pp::log::error("game", "mod directory not found: " + modDir.string());
+    if (err) *err = "mod directory not found: " + pathToUtf8(modDir);
+    pp::log::error("game", "mod directory not found: " + pathToUtf8(modDir));
     return false;
   }
   Layer L;
   L.kind = Layer::Dir;
   L.isMod = true;
   L.root = modDir;
-  L.label = "mod:" + modDir.filename().string();
+  L.label = "mod:" + pathToUtf8(modDir.filename());
   std::vector<uint8_t> ini;
   if (slurp(modDir / "mod.ini", ini)) {
     L.meta = readIni(std::string(ini.begin(), ini.end()));
