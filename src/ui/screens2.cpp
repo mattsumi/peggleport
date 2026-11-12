@@ -1122,6 +1122,9 @@ void TrophyScreen::drawLayer(Gfx& g) {
     } else {
       g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
     }
+    if (marks && marks->trophies.count(t.id))
+      if (Tex* bd = theirs ? og->picture("IMAGE_LS_CHALLENGEBADGE") : g.img("IMAGE_LS_CHALLENGEBADGE"))
+        g.draw(bd, kTileHit[i][0] + (float)((int)kTileHitW / 2) - (float)((int)bd->lw() / 2), kTileHit[i][1] + (float)((int)kTileHitH / 2) + 10 - (float)((int)bd->lh() / 2));
   }
   if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
   const Game pageGame = theirs ? og->game : app.game;
@@ -1138,15 +1141,11 @@ void TrophyScreen::drawLayer(Gfx& g) {
   }
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
-    float sx = kSlot[i][0], sy = kSlot[i][1];
-    bool won = marks && marks->trophies.count(t.id);
     const char* tf = "OVERLOAD16OUTLINE2";
     const float nameW = g.textWidth(tf, t.name);
     g.drawString(tf, kTileHit[i][0] + (float)((int)(kTileHitW - nameW) / 2), kTileHit[i][1] + 26 + g.fontAscent(tf), t.name, bSlot[i]->over ? 0xfff600 : 0x93c814);
     if (bSlot[i]->overAlpha > 0)
       if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) g.draw(sel, kTileHit[i][0] + 4, kTileHit[i][1], Mode(bSlot[i]->overAlpha));
-    if (won)
-      if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 50, sy + 50);
   }
   if (hovered >= 0 && hovered < 5 && hovered < (int)pg.trophies.size()) {
     const TrophyInfo& t = pg.trophies[hovered];
