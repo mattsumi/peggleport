@@ -57,7 +57,7 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
     auto c = std::make_unique<Checkbox>();
     c->id = id;
     c->image = a.gfx.img(level ? "IMAGE_DLG_BUTTON2" : "IMAGE_DLG_BUTTON1");
-    c->style = level ? 3 : 2;
+    c->style = level ? 1 : 2;
     c->label = label;
     c->checked = v;
     c->w = level ? kLevelW : kBoxW;

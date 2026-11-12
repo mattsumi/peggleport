@@ -148,14 +148,15 @@ void Button::draw(Gfx& g) {
 
 void Checkbox::draw(Gfx& g) {
   if (!image) return;
-  float rows = style == 0 || style == 2 ? 4.0f : 3.0f, ch = image->lh() / rows;
+  const bool pill = style == 0 || style == 2;
+  float rows = pill ? 4.0f : 3.0f, ch = image->lh() / rows;
   int row;
-  if (style == 0) row = checked ? (over ? 3 : 2) : (over ? 1 : 0);
+  if (pill) row = checked ? (over ? 3 : 2) : (over ? 1 : 0);
   else row = checked ? 2 : (over ? 1 : 0);
   g.drawBoxSrc(image, 0, ch * row, image->lw(), ch, 0, 0, w, h, Mode(alpha));
   if (label.empty()) return;
   const float ty = style == 0 ? (float)(((int)h - (int)g.fontHeight(font)) / 2 + (int)g.fontAscent(font)) + labelY : (h + g.fontAscent(font) * 0.8f) / 2 + labelY;
-  const int bar = style == 0 ? -1 : (checked || (down && over) ? 2 : (down || over ? 1 : 0));
+  const int bar = pill ? -1 : (checked || (down && over) ? 2 : (down || over ? 1 : 0));
   drawControlLabel(g, *this, font, labelX, ty, label, alpha, bar);
 }
 bool Checkbox::mouseDown(float lx, float ly, int button, int clicks) {
