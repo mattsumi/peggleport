@@ -21,6 +21,7 @@ class ListBox : public Widget {
   void mouseMove(float lx, float ly) override;
   void mouseLeave() override { over = false; hilite = -1; }
   void wheel(float d);
+  void reveal();
   int indexAt(float ly) const { int i = top + (int)(ly / itemH); return i >= 0 && i < (int)lines.size() ? i : -1; }
 };
 

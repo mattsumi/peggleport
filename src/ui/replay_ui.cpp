@@ -71,8 +71,8 @@ class ReplayFileDialog : public Dialog {
   bool input(const Input& in) override {
     if (in.type == Input::Wheel) { list->wheel(in.wheel); return true; }
     if (in.type == Input::KeyDown) {
-      if (in.key == SDLK_UP && list->select > 0) { list->select--; return true; }
-      if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; return true; }
+      if (in.key == SDLK_UP && list->select > 0) { list->select--; list->reveal(); return true; }
+      if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; list->reveal(); return true; }
     }
     return Dialog::input(in);
   }

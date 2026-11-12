@@ -45,6 +45,13 @@ bool ListBox::mouseDown(float lx, float ly, int button, int clicks) {
   return true;
 }
 void ListBox::mouseMove(float lx, float ly) { hilite = indexAt(ly); }
+void ListBox::reveal() {
+  const int vis = std::max(1, visibleItems());
+  if (select < 0) return;
+  if (select < top) top = select;
+  else if (select >= top + vis) top = select - vis + 1;
+  top = std::clamp(top, 0, std::max(0, (int)lines.size() - vis));
+}
 void ListBox::wheel(float d) {
   int maxTop = std::max(0, (int)lines.size() - visibleItems());
   top = std::clamp(top - (int)d, 0, maxTop);
@@ -104,8 +111,8 @@ void UserDialog::drawLayer(Gfx& g) {
 bool UserDialog::input(const Input& in) {
   if (in.type == Input::Wheel) { list->wheel(in.wheel); return true; }
   if (in.type == Input::KeyDown) {
-    if (in.key == SDLK_UP && list->select > 0) { list->select--; return true; }
-    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; return true; }
+    if (in.key == SDLK_UP && list->select > 0) { list->select--; list->reveal(); return true; }
+    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; list->reveal(); return true; }
   }
   return Dialog::input(in);
 }

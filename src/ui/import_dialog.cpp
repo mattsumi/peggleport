@@ -136,8 +136,8 @@ bool ImportDialog::input(const Input& in) {
     return true;
   }
   if (in.type == Input::KeyDown) {
-    if (in.key == SDLK_UP && list->select > 0) { list->select--; status.clear(); return true; }
-    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; status.clear(); return true; }
+    if (in.key == SDLK_UP && list->select > 0) { list->select--; list->reveal(); status.clear(); return true; }
+    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; list->reveal(); status.clear(); return true; }
   }
   return Dialog::input(in);
 }
