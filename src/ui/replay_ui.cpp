@@ -109,10 +109,10 @@ class SaveReplayDialog : public Dialog {
   }
   float preferredHeight(float) override { return 383; }
   void layout() {
-    list->x = 46;
-    list->y = 68;
-    list->w = 314;
-    list->h = 133;
+    list->x = 45;
+    list->y = 72;
+    list->w = 315;
+    list->h = 129;
     list->back = 0x000050;
     edit->x = 100;
     edit->y = 224;
