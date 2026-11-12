@@ -859,7 +859,7 @@ void HelpScreen::drawLayer(Gfx& g) {
 
 
 TrophyScreen::TrophyScreen(App& a) : Screen(a) {
-  a.playMusic("fadeout");
+  a.playMusic(a.game == Game::Deluxe ? "fadeout" : "music/menu.ogg");
   page = a.curProfile ? std::clamp(a.curProfile->i38, 0, std::max(0, (int)a.trophies.pages().size() - 1)) : 0;
   og = a.otherLevels();
   a.pickOther = false;
