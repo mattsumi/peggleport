@@ -955,6 +955,8 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         p->checkTrophyTopScore(t->id, o.totalScore);
       }
   }
+  if (p && !won && !duel_ && !demo_ && !viewer_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay))
+    app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
   newBest = rank == 1;
   const bool aced = app.game == Game::Nights && won && !duel_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) && li && li->ace > 0 && o.totalScore >= li->ace;
   if (app.audio && !o.cleared && (mode == EndLevelDialog::AdventureComplete || aced)) {
