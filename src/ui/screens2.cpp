@@ -1103,9 +1103,8 @@ void TrophyScreen::drawLayer(Gfx& g) {
     float sx = kSlot[i][0], sy = kSlot[i][1];
     Tex* th = t.levels.empty() ? nullptr : theirs ? og->picture("levels/cached_thumbnails/" + t.levels[0]) : g.img("levels/cached_thumbnails/" + t.levels[0]);
     if (th && th->valid()) {
-      float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
-      g.drawStretch(th, cx, cy, 200, 177, Mode(1, 0x969696));
-      if (hovered == i) g.drawStretch(th, cx, cy, 200, 177, Mode(1));
+      float cx = kTileHit[i][0] + (float)((int)(kTileHitW - 200) / 2), cy = kTileHit[i][1] + (float)((int)(kTileHitH - 177) / 2);
+      g.drawStretch(th, cx, cy, 200, 177);
     } else {
       g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
     }
@@ -1127,13 +1126,11 @@ void TrophyScreen::drawLayer(Gfx& g) {
     const TrophyInfo& t = pg.trophies[i];
     float sx = kSlot[i][0], sy = kSlot[i][1];
     bool won = marks && marks->trophies.count(t.id);
-    g.fill(sx + 4, sy + 4, kSlotW - 8, 42, 0x000000, 0.6f);
-    g.drawWrapped("OVERLOAD16OUTLINE", {sx + 6, sy + 8, kSlotW - 12, 40}, t.name, won ? 0xffff80 : 0xffffff, 1, Align::Center);
-    const std::string& d = t.smallDesc.empty() ? t.desc : t.smallDesc;
-    if (!d.empty()) {
-      g.fill(sx + 4, sy + kSlotH - 56, kSlotW - 8, 52, 0x000000, 0.6f);
-      g.drawWrapped("PLAIN", {sx + 8, sy + kSlotH - 52, kSlotW - 16, 46}, d, 0xe0e0ff, 1, Align::Center);
-    }
+    const char* tf = "OVERLOAD16OUTLINE2";
+    const float nameW = g.textWidth(tf, t.name);
+    g.drawString(tf, kTileHit[i][0] + (float)((int)(kTileHitW - nameW) / 2), kTileHit[i][1] + 26 + g.fontAscent(tf), t.name, bSlot[i]->over ? 0xfff600 : 0x93c814);
+    if (bSlot[i]->overAlpha > 0)
+      if (Tex* sel = g.img("IMAGE_LS_LEVELSELECTOR")) g.draw(sel, kTileHit[i][0] + 4, kTileHit[i][1], Mode(bSlot[i]->overAlpha));
     if (won)
       if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 50, sy + 50);
   }
