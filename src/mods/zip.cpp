@@ -183,7 +183,7 @@ bool extractZip(const fs::path& zip, const fs::path& outDir, std::string* err) {
     else if (method == 8) {
       if (!inflateRaw(d + data, csize, bytes, usize)) { if (err) *err = "cannot inflate " + name; return false; }
     } else { if (err) *err = "unsupported zip method for " + name; return false; }
-    fs::path dst = outDir / fs::path(name);
+    fs::path dst = outDir / pathFromUtf8(name);
     fs::create_directories(dst.parent_path(), ec);
     std::ofstream f(dst, std::ios::binary);
     f.write((const char*)bytes.data(), (std::streamsize)bytes.size());
