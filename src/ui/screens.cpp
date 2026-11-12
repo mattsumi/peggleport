@@ -1,5 +1,6 @@
 #include "online/online_ui.h"
 #include "ui/screens.h"
+#include "ui/session.h"
 
 #include <SDL3/SDL.h>
 #include <cstdint>
@@ -646,6 +647,7 @@ void MainMenu::startAdventure() {
   app.gameMode = GameMode::Adventure;
   app.curStage = advStage;
   app.curLevel = advLevel;
+  if (sessionsOf(app).askToContinue(true)) return;
   startGame();
 }
 

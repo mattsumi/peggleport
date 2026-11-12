@@ -53,6 +53,11 @@ class SessionKeeper {
   void drop(GameMode m);
   bool resume();
   const ReadySession* found() const { return ready_.get(); }
+  bool askToContinue(bool ask);
+  bool askToLeave();
+  void finishContinue(bool goOn);
+  void startAsUsual();
+  void backOut();
 
  private:
   App& app_;
@@ -60,5 +65,7 @@ class SessionKeeper {
 };
 
 SessionKeeper& sessionsOf(App& a);
+
+enum { D_ContinueGame = 45 };
 
 }

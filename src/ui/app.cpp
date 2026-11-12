@@ -1,4 +1,5 @@
 #include "ui/app.h"
+#include "ui/session.h"
 
 #include <SDL3/SDL.h>
 #include <cstdint>
@@ -458,6 +459,7 @@ void App::enterAdventure() {
   gameMode = GameMode::Adventure;
   curStage = p ? std::max(0, p->advStage) : 0;
   curLevel = p ? std::max(0, p->advLevel) : 0;
+  if (sessionsOf(*this).askToContinue(true)) return;
   if (p && p->advCompletions > 0) {
     if (p->justBeatAdventure()) p->restartAdventure();
     if (game != Game::Nights) {

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <cctype>
 #include "ui/hooks.h"
+#include "ui/session.h"
 
 #include <algorithm>
 #include <cmath>
@@ -280,6 +281,12 @@ void App::dialogButton(int dlg, int btn) {
           std::filesystem::remove(profiles.savedGamePath(*curProfile, GameMode::Adventure), ec);
         }
         if (auto* as = dynamic_cast<AdventureScreen*>(cur_.get())) as->startGame();
+        else if (game == Game::Nights) {
+          sessionsOf(*this).drop(GameMode::Adventure);
+          sessionsOf(*this).startAsUsual();
+        }
+      } else if (!yes) {
+        sessionsOf(*this).backOut();
       }
       return;
     case D_WhichAdventure: {
@@ -332,6 +339,7 @@ void App::doAdventureQuestion() {
 }
 
 void App::doConfirmMainMenuDialog() {
+  if (sessionsOf(*this).askToLeave()) return;
   if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
     finishOptionsDialog(false, false);
     doToMenu();

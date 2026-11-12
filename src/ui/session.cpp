@@ -17,7 +17,10 @@
 #include "log.h"
 #include "masters.h"
 #include "ui/app.h"
+#include "ui/dialog.h"
 #include "ui/game_screen.h"
+#include "ui/screens.h"
+#include "ui/widgets.h"
 
 namespace pp::ui {
 
@@ -344,6 +347,137 @@ bool SessionKeeper::resume() {
   drop((GameMode)r->saved.mode);
   if (app_.curProfile) app_.applyColorblind(app_.curProfile->colorblind);
   app_.setScreen(std::make_unique<GameScreen>(app_, *r), App::Left);
+  return true;
+}
+
+namespace {
+
+std::string withCommas(int v) {
+  const std::string digits = std::to_string(v < 0 ? -(long long)v : (long long)v);
+  std::string out;
+  for (size_t i = 0; i < digits.size(); i++) {
+    if (i && (digits.size() - i) % 3 == 0) out += ',';
+    out += digits[i];
+  }
+  return v < 0 ? "-" + out : out;
+}
+
+class ContinueDialog : public Dialog {
+ public:
+  ContinueDialog(App& a, const std::string& text, bool newGame) : Dialog(a, D_ContinueGame, true, "Continue Game?", text, "Cancel", BUTTONS_FOOTER) {
+    textAlign = -1;
+    goOn_ = extra(0, "Continue");
+    again_ = extra(1, "Restart Level");
+    if (newGame) fresh_ = extra(2, "New Game");
+  }
+  float preferredHeight(float width) override { return Dialog::preferredHeight(width) + (app.game == Game::Nights ? 0x3c : 0x28); }
+  void update() override {
+    Dialog::update();
+    place();
+  }
+  void place() {
+    if (!yesBtn) return;
+    const float half = std::floor((w - insL - insR - 8) / 2);
+    const float row = yesBtn->y - buttonH;
+    Button* left = fresh_ ? again_ : goOn_;
+    Button* right = fresh_ ? fresh_ : again_;
+    left->x = insL;
+    right->x = insL + half + 8;
+    left->y = right->y = row;
+    left->w = right->w = half;
+    left->h = right->h = buttonH;
+    if (fresh_) {
+      goOn_->x = yesBtn->x;
+      goOn_->y = yesBtn->y - buttonH - 0x23;
+      goOn_->w = yesBtn->w;
+      goOn_->h = buttonH;
+    }
+  }
+  void onButton(int id) override {
+    SessionKeeper& keeper = sessionsOf(app);
+    if (id == 0 || id == 1) {
+      killNow();
+      keeper.finishContinue(id == 0);
+    } else if (id == 2) {
+      doScrollOff();
+      app.doConfirmRestartAdventureDialog();
+    } else {
+      doScrollOff();
+      keeper.backOut();
+    }
+  }
+
+ private:
+  Button* extra(int id, const std::string& label) {
+    Button* b = addButton(id, Button::Kind::Patch, "IMAGE_DLG_BUTTON3", label);
+    if (yesBtn) {
+      b->textOffY = yesBtn->textOffY;
+      b->labelStyle = yesBtn->labelStyle;
+      b->labelFullGradient = yesBtn->labelFullGradient;
+    }
+    return b;
+  }
+  Button *goOn_ = nullptr, *again_ = nullptr, *fresh_ = nullptr;
+};
+
+}
+
+bool SessionKeeper::askToContinue(bool ask) {
+  PlayerInfo* p = app_.curProfile;
+  if (!p || app_.gameMode != GameMode::Adventure) return false;
+  if (ask && app_.game == Game::Deluxe && p->advCompletions > 0) return false;
+  app_.curStage = std::clamp(p->advStage, 0, std::max(0, app_.numStages() - 1));
+  app_.curLevel = std::clamp(p->advLevel, 0, 5);
+  if (!find(GameMode::Adventure)) return false;
+  if (ready_->saved.shots == 0 || !ask) return resume();
+  const std::string text = "Do you want to ^00FF00^continue^oldclr^ the level in progress or ^00FF00^restart^oldclr^ the level?\n\n^44DAFB^Score: " +
+                           withCommas(ready_->saved.score) + "\nBalls Left: " + std::to_string(ready_->saved.ballsLeft) + "\n";
+  app_.killDialog(D_ContinueGame);
+  auto d = std::make_unique<ContinueDialog>(app_, text, app_.game == Game::Nights && p->advCompletions > 0);
+  ContinueDialog* raw = d.get();
+  app_.positionDialog(raw, 0x177);
+  raw->place();
+  raw->doScroll(true);
+  app_.addDialog(D_ContinueGame, std::move(d));
+  return true;
+}
+
+void SessionKeeper::startAsUsual() {
+  if (auto* menu = dynamic_cast<MainMenu*>(app_.screen())) {
+    app_.gameMode = GameMode::Adventure;
+    menu->startGame();
+  } else if (auto* adv = dynamic_cast<AdventureScreen*>(app_.screen())) {
+    adv->startGame();
+  } else {
+    app_.enterAdventure();
+  }
+}
+
+void SessionKeeper::backOut() {
+  Screen* s = app_.screen();
+  if (dynamic_cast<MainMenu*>(s) || dynamic_cast<AdventureScreen*>(s) || dynamic_cast<GameScreen*>(s)) return;
+  app_.showMainMenu();
+}
+
+void SessionKeeper::finishContinue(bool goOn) {
+  if (goOn && resume()) return;
+  drop(GameMode::Adventure);
+  if (!goOn && app_.game == Game::Nights && app_.curProfile) app_.curProfile->countFailedTry();
+  startAsUsual();
+}
+
+bool SessionKeeper::askToLeave() {
+  auto* gs = dynamic_cast<GameScreen*>(app_.screen());
+  if (!gs || !gs->keepsSession() || file(GameMode::Adventure).empty()) return false;
+  const PlayerInfo* p = app_.curProfile;
+  if (!p || p->b58 >= 3 || gs->board().result.shots <= 0) {
+    app_.finishOptionsDialog(false, false);
+    app_.doToMenu();
+    return true;
+  }
+  Dialog* d = app_.doDialog(D_ReturnToMenu, true, "Leave Game?", "Your game session will be saved upon leaving.  Do you want to continue?", "", BUTTONS_OK_CANCEL);
+  d->setYesNo("Leave", "CANCEL");
+  app_.alignQuestionWithMenu(d);
   return true;
 }
 

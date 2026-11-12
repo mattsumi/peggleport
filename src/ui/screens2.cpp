@@ -11,6 +11,7 @@
 #include <cstdio>
 
 #include "ui/character_dialog.h"
+#include "ui/session.h"
 #include "ui/dialog.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
@@ -165,6 +166,8 @@ void AdventureScreen::drawOverlay(Gfx& g) {
 }
 
 void AdventureScreen::startGame() {
+  app.gameMode = GameMode::Adventure;
+  if (sessionsOf(app).askToContinue(false)) return;
   app.startAdventureGame();
 }
 

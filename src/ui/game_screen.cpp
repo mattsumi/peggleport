@@ -1,4 +1,5 @@
 #include "ui/game_screen.h"
+#include "ui/session.h"
 #include "ui/screens.h"
 #include "log.h"
 #include <ctime>
@@ -720,6 +721,10 @@ void GameScreen::submitStats() {
 
 void GameScreen::onLeave() {
   PlayerInfo* p = app.curProfile;
+  if (sessionsOf(app).keep(*this)) {
+    app.saveProfile();
+    return;
+  }
   if (p && ready_ && statsMode_ == GameMode::Adventure && !done_ && !viewer_ && !demo_) {
     const bool played = board_.result.shots > 0;
     if (app.game == Game::Deluxe && !played) p->uncountLevelStart();
