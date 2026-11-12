@@ -923,12 +923,19 @@ void HelpScreen::drawLayer(Gfx& g) {
   for (int i = 0; i < 2; i++)
     if (hp.head[i][0]) g.drawWrapped("PLAINOUTLINE", {60, 110.0f + 18 * i, 680, 20}, hp.head[i], 0xffffaa, 1, Align::Center);
   Tex* icons = g.img("IMAGE_HELP_ICONS");
+  Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
   for (int r = 0; r < 4; r++) {
     float y = 170.0f + 90 * r;
     int icol = page < 4 ? page : page == 4 ? -1 : page - 1;
     if (page == 4 && r == 0)
-      if (Tex* mi = g.img("IMAGE_HELP_MODES")) g.draw(mi, 32, 170);
-    if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) g.drawCel(icons, 72.0f, y, icol, r);
+      if (Tex* mi = g.img("IMAGE_HELP_MODES")) {
+        g.draw(mi, 32, 170);
+        if (frame) g.drawBox(frame, 24, 162, mi->lw() + 14, mi->lh() + 14);
+      }
+    if (icons && icol >= 0 && icol < icons->cols && (nights || hp.row[r][0][0])) {
+      g.drawCel(icons, 72.0f, y, icol, r);
+      if (frame) g.drawBox(frame, 64, y - 8, icons->cw() + 14, icons->ch() + 14);
+    }
     if (hp.style) {
       if (!hp.row[r][0][0]) continue;
       g.drawString("PLAINOUTLINE", 170, y + 19, hp.row[r][0], 0xffffaa);
