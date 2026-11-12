@@ -175,6 +175,8 @@ class TrophyScreen : public Screen {
   void syncPage();
   void doPlay(int slot);
   const TrophyPage* pageShown(bool& theirs) const;
+  int ownPages() const;
+  int theirPages() const;
   int page = 0, hovered = -1, hoverTicks = 0, badgeTicks = 0, applauseTicks = 0;
   Button* bSlot[5];
   Button *bBack, *bPrev, *bNext;

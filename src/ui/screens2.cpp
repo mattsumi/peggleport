@@ -866,10 +866,10 @@ void HelpScreen::drawLayer(Gfx& g) {
 
 TrophyScreen::TrophyScreen(App& a) : Screen(a) {
   a.playMusic(a.game == Game::Deluxe ? "fadeout" : "music/menu.ogg");
-  page = a.curProfile ? std::clamp(a.curProfile->i38, 0, std::max(0, (int)a.trophies.pages().size() - 1)) : 0;
   og = a.otherLevels();
   a.pickOther = false;
-  if (og && a.listPage >= 0 && !og->trophies.pages().empty()) page = (int)a.trophies.pages().size() + std::min(a.listPage, (int)og->trophies.pages().size() - 1);
+  page = a.curProfile && ownPages() > 0 ? std::clamp(a.curProfile->i38, 0, ownPages() - 1) : 0;
+  if (theirPages() > 0 && a.listPage >= 0) page = ownPages() + std::min(a.listPage, theirPages() - 1);
   a.listPage = -1;
   bBack = embeddedButton(100, "IMAGE_LS_MAINMENUBUTTON", 6, 541);
   bPrev = embeddedButton(101, "IMAGE_LS_BACKBUTTON", 284, 546);
@@ -884,21 +884,26 @@ TrophyScreen::TrophyScreen(App& a) : Screen(a) {
   }
   syncPage();
 }
+int TrophyScreen::ownPages() const {
+  const bool shown = !og || app.modeOpen(GameMode::Challenge) || !og->challengesOpen();
+  return shown ? (int)app.trophies.pages().size() : 0;
+}
+int TrophyScreen::theirPages() const { return og && og->challengesOpen() ? (int)og->trophies.pages().size() : 0; }
 const TrophyPage* TrophyScreen::pageShown(bool& theirs) const {
   const auto& mine = app.trophies.pages();
   theirs = false;
-  if (page >= 0 && page < (int)mine.size()) return &mine[(size_t)page];
+  if (page >= 0 && page < ownPages()) return &mine[(size_t)page];
   if (!og) return nullptr;
   const auto& more = og->trophies.pages();
-  const int at = page - (int)mine.size();
+  const int at = page - ownPages();
   theirs = true;
-  return at >= 0 && at < (int)more.size() ? &more[(size_t)at] : nullptr;
+  return at >= 0 && at < theirPages() ? &more[(size_t)at] : nullptr;
 }
 void TrophyScreen::syncPage() {
   bPrev->visible = page > 0;
-  bNext->visible = page + 1 < (int)app.trophies.pages().size() + (og ? (int)og->trophies.pages().size() : 0);
+  bNext->visible = page + 1 < ownPages() + theirPages();
   badgeTicks = applauseTicks = 0;
-  if (page >= (int)app.trophies.pages().size()) {
+  if (page >= ownPages()) {
     bool theirs = false;
     if (const TrophyPage* pg = pageShown(theirs))
       for (int i = 0; i < 5 && i < (int)pg->trophies.size(); i++)
@@ -940,7 +945,7 @@ void TrophyScreen::doPlay(int slot) {
       app.challengeStep = 0;
       if (t.levels[0] == "pick") {
         app.pickOther = true;
-        app.listPage = page - (int)pages.size();
+        app.listPage = page - ownPages();
         app.showLevelScreen(true);
         return;
       }
@@ -991,7 +996,6 @@ void TrophyScreen::drawLayer(Gfx& g) {
     return;
   }
   const TrophyPage& pg = *shown;
-  const bool open = !og || (theirs ? og->challengesOpen() : app.modeOpen(GameMode::Challenge));
   const PlayerInfo* marks = theirs ? og->player : app.curProfile;
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
@@ -1000,12 +1004,10 @@ void TrophyScreen::drawLayer(Gfx& g) {
     if (th && th->valid()) {
       float cx = sx + (kSlotW - 200) / 2, cy = sy + (kSlotH - 177) / 2;
       g.drawStretch(th, cx, cy, 200, 177, Mode(1, 0x969696));
-      if (hovered == i && open) g.drawStretch(th, cx, cy, 200, 177, Mode(1));
+      if (hovered == i) g.drawStretch(th, cx, cy, 200, 177, Mode(1));
     } else {
       g.fill(sx, sy, kSlotW, kSlotH, 0x303060);
     }
-    if (!open)
-      if (Tex* lk = g.img("IMAGE_LS_LOCK")) g.draw(lk, sx + (kSlotW - lk->lw()) / 2, sy + (kSlotH - lk->lh()) / 2);
   }
   if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
   g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, pg.name, 0xb7ffff, 1, Align::Center);
