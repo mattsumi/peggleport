@@ -140,7 +140,7 @@ uint32_t rgbaOf(uint32_t rgb, int a) { return (rgb << 8) | (uint32_t)std::clamp(
 namespace {
 enum : int {
   T_FEVERBLAST_ROCKET = 4, T_COIN = 8, T_STREAK = 6, T_TRAIL = 0x13, T_STAR = 0x14, T_CATCHERGLOW = 0x1a, T_CATCHERSPARK = 0x1b, T_LETTER = 0x1d,
-  T_STYLESPARK = 0x2e, T_CHAIN_BOLT = 0x60, T_CHAIN_ARC = 0x61, T_CHAIN_EMBER = 0x62,
+  T_LEVELBUMP = 0x2d, T_STYLESPARK = 0x2e, T_CHAIN_BOLT = 0x60, T_CHAIN_ARC = 0x61, T_CHAIN_EMBER = 0x62,
 };
 int bucketIndex(const Board& b) {
   for (size_t i = 0; i < b.objs.size(); i++)
@@ -541,6 +541,20 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
     case Event::ChainBolt:
       if (e.a >= 0 && e.a < (int)b.objs.size() && e.b < (int)b.objs.size()) fxChainBolt(b, e.a, e.b, e.c & 0xff, ((e.c >> 8) & 1) != 0);
       break;
+    case Event::LevelBump: {
+      if (e.a < 0 || e.a >= (int)b.objs.size()) break;
+      bool renewed = false;
+      for (FxEffect& f : S.eff[1])
+        if (f.type == T_LEVELBUMP && f.i30 == e.a) {
+          f.age = 0;
+          renewed = true;
+        }
+      if (renewed) break;
+      FxEffect& f = fxAdd(T_LEVELBUMP, b.objs[(size_t)e.a].pos.x, b.objs[(size_t)e.a].pos.y, 0);
+      f.life = 40;
+      f.i30 = e.a;
+      break;
+    }
     case Event::PegLit: {
       if (e.a < 0 || e.a >= (int)b.objs.size()) break;
       bool fever = (e.b & 0x40000000) != 0;
@@ -1385,6 +1399,16 @@ void Renderer::fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& o
 void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
   const float X = BX + e.x, Y = BY + e.y;
   switch (e.type) {
+    case T_LEVELBUMP: {
+      const int tail = 10;
+      const int a = e.age <= e.life - tail ? 200 : (e.life - e.age) * 200 / tail;
+      if (a <= 0) break;
+      const Obj* src = nullptr;
+      for (const Obj& o : b.objs)
+        if (o.id == "lbump" && o.subId == 0 && !o.image.empty()) src = &o;
+      if (Tex* t = src ? objImage(src->image) : nullptr) putCentered(t, X, Y, {rgbaOf(0xffffff, a), Blend::Normal});
+      break;
+    }
     case 0x50: {
       Tex* t = img("IMAGE_SPACESTAR");
       if (!t) break;
