@@ -75,11 +75,11 @@ static void buildBrickLocal(const Node& n, Obj& o) {
   BrickParams p;
   p.type = (int)n.i("brick_type", 0);
   p.sub = n.has("brick_subdiv") ? (int)n.i("brick_subdiv") : 2;
-  p.radius = n.f("brick_radius", 35.0f);
+  p.radius = heldTo(n.f("brick_radius", 35.0f), -2000.0f, 2000.0f);
   p.ext = n.has("brick_angle") ? n.f("brick_angle") : 30.0f;
   p.ang150 = n.f("brick_left_angle", 0.0f);
   p.ang154 = n.f("brick_right_angle", 0.0f);
-  p.thick = n.has("brick_thickness") ? n.f("brick_thickness") : 20.0f;
+  p.thick = heldTo(n.has("brick_thickness") ? n.f("brick_thickness") : 20.0f, -500.0f, 500.0f);
   p.rot = n.f("brick_rotation", -90.0f);
   p.off = {n.f("u_0x160", 0.0f), n.f("u_0x164", 0.0f)};
   BrickShape s = brickInitFromParams(p);
