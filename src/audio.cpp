@@ -317,6 +317,11 @@ void Audio::stopLoops() {
   chainLoop_ = false;
 }
 
+void Audio::setFocusMuted(bool on) {
+  std::lock_guard<std::mutex> lk(mu_);
+  focusMuted_ = on;
+}
+
 void Audio::stopSounds() {
   std::lock_guard<std::mutex> lk(mu_);
   for (auto& v : voices_) {
@@ -663,7 +668,7 @@ void Audio::render(float* out, int frames) {
   };
   if (music_) mixMusic(*music_, music_->fixed ? feverVol_ : musicVol_ * duck_ * music_->level);
   for (auto& f : fading_) mixMusic(*f, musicVol_ * duck_ * f->fade * f->level);
-  for (int i = 0; i < frames * 2; i++) out[i] = std::clamp(out[i], -1.0f, 1.0f);
+  for (int i = 0; i < frames * 2; i++) out[i] = focusMuted_ ? 0.0f : std::clamp(out[i], -1.0f, 1.0f);
 }
 
 void Audio::callback(void* user, SDL_AudioStream* s, int additional, int) {

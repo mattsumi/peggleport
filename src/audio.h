@@ -44,6 +44,7 @@ class Audio {
   void fadeOutMusic();
   void setVolumes(float sfx, float music) { sfxVol_ = sfx; musicVol_ = music; }
   void setFeverVolume(float v) { feverVol_ = v; }
+  void setFocusMuted(bool on);
   void onEvents(const std::vector<Event>& ev, const Board& b);
   void tick();
   void tickMusic();
@@ -87,6 +88,7 @@ class Audio {
   bool fireLoop_ = false;
   bool chainLoop_ = false;
   bool leaving_ = false;
+  bool focusMuted_ = false;
   int chainLoopAt_ = 0;
   bool prevSlow_ = false;
   bool prevHeld_ = false;

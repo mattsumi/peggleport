@@ -925,10 +925,15 @@ void App::input(const Input& in) {
   if (logView_ && logView_->handle(in)) return;
   if (in.type == Input::FocusLost) {
     windowFocused = false;
+    if (audio) audio->setFocusMuted(true);
     if (cur_) cur_->lostFocus();
     return;
   }
-  if (in.type == Input::FocusGained) { windowFocused = true; return; }
+  if (in.type == Input::FocusGained) {
+    windowFocused = true;
+    if (audio) audio->setFocusMuted(false);
+    return;
+  }
   if (switchWanted_) return;
   Input din = in;
   din.x -= (canvasW_ - 800) * 0.5f;
