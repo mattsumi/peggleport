@@ -390,7 +390,7 @@ void GameScreen::replayFinished() {
     (void)d;
     return;
   }
-  Dialog* d = app.doDialog(D_Replay1, true, "Instant Replay Finished!", "Hit ^FF44FF^Done^oldclr^ to Return to Game.\nHit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "", BUTTONS_YES_NO);
+  Dialog* d = app.doDialog(D_Replay1, true, "Instant Replay Finished!", "Hit ^FF44FF^Done Button^oldclr^ to Return to Game.\nHit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "", BUTTONS_YES_NO);
   d->setYesNo("Done", canSaveReplay() ? "Save Replay" : "Close");
   pause(true);
   replayDlgPaused_ = true;
