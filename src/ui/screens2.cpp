@@ -374,17 +374,19 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", li.title) / 2, 365, li.title, 0xffff00);
     if (normal) {
       const auto& hs = (other ? og->highScores : app.highScores).scores(app.scoreKey(li.file, app.boardWidthForNewBoard()));
-      g.drawString("PLAIN", 400 - g.textWidth("PLAIN", "Top Five Scores") / 2, 395, "Top Five Scores", 0x88ff88);
+      const char* hf = "OVERLOAD12OUTLINE";
+      const float top = pageGame == Game::Nights ? 395.0f + 21.0f : 395.0f;
+      g.drawString(hf, 400 - g.textWidth(hf, "Top Five Scores") / 2, top, "Top Five Scores", pageGame == Game::Nights ? 0xffffff : 0x88ff88);
       const char* nf = "OVERLOAD10OUTLINE";
-      float y = 395 + 25, step = g.fontLineSpacing(nf);
+      float y = top + (pageGame == Game::Nights ? 20.0f : 25.0f), step = g.fontLineSpacing(nf);
       for (int i = 0; i < 5 && i < (int)hs.size(); i++) {
         int hue = (10 * (i + 1)) & 0x800000ff;
         if (hue > 0x80) hue = 0x100 - hue;
         uint32_t col = hslToRgb(hue, 0xff, 0x80);
-        g.drawString(nf, 310, y + g.fontAscent(nf), std::to_string(i + 1), col);
-        g.drawString(nf, 330, y + g.fontAscent(nf), hs[i].name, col);
+        g.drawString(nf, 310, y, std::to_string(i + 1) + ".", col);
+        g.drawString(nf, 330, y, hs[i].name, col);
         std::string v = commas(hs[i].score);
-        g.drawString("PLAIN", 490 - g.textWidth("PLAIN", v), y + g.fontAscent(nf) + 4, v, col);
+        g.drawString("OVERLOADMONO10", 490 - g.textWidth("OVERLOADMONO10", v), y + 4, v, col);
         y += step;
       }
     } else {
