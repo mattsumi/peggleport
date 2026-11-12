@@ -309,11 +309,12 @@ void App::alignQuestionWithMenu(Dialog* d) {
 }
 
 void App::doAdventureQuestion() {
-  Dialog* d = doDialog(D_WhichAdventure, true, "Adventure", "Which adventure do you want to play?", "", BUTTONS_YES_NO);
+  Dialog* d = doDialog(D_WhichAdventure, true, "Adventure", "Which adventure do you\nwant to play?", "", BUTTONS_YES_NO);
   d->setYesNo("Peggle Deluxe", "Peggle Nights");
   d->escapeButton = ID_CLOSE;
   d->returnButton = game == Game::Nights ? ID_NO : ID_YES;
-  positionDialog(d, 400);
+  d->resize(227, d->y, 366, d->preferredHeight(366));
+  d->scrollTarget = 280;
 }
 
 void App::doConfirmMainMenuDialog() {
