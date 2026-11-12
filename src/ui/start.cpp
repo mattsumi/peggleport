@@ -175,7 +175,7 @@ int gameMessage(App& app, const GameWait& wait, const std::string& text, const s
   auto box = std::make_unique<FolderBox>(app, shown, buttons, answer);
   FolderBox* raw = box.get();
   const bool alone = !app.anyDialog();
-  app.positionDialog(raw, alone ? 366 : 440);
+  app.positionDialog(raw, (float)(alone ? 366 : 440));
   if (alone && app.screenName() == "mainmenu") {
     raw->x = 410 - raw->w / 2;
     raw->y = 280;
