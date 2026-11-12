@@ -368,7 +368,7 @@ void App::doConfirmRestartLevelDialog(float top) {
     return;
   }
   Dialog* d = doDialog(D_RestartLevel, true, title, text, "", BUTTONS_YES_NO);
-  d->setYesNo(yes, "NO");
+  d->setYesNo(yes, "CANCEL");
   if (top > 0) d->scrollTarget = top;
   else alignQuestionWithMenu(d);
 }

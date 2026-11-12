@@ -886,14 +886,14 @@ void App::doConfirmQuitDialog() {
 }
 void App::doConfirmNewChallengeDialog() {
   Dialog* d = doDialog(D_NewChallenge, true, "New Challenge?", "Are you sure that you want to choose a new challenge? Your progress on this challenge will be lost.", "", BUTTONS_YES_NO);
-  d->setYesNo("New Challenge", "NO");
+  d->setYesNo("New Challenge", "CANCEL");
   positionDialog(d, 400);
 }
 void App::doConfirmRestartAdventureDialog() {
   Dialog* d = doDialog(D_RestartAdventure, true, "Restart Adventure?",
                        "Are you sure that you want to ^00FF00^RESTART ADVENTURE?^oldclr^\n\nThis will put you all the way back to the first level and reset your score to zero.", "", BUTTONS_YES_NO);
   d->textAlign = -1;
-  d->setYesNo("Restart Adventure", "NO");
+  d->setYesNo("Restart Adventure", "CANCEL");
   positionDialog(d, 460);
 }
 
