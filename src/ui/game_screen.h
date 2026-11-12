@@ -154,6 +154,7 @@ class GameScreen : public Screen {
   int pendingMode_ = 0, pendingRank_ = 0;
   LevelOutcome pendingOut_;
   std::string pendingTitle_;
+  std::vector<Event> spinHeld_;
 };
 
 }

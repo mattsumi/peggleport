@@ -194,6 +194,7 @@ bool GameScreen::startLevel(const std::string& name) {
   aiWait_ = 0;
   cfg.liveSpin = !demo_;
   if (app.audio) app.audio->dropQueued();
+  spinHeld_.clear();
   board_ = Board();
   cfg_ = cfg;
   log_.clear();
@@ -431,6 +432,7 @@ bool GameScreen::startViewer(const ReplayData& d) {
   rcfg.liveSpin = true;
   cfg_ = rcfg;
   if (app.audio) app.audio->dropQueued();
+  spinHeld_.clear();
   board_ = Board();
   if (!board_.load(lb_.base, lb_.level, rcfg, &err)) { loadError = err; return false; }
   replay_ = board_;
@@ -601,6 +603,10 @@ void GameScreen::update() {
   }
   if (pauseCount_ > 0) return;
   if (!app.windowFocused) return;
+  if (!spinHeld_.empty() && !app.getDialog(D_Slot)) {
+    if (app.audio) app.audio->onEvents(spinHeld_, b);
+    spinHeld_.clear();
+  }
   if (app.getDialog(D_Slot)) return;
   if (replaying_) { stepReplay(); return; }
   int n = stepsThisTick();
@@ -629,8 +635,16 @@ void GameScreen::update() {
   }
   if (app.audio && spinOutcome >= 0) {
     std::vector<Event> heard;
-    for (const auto& e : b.events)
-      if (!(e.type == Event::Power && e.a >= 200 && e.a <= 203)) heard.push_back(e);
+    bool afterSpin = false;
+    for (const auto& e : b.events) {
+      if (e.type == Event::LuckySpin) afterSpin = true;
+      if (e.type == Event::Power && e.a >= 200 && e.a <= 203) continue;
+      if (e.type == Event::Power && afterSpin && e.a == spinPower) {
+        spinHeld_.push_back(e);
+        continue;
+      }
+      heard.push_back(e);
+    }
     app.audio->onEvents(heard, b);
   } else if (app.audio) {
     app.audio->onEvents(b.events, b);
