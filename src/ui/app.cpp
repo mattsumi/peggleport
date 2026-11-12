@@ -670,6 +670,7 @@ void App::scrollOn(Panel* l) {
 
 void App::setScreen(std::unique_ptr<Screen> s, Dir offDir) {
   if (switchWanted_ && switchHome_) switchWanted_ = false;
+  if (audio && game == Game::Nights && (dynamic_cast<LevelScreen*>(s.get()) || dynamic_cast<TrophyScreen*>(s.get()))) audio->stopSounds();
   scrollDir = 0;
   if (cur_) {
     Screen* old = cur_.get();
