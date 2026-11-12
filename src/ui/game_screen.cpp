@@ -1191,7 +1191,7 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     next = m == ChallengeWin ? (a.challengeMore ? "Next Level" : "Trophy Menu") : "Replay Level";
   } else {
     header = "Try Again!";
-    next = m == ChallengeLose ? "Retry Challenge" : "Retry Level";
+    next = m == ChallengeLose ? "Retry Challenge" : m == QuickLose && !a.duelEnd.active ? "Replay Level" : "Retry Level";
   }
   const bool challengeEnd = m == ChallengeWin || m == ChallengeLose || m == ChallengeLives;
   const bool deluxeForm = a.game == Game::Deluxe && challengeEnd && a.endHeaderOverride.empty();
