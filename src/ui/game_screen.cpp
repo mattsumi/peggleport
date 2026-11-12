@@ -960,7 +960,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
     }
   }
   if (p && !won && !duel_ && !demo_ && !viewer_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay))
-    app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+    rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
   newBest = rank == 1;
   const bool aced = app.game == Game::Nights && won && !duel_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) && li && li->ace > 0 && o.totalScore >= li->ace;
   if (app.audio && !o.cleared && (mode == EndLevelDialog::AdventureComplete || aced)) {
@@ -1279,7 +1279,7 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     totalCur = levelTgt;
   }
   const std::string& pickedTip = a.stages.tip(a.rand());
-  if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0))) tip = pickedTip;
+  if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0) || ((m == QuickWin || m == QuickLose) && rk <= 0 && !duelEnd))) tip = pickedTip;
   w = 440;
   const auto& hs = a.highScores.scores(lname);
   for (auto& e : hs) table.push_back(e);
@@ -1350,7 +1350,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     if (draw) g.drawWrapped("PLAIN2", r, msgBody, 0xffffff, 1, Align::Center);
     return y + bodyH + 18 + 36 + (bRetry ? 39 : 0) + insB + 8;
   }
-  bool list = mode == QuickWin || mode == QuickLose;
+  const bool list = (mode == QuickWin || mode == QuickLose) && rank > 0;
   const float L = 50, R = 390;
   float y = insT + g.fontHeight(headerFont) + 16;
   if (portraitStage >= 0) {
@@ -1405,10 +1405,8 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   if (list) {
     if (draw) g.fill(L, y, R - L, 1, 0xffffff);
     y += 8;
-    if (newBest) {
-      text(kBig, w / 2, y + g.fontAscent(kBig), "New High Score!", 0xffffff, Align::Center);
-      y += 24;
-    }
+    text(kBig, w / 2, y + g.fontAscent(kBig), "New High Score!", 0xffffff, Align::Center);
+    y += 24;
     float rx = L + 30, nx = rx + 40, sx = nx + 250, lh = g.fontHeight(kPlain) + 1;
     int n = std::min<int>((int)table.size(), 10);
     if (aceRow && n > 0) lh -= (g.fontHeight(kBig) + 5) / (float)n;
