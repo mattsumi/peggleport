@@ -369,7 +369,7 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
   }
   if (b.slowOn && !prevSlow_) {
     fadeMusic(75);
-    playLater(30, "SLOWMO", 0, 1, 30);
+    play("SLOWMO", 0, 1, 30);
   }
   prevSlow_ = b.slowOn;
   if (b.slowOn && b.slowC3 && b.slowSpeed >= 900 && b.slowSpeed < 920 && !sighDone_) { play("SIGH", 0, 1, 1); sighDone_ = true; }
