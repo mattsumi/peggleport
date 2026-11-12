@@ -627,7 +627,14 @@ void GameScreen::update() {
       }
     }
   }
-  if (app.audio) app.audio->onEvents(b.events, b);
+  if (app.audio && spinOutcome >= 0) {
+    std::vector<Event> heard;
+    for (const auto& e : b.events)
+      if (!(e.type == Event::Power && e.a >= 200 && e.a <= 203)) heard.push_back(e);
+    app.audio->onEvents(heard, b);
+  } else if (app.audio) {
+    app.audio->onEvents(b.events, b);
+  }
   if (app.audio && app.boardRenderer) app.audio->playFx(app.boardRenderer->takeSounds());
   for (const auto& e : b.events)
     if (e.type == Event::CoinFlip && app.curProfile && !app.curProfile->tipSet(2)) app.curProfile->setTip(2);
