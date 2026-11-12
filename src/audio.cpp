@@ -381,6 +381,12 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::ExtraBall: play(e.a == 0 ? "EXTRABALL" : e.a == 1 ? "EXTRABALL2" : "EXTRABALL3"); addBallSound(b); break;
       case Event::FreeBall: if (e.a != 2) { play("FREEBALL"); addBallSound(b); } break;
       case Event::Bump: play(e.a ? "FIREBALLBOUNCE" : "RICHOCHET", 0, 1, 2); break;
+      case Event::LevelBump: {
+        auto it = lbumpAt_.find(e.a);
+        if (it == lbumpAt_.end() || updates_ - it->second > 35) play("SCORECOUNTER", 0, 1, 1);
+        lbumpAt_[e.a] = updates_;
+        break;
+      }
       case Event::PointBoost: play("POINTBOOST"); break;
       case Event::Fever:
         play("CYMBAL");

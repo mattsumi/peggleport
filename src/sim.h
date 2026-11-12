@@ -127,7 +127,8 @@ struct Event {
               Bubble,
               ChainStart,
               ChainStrike,
-              ChainBolt   } type;
+              ChainBolt,
+              LevelBump   } type;
   int a = 0, b = 0;
   int c = 0;
 };

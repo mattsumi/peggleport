@@ -595,6 +595,7 @@ void Board::stepBalls() {
         const int sinceNow = cfg.nights ? b.sinceHit : b.since;
         if ((o.id == "freeballcover" || o.id == "freeball") && b.fire) ev(Event::Bump, 1);
         else if (o.sound == 4 && (sinceNow > 4 || o.shape == Shape::Circle)) ev(Event::Bump, b.fire ? 1 : 0);
+        if (o.id.compare(0, 5, "lbump") == 0) ev(Event::LevelBump, nt.obj);
       }
       noteContact(b, o);
       if (o.pegType) pegHit(nt.obj);

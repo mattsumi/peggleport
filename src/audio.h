@@ -37,7 +37,7 @@ class Audio {
   void stopLoops();
   void stopSounds();
   void playAfter(int delay, const std::string& id) { playLater(delay, id, 0, 1, 1); }
-  void dropQueued() { pending_.clear(); stopLoops(); }
+  void dropQueued() { pending_.clear(); lbumpAt_.clear(); stopLoops(); }
   void setBoardLeaving(bool on) { leaving_ = on; }
   void fadeMusic(int frames);
   void stopMusic();
@@ -96,6 +96,7 @@ class Audio {
   int lvlBase_ = -1, intensity_ = 0, pendOrder_ = -1, pendRow_ = 0;
   std::vector<std::unique_ptr<Music>> fading_;
   bool sighDone_ = false;
+  std::map<int, int> lbumpAt_;
   void playLater(int delay, const std::string& id, float semis = 0, float vol = 1, int throttle = 0) {
     if (delay <= 1) play(id, semis, vol, throttle);
     else pending_.push_back({updates_ + delay - 1, id, semis, vol, throttle});
