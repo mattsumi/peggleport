@@ -341,11 +341,11 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
     id = i;
     return false;
   }
-  maxStage = r.i32();
-  maxLevel = r.i32();
-  levelSelectStage = r.i32();
-  advStage = r.i32();
-  advLevel = r.i32();
+  maxStage = std::clamp(r.i32(), 0, 99);
+  maxLevel = std::clamp(r.i32(), 0, 4);
+  levelSelectStage = std::clamp(r.i32(), 0, 99);
+  advStage = std::clamp(r.i32(), -1, 99);
+  advLevel = std::clamp(r.i32(), 0, 4);
   char1 = r.i32();
   char2 = r.i32();
   strB4 = r.str();
