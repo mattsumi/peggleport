@@ -968,8 +968,7 @@ const TrophyPage* TrophyScreen::pageShown(bool& theirs) const {
   return at >= 0 && at < theirPages() ? &more[(size_t)at] : nullptr;
 }
 void TrophyScreen::syncPage() {
-  bPrev->visible = page > 0;
-  bNext->visible = page + 1 < ownPages() + theirPages();
+  bPrev->visible = bNext->visible = ownPages() + theirPages() > 0;
   badgeTicks = applauseTicks = 0;
   if (page >= ownPages()) {
     bool theirs = false;
@@ -1046,8 +1045,12 @@ void TrophyScreen::onButton(int id) {
   if (app.moving()) return;
   if (id >= 0 && id < 5) doPlay(id);
   else if (id == 100) app.showMainMenu();
-  else if (id == 101) { if (page > 0) { page--; syncPage(); } }
-  else if (id == 102) { page++; syncPage(); }
+  else if (id == 101 || id == 102) {
+    const int total = ownPages() + theirPages();
+    if (total <= 0) return;
+    page = id == 101 ? (page > 0 ? page - 1 : total - 1) : (page + 1 < total ? page + 1 : 0);
+    syncPage();
+  }
 }
 void TrophyScreen::keyDown(int key, int) {
   if (app.hasModal()) return;
