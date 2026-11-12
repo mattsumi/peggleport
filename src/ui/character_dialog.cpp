@@ -13,7 +13,7 @@ static const float kInfoW = 184;
 static const float kTwoH = 525, kBoxX = 175, kBoxY = 110, kBoxW = 170, kBoxH = 34, kLevelDX = 20, kLevelW = 130, kLevelH = 27, kLevelGap = 5;
 static const float kNameX[2] = {90, 425}, kNameY = 100, kJointDX = 8, kFootX = 172;
 static const float kPanelX = 167, kPanelY = 297, kPanelW = 186, kPanelBottom = 410;
-static const bool kInfoAlways = true;
+static const bool kInfoAlways = false;
 static const float kSoloW = 400, kSoloGridY = 70, kSoloInfoX = 180, kSoloInfoY = 80, kSoloPagerGap = 9;
 static const int kNightsOrder[12] = {0, 1, 5, 2, 3, 4, 6, 8, 7, 9, 10, 11};
 static const char* kChosenSound[11] = {"POWERUP_GUIDE", "POWERUP_MULTIBALL", "POWERUP_PYRAMID", "POWERUP_SPACEBLAST", "POWERUP_FLIPPERS", "POWERUP_SPOOKYBALL",
