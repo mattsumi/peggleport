@@ -1254,18 +1254,18 @@ void Renderer::fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& o
       if (e.i3c == 1) {
         if (e.age == 15) {
           S.shake = 10;
-          S.sound("FEVERHIT");
+          S.sound("FEVERHIT", 0, 1, 1);
         } else if (e.age == 0) {
-          S.sound("WHISTLE");
+          S.sound("WHISTLE", 0, 1, 1);
         }
       } else if (e.i3c > 1 && e.age == 20) {
-        S.sound("WOOSH");
+        S.sound("WOOSH", 0, 1, 1);
       }
       bool behind = false;
       if (e.age >= 50)
         for (const Ball& bl : b.balls)
           if (bl.pos.x >= e.x - 40 && bl.pos.x < e.x + 40 && bl.pos.y >= e.y - 40 && bl.pos.y < e.y + 40) { behind = true; break; }
-      if (e.life - e.age == 20 && e.i3c > 1) S.sound("WOOSH");
+      if (e.life - e.age == 20 && e.i3c > 1) S.sound("WOOSH", 0, 1, 1);
       if (!behind) {
         if (e.i34 > 0 && e.i34 < 255) {
           e.i34 += 5;
