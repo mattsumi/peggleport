@@ -104,6 +104,7 @@ class TrophyMgr {
   const std::vector<TrophyPage>& pages() const { return pages_; }
   size_t numTrophies() const { return mainTrophies_; }
   size_t numAllTrophies() const { return byId_.size(); }
+  int numMainPages() const { return mainPages_; }
   size_t numHeld(const std::set<int>& held) const;
   const TrophyInfo* byId(int id) const { auto it = byId_.find(id); return it == byId_.end() ? nullptr : it->second; }
   std::vector<const TrophyInfo*> forClearedLevel(const std::string& level) const;
