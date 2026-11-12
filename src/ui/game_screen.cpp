@@ -107,6 +107,17 @@ bool GameScreen::startLevel(const std::string& name) {
   if (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
   const bool ownChoice = choosesMaster();
   if (ownChoice) mi = chosenMaster();
+  if (app.gameMode == GameMode::Demo) {
+    static int lastDemoMaster = -1;
+    const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+    int pick = 0;
+    for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
+      pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+      if (pick != lastDemoMaster) break;
+    }
+    lastDemoMaster = pick;
+    mi = std::clamp(pick, 0, app.game == Game::Nights ? 10 : 9);
+  }
   cfg.master[0] = Board::masterByName(kMasterNames[mi]);
   {
     const StageInfo* sp = app.stages.stage(stage);
