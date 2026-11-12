@@ -358,8 +358,11 @@ void Session::poll() {
       else {
         if (n == 0 || !wouldBlock()) {
           lobbyCtl_->dead = true;
-          error = "lobby connection lost";
-          pp::log::warn("net", error);
+          bool onDirectLinks = started_ && connectedPeers() > 0;
+          for (auto p : peers_)
+            if (!p->dead && !(p->link && (p->sentSwitch || p->gotSwitch))) onDirectLinks = false;
+          if (!onDirectLinks) error = "lobby connection lost";
+          pp::log::warn("net", "lobby connection lost");
         }
         break;
       }
