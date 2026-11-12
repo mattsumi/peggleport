@@ -1280,7 +1280,7 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
   }
   const std::string& pickedTip = a.stages.tip(a.rand());
   if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0))) tip = pickedTip;
-  w = 425;
+  w = 440;
   const auto& hs = a.highScores.scores(lname);
   for (auto& e : hs) table.push_back(e);
   highlight = rk > 0 ? rk - 1 : -1;
@@ -1351,7 +1351,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     return y + bodyH + 18 + 36 + (bRetry ? 39 : 0) + insB + 8;
   }
   bool list = mode == QuickWin || mode == QuickLose;
-  const float L = insL, R = 390;
+  const float L = 50, R = 390;
   float y = insT + g.fontHeight(headerFont) + 16;
   if (portraitStage >= 0) {
     if (draw) paintPortrait(g, y - 8);
@@ -1394,13 +1394,13 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     if (draw) g.drawString(kPlain, x1 - g.textWidth(kPlain, v), base, v, rowValue);
     sy += g.fontHeight(kPlain) - 3;
   };
-  row(L, L + 140, "Shots:", std::to_string(out.shots));
-  row(L, L + 140, "Free Balls:", std::to_string(out.freeBalls));
-  row(L, L + 140, "% Cleared:", std::to_string(out.percentCleared()));
+  row(L, 170, "Shots:", std::to_string(out.shots));
+  row(L, 170, "Free Balls:", std::to_string(out.freeBalls));
+  row(L, 170, "% Cleared:", std::to_string(out.percentCleared()));
   sy = y;
-  row(L + 170, R, "Shot Points:", commas(out.shotPoints));
-  row(L + 170, R, "Fever Points:", commas(out.feverPoints));
-  row(L + 170, R, "Style Points:", commas(out.stylePoints));
+  row(210, R, "Shot Points:", commas(out.shotPoints));
+  row(210, R, "Fever Points:", commas(out.feverPoints));
+  row(210, R, "Style Points:", commas(out.stylePoints));
   y = sy + 10;
   if (list) {
     if (draw) g.fill(L, y, R - L, 1, 0xffffff);
