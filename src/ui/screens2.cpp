@@ -987,6 +987,26 @@ void TrophyScreen::keyDown(int key, int) {
   else if (key == SDLK_LEFT && bPrev->visible) onButton(101);
   else if (key == SDLK_RIGHT && bNext->visible) onButton(102);
 }
+static void drawTrophyInfo(Gfx& g, const std::string& name, const std::string& desc, int best, bool nights) {
+  const std::string head = "OVERLOAD16OUTLINE", small = "OVERLOAD12OUTLINE", plain = "PLAINOUTLINE";
+  const float space = g.fontLineSpacing(head) - 4.0f, pad = g.fontAscentPadding(head);
+  const int lines = std::max(1, (int)(g.wrappedHeight(head, 200, name, space) / space + 0.5f));
+  const float headH = g.fontHeight(head) - pad + (float)(lines - 1) * space;
+  float top = 340.0f, below = 340.0f + headH + (best > 0 ? 15.0f : 30.0f);
+  if (nights) {
+    const bool tall = headH > 20.0f;
+    top = tall ? 340.0f : 348.0f;
+    below = (tall ? 328.0f : 348.0f) + headH + 15.0f;
+  }
+  g.drawWrapped(head, {300, top - pad, 200, 0}, name, 0xffff00, 1, Align::Center, space);
+  if (best > 0) {
+    const std::string line = "Your Best: " + commas(best);
+    if (nights) g.drawString(small, 400.0f - (float)((int)g.textWidth(small, line) / 2), 485, line, 0x88ff88);
+    else g.drawString(small, 302, 465, line, 0xffff00);
+  }
+  g.drawWrapped(plain, {300, below, 198, 0}, desc, 0xffffff, 1, Align::Center);
+}
+
 void TrophyScreen::drawLayer(Gfx& g) {
   g.fill(0, 0, 800, 600, 0x000020);
   bool theirs = false;
@@ -1011,7 +1031,7 @@ void TrophyScreen::drawLayer(Gfx& g) {
   }
   if (Tex* bg = g.img("IMAGE_LS_LEVELSCREEN")) g.draw(bg, 0, 0);
   g.drawString("OVERLOAD24GRAD1", 400, 8 + 34, pg.name, 0xb7ffff, 1, Align::Center);
-  g.drawString("OVERLOAD16OUTLINE", 0x1b8, 0x1f9, "Page " + std::to_string(page + 1), 0xffff00, 1, Align::Left);
+  g.drawString("OVERLOAD12OUTLINE", 0x1b8, 0x1f9, "Page " + std::to_string(page + 1), 0xffff00, 1, Align::Left);
   for (int i = 0; i < 5 && i < (int)pg.trophies.size(); i++) {
     const TrophyInfo& t = pg.trophies[i];
     float sx = kSlot[i][0], sy = kSlot[i][1];
@@ -1026,9 +1046,10 @@ void TrophyScreen::drawLayer(Gfx& g) {
     if (won)
       if (Tex* rb = g.img("IMAGE_LS_TINYBLUERIBBON")) g.draw(rb, sx + kSlotW - 50, sy + 50);
   }
-  if (hovered >= 0 && hovered < 5 && hovered < (int)pg.trophies.size())
-    g.drawWrapped("PLAIN", {304, 335, 190, 170}, pg.trophies[hovered].desc, 0xffffff, 1, Align::Center);
-  else if (og) {
+  if (hovered >= 0 && hovered < 5 && hovered < (int)pg.trophies.size()) {
+    const TrophyInfo& t = pg.trophies[hovered];
+    drawTrophyInfo(g, t.name.empty() ? pg.name : t.name, t.desc.empty() ? pg.desc : t.desc, marks ? marks->trophyTopScore(t.id) : 0, (theirs ? og->game : app.game) == Game::Nights);
+  } else if (og) {
     const std::string name = gameTitle(theirs ? og->game : app.game);
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", name) / 2, 365, name, 0xffff00);
   }
