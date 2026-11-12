@@ -16,105 +16,15 @@
 
 namespace pp::ui {
 
-static std::string commas(int v) {
-  std::string s = std::to_string(v < 0 ? -(long long)v : (long long)v), o;
-  for (size_t i = 0; i < s.size(); i++) { if (i && (s.size() - i) % 3 == 0) o += ','; o += s[i]; }
-  return v < 0 ? "-" + o : o;
-}
-
-class ReplayFileDialog : public Dialog {
- public:
-  explicit ReplayFileDialog(App& a) : Dialog(a, D_Replay2, true, "Replays", "", "", BUTTONS_YES_NO) {
-    rope = true;
-    auto l = std::make_unique<ListBox>();
-    l->gfx = &a.gfx;
-    list = add(std::move(l));
-    del = patchButton(101, "Delete", "IMAGE_DLG_BUTTON3", 0, 0);
-    folder = patchButton(102, "Open Folder", "IMAGE_DLG_BUTTON3", 0, 0);
-    setYesNo("Play", "Close");
-    files = listReplays(dir(), a.game == Game::Nights ? 1 : 0);
-    for (auto& f : files) list->lines.push_back(label(f));
-    list->select = files.empty() ? -1 : 0;
-    list->onClick = [this](int i, int clicks) {
-      list->select = i;
-      if (clicks >= 2) app.dialogButton(D_Replay2, ID_YES);
-    };
-  }
-  ListBox* list;
-  Button *del, *folder;
-  std::vector<ReplayFile> files;
-  std::filesystem::path dir() const { return app.userDir / "replays"; }
-  static std::string label(const ReplayFile& f) {
-    const ReplayData& h = f.head;
-    std::string t = h.title.empty() ? h.level : h.title;
-    return t + "  -  " + h.player + "  -  " + commas(h.score);
-  }
-  const ReplayFile* selected() const { return list->select >= 0 && list->select < (int)files.size() ? &files[list->select] : nullptr; }
-  float preferredHeight(float width) override { return Dialog::preferredHeight(width) + kOwnLayoutExtra + 0xff; }
-  void layout() {
-    list->x = insL + 10;
-    list->y = contentTop(app.gfx);
-    list->w = w - insL - insR - 20;
-    list->h = 0x9b;
-    del->x = yesBtn->x;
-    del->y = yesBtn->y - 5 - del->h;
-    del->w = yesBtn->w;
-    folder->x = noBtn->x;
-    folder->y = noBtn->y - 5 - folder->h;
-    folder->w = noBtn->w;
-  }
-  void drawLayer(Gfx& g) override {
-    layout();
-    Dialog::drawLayer(g);
-    if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, list->x - 8, list->y - 8, list->w + 16, list->h + 16);
-    g.drawWrapped("PLAIN", {insL, list->y + list->h + 14, w - insL - insR, 30}, "Send replays to friends from here, or drop friends' replays in here to view", 0xffffff, 1, Align::Center);
-  }
-  bool input(const Input& in) override {
-    if (in.type == Input::Wheel) { list->wheel(in.wheel); return true; }
-    if (in.type == Input::KeyDown) {
-      if (in.key == SDLK_UP && list->select > 0) { list->select--; list->reveal(); return true; }
-      if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; list->reveal(); return true; }
-    }
-    return Dialog::input(in);
-  }
-  void onButton(int id) override {
-    if (id == 101) {
-      if (const ReplayFile* f = selected()) app.doConfirmDeleteReplay(f->name);
-    } else if (id == 102) {
-      std::error_code ec;
-      std::filesystem::create_directories(dir(), ec);
-      std::string url = "file://" + pathToUtf8(dir());
-      SDL_OpenURL(url.c_str());
-    } else {
-      Dialog::onButton(id);
-    }
-  }
-  void confirmDelete() {
-    const ReplayFile* f = selected();
-    if (!f) return;
-    std::error_code ec;
-    std::filesystem::remove(f->path, ec);
-    int idx = list->select;
-    files.erase(files.begin() + idx);
-    list->lines.erase(list->lines.begin() + idx);
-    list->select = files.empty() ? -1 : std::min(idx, (int)files.size() - 1);
-    list->reveal();
-  }
-  void play() {
-    const ReplayFile* f = selected();
-    if (!f) return;
-    app.playReplayFile(f->path);
-  }
-};
-
 static bool haveReplays(App& a) { return !listReplays(a.userDir / "replays", a.game == Game::Nights ? 1 : 0).empty(); }
 
 class SaveReplayDialog : public Dialog {
  public:
-  explicit SaveReplayDialog(App& a) : Dialog(a, D_SaveReplay, true, "Save Replay", "", "", BUTTONS_NONE) {
+  explicit SaveReplayDialog(App& a, bool show = false) : Dialog(a, show ? D_Replay2 : D_SaveReplay, true, show ? "Show Replay" : "Save Replay", "", "", BUTTONS_NONE), showing(show) {
     rope = true;
     auto l = std::make_unique<ListBox>();
     l->gfx = &a.gfx;
+    l->centered = false;
     list = add(std::move(l));
     auto e = std::make_unique<EditBox>();
     e->gfx = &a.gfx;
@@ -128,16 +38,19 @@ class SaveReplayDialog : public Dialog {
     bDelete = patchButton(102, "Delete", "IMAGE_DLG_BUTTON3", 0, 0);
     bFolder = patchButton(103, "Open Folder", "IMAGE_DLG_BUTTON3", 0, 0);
     bCancel = patchButton(104, "Cancel", "IMAGE_DLG_BUTTON3", 0, 0);
-    bSave = patchButton(105, "Save", "IMAGE_DLG_BUTTON3", 0, 0);
+    bSave = patchButton(105, show ? "Play" : "Save", "IMAGE_DLG_BUTTON3", 0, 0);
     refresh();
-    edit->value = "Replay" + std::to_string(files.size() + 1);
-    edit->caret = (int)edit->value.size();
-    edit->selectAll = true;
+    if (!show) {
+      edit->value = "Replay" + std::to_string(files.size() + 1);
+      edit->caret = (int)edit->value.size();
+      edit->selectAll = true;
+    }
     edit->focused = true;
     focusW = edit;
     edit->onEnter = [this] { onButton(105); };
-    list->onClick = [this](int i, int) {
+    list->onClick = [this](int i, int clicks) {
       list->select = i;
+      if (showing && clicks >= 2) { play(); return; }
       if (i >= 0 && i < (int)files.size()) {
         edit->value = stemOf(files[(size_t)i]);
         edit->caret = (int)edit->value.size();
@@ -150,6 +63,7 @@ class SaveReplayDialog : public Dialog {
   ListBox* list;
   EditBox* edit;
   Button *bRename, *bDelete, *bFolder, *bCancel, *bSave;
+  const bool showing;
   std::vector<ReplayFile> files;
   std::string pending;
   bool overwriteOk = false;
@@ -220,9 +134,18 @@ class SaveReplayDialog : public Dialog {
     } else if (id == 104) {
       doScrollOff();
     } else if (id == 105) {
-      overwriteOk = false;
-      save();
+      if (showing) {
+        play();
+      } else {
+        overwriteOk = false;
+        save();
+      }
     }
+  }
+  void play() {
+    const ReplayFile* f = selected();
+    if (!f) return;
+    app.playReplayFile(f->path);
   }
   void confirmDelete() {
     const ReplayFile* f = selected();
@@ -270,11 +193,9 @@ void App::doReplaysDialog() {
     return;
   }
   killDialog(D_Replay2);
-  auto d = std::make_unique<ReplayFileDialog>(*this);
+  auto d = std::make_unique<SaveReplayDialog>(*this, true);
   Dialog* raw = d.get();
   positionDialog(raw, 400);
-  raw->x = 0x96;
-  raw->y = 0x3c;
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }
@@ -320,7 +241,7 @@ void App::replayDialogButton(int dlg, int btn) {
     case D_SaveReplay: off(dlg); return;
     case D_Replay2:
       if (yes) {
-        if (auto* rd = dynamic_cast<ReplayFileDialog*>(getDialog(dlg))) rd->play();
+        if (auto* rd = dynamic_cast<SaveReplayDialog*>(getDialog(dlg))) rd->play();
       } else {
         off(dlg);
       }
@@ -328,7 +249,7 @@ void App::replayDialogButton(int dlg, int btn) {
     case D_DeleteReplay:
       off(dlg);
       if (yes) {
-        if (auto* rd = dynamic_cast<ReplayFileDialog*>(getDialog(D_Replay2))) rd->confirmDelete();
+        if (auto* rd = dynamic_cast<SaveReplayDialog*>(getDialog(D_Replay2))) rd->confirmDelete();
         else if (auto* sd = dynamic_cast<SaveReplayDialog*>(getDialog(D_SaveReplay))) sd->confirmDelete();
       }
       return;

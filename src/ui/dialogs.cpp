@@ -34,7 +34,8 @@ void ListBox::draw(Gfx& g) {
     } else if (idx == hilite) {
       col = 0xffffff;
     }
-    g.drawString(font, w / 2, y + g.fontAscent(font), lines[idx], col, 1, Align::Center);
+    if (centered) g.drawString(font, w / 2, y + g.fontAscent(font), lines[idx], col, 1, Align::Center);
+    else g.drawString(font, 4, y + g.fontAscent(font), lines[idx], col, 1);
   }
   g.popClip();
 }

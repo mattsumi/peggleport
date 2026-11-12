@@ -12,6 +12,7 @@ class ListBox : public Widget {
   std::vector<std::string> lines;
   int select = -1, hilite = -1, top = 0;
   uint32_t back = 0x505050;
+  bool centered = true;
   std::string font = "PLAIN";
   float itemH = 16;
   std::function<void(int idx, int clicks)> onClick;
