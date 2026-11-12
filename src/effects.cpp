@@ -912,8 +912,10 @@ void Renderer::advance(const Board& b) {
     if (chCountBlink_) chCountBlink_--;
     if (chPowerBlink_) chPowerBlink_--;
     chTick_++;
+    shotMeterTick(b);
   }
   if (fresh) {
+    shotMeter_ = shotMeterTarget_ = 0;
     for (int& c : chLastCount_) c = -2;
     chCountBlink_ = chPowerBlink_ = 0;
   }

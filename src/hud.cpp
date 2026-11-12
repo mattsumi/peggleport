@@ -79,6 +79,75 @@ void Renderer::drawBallColumn(const Board& b) {
   if (glass) put(glass, {0, 0, glass->lw(), glass->lh()}, 3, 92);
 }
 
+void Renderer::shotMeterTick(const Board& b) {
+  if (b.lstate == 2 && !b.fever) {
+    const int s = b.shotScore;
+    if (s >= 125000 && shotMeter_ < 125000) shotMeter_ = shotMeterTarget_ = 125000;
+    else if (s >= 75000 && shotMeter_ < 75000) shotMeter_ = shotMeterTarget_ = 75000;
+    else if (s >= 25000 && shotMeter_ < 25000) shotMeter_ = shotMeterTarget_ = 25000;
+    else shotMeterTarget_ = s;
+  } else if (!b.fever) {
+    shotMeterTarget_ = 0;
+  }
+  if (shotMeter_ < shotMeterTarget_) {
+    int d = shotMeterTarget_ - shotMeter_;
+    shotMeter_ += d > 100000 ? 5000 : d > 25000 ? 1000 : d > 1000 ? 200 : d > 100 ? 100 : 10;
+    if (shotMeter_ > shotMeterTarget_) shotMeter_ = shotMeterTarget_;
+  } else if (shotMeter_ > shotMeterTarget_) {
+    int d = shotMeter_ - shotMeterTarget_;
+    if (d > 100000) shotMeter_ -= 5000;
+    shotMeter_ -= d > 25000 ? 1000 : 200;
+    if (shotMeter_ < shotMeterTarget_) shotMeter_ = shotMeterTarget_;
+  }
+}
+
+void Renderer::drawShotMeter() {
+  Tex* meter = img("IMAGE_INT_FREEBALLMETER");
+  Tex* cap = img("IMAGE_INT_FREEBALLMETERTOP");
+  if (!meter || !cap) return;
+  const int v = shotMeter_;
+  if (v <= 0) return;
+  const float cw = meter->cw(), mh = meter->lh(), ch = cap->lh();
+  const int bottom = (int)mh + 165;
+  auto pair = [&](Tex* t, int cel, float sy, float sh, float dy) {
+    const SDL_FRect src{cel * cw, sy, cw, sh};
+    put(t, src, 5, dy);
+    const bool was = flipX_;
+    flipX_ = !was;
+    put(t, src, 59, dy);
+    flipX_ = was;
+  };
+  int baseCel = -1, fillCel = 0, progress = v, span = 25000;
+  if (v > 125000) {
+    pair(meter, 2, 0, mh, 165);
+    return;
+  }
+  if (v > 75000) {
+    baseCel = 1;
+    fillCel = 2;
+    progress = v - 75000;
+    span = 50000;
+  } else if (v > 25000) {
+    baseCel = 0;
+    fillCel = 1;
+    progress = v - 25000;
+    span = 50000;
+  }
+  if (baseCel >= 0) pair(meter, baseCel, 0, mh, 165);
+  int filled = (int)mh * progress / span;
+  if (filled <= 0) return;
+  filled = std::min(filled, (int)mh);
+  const float fillTop = (float)(bottom - filled);
+  pair(meter, fillCel, mh - (float)filled, (float)filled, fillTop);
+  float capY = fillTop - ch, capSrc = 0, capH = ch;
+  if (capY < 163) {
+    capSrc = 163 - capY;
+    capH = ch - capSrc;
+    capY = 163;
+  }
+  if (capH > 0) pair(cap, fillCel, capSrc, capH, capY);
+}
+
 void Renderer::drawOrbBack(const Board& b, const Hud& hud, int dw) {
   float cxs = (float)dw / 2;
   if (Tex* t = img("IMAGE_IP_SHOOTERBACK")) {
@@ -326,6 +395,7 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
   drawPortrait(b, dw);
   drawBallColumn(b);
   drawFrame(dw);
+  drawShotMeter();
   drawOrbFront(b, dw);
   if (Tex* t = tex("images/dialog/menubutton", 2, 1, "roundbutton_"); t && hud.menuOver) putCelAt(t, 0, 0, 12.0f, 540.0f);
   if (b.shotIndex == 0) {

@@ -176,6 +176,8 @@ class Renderer {
   void fxStyleText(const Board& b, const std::string& name, int pts, float x, float y, bool big);
   void fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& out);
   void drawBallColumn(const Board& b);
+  void drawShotMeter();
+  void shotMeterTick(const Board& b);
   void drawOrbBack(const Board& b, const Hud& hud, int dw);
   void drawOrangeMeter(const Board& b, int dw);
   float BX = 75;
@@ -196,6 +198,7 @@ class Renderer {
   };
   struct BlinkReq { int type = 0, n = 0, tick = -1; } blinkReq_;
   int shotsFired0_ = 0;
+  int shotMeter_ = 0, shotMeterTarget_ = 0;
   std::vector<ObjViz> viz_;
   int lastTick_ = -1;
   size_t lastObjs_ = 0;
