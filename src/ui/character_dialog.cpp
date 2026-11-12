@@ -1,6 +1,7 @@
 #include "ui/character_dialog.h"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 #include <memory>
 #include <string>
@@ -283,6 +284,30 @@ static void drawModIcon(Gfx& g, const ModMaster& m, float x, float y, float w, f
   g.drawString(font, x + w / 2, y + h / 2 + g.fontAscent(font) / 2 - 2, masters::initial(m), 0xffffff, 1, Align::Center);
 }
 
+bool CharacterDialog::randomChosen(int r) const {
+  return two && app.game == Game::Deluxe && modSel[r] < 0 && sel[r] == 10;
+}
+
+void CharacterDialog::update() {
+  Dialog::update();
+  if (!two) return;
+  const float mx = app.mouseX - (app.canvasW() - 800) * 0.5f - x, my = app.mouseY - y;
+  for (int r = 0; r < 2; r++) {
+    float x0, y0, w0, h0, x9, y9, w9, h9;
+    cellRect(r, 0, &x0, &y0, &w0, &h0);
+    cellRect(r, 9, &x9, &y9, &w9, &h9);
+    if (mx >= x0 && mx < x9 + w9 && my >= y0 && my < y9 + h9) {
+      fade[r] = (float)((double)fade[r] - (double)0.2f);
+      fadeWait[r] = 20;
+    } else if (fadeWait[r] > 0) {
+      fadeWait[r]--;
+    } else {
+      fade[r] = (float)((double)fade[r] + (double)0.1f);
+    }
+    fade[r] = std::clamp(fade[r], 0.0f, 1.0f);
+  }
+}
+
 void CharacterDialog::drawCell(Gfx& g, int r, int i) {
   Tex* chars = g.img("IMAGE_CHR_CHARACTERS");
   Tex* shadows = g.img("IMAGE_CHR_CHARACTERSHADOWS");
@@ -308,6 +333,11 @@ void CharacterDialog::drawCell(Gfx& g, int r, int i) {
   }
   if (!open && !cellRandom(i) && !(two && i >= 10))
     if (Tex* lock = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lock, cx, cy, Mode(60 / 255.0f));
+  if (randomChosen(r) && !cellRandom(i)) {
+    const int alpha = (int)((double)fade[r] * 255.0);
+    if (alpha > 0)
+      if (Tex* q = g.img("IMAGE_DLG_QUESTIONMARK")) g.draw(q, cx + std::floor((cw - q->lw()) / 2), cy + std::floor((ch - q->lh()) / 2), Mode(alpha / 255.0f));
+  }
   if (Tex* fr = chosen ? selFrame : frame) g.drawBox(fr, cx - 8, cy - 8, cw + 14, ch + 14);
 }
 

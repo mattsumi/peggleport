@@ -10,6 +10,7 @@ class CharacterDialog : public Dialog {
  public:
   CharacterDialog(App& a, bool twoPlayers);
   void drawLayer(Gfx& g) override;
+  void update() override;
   bool input(const Input& in) override;
   float preferredHeight(float width) override;
   void accept();
@@ -39,6 +40,8 @@ class CharacterDialog : public Dialog {
   void pagerRect(int player, float* x, float* y, float* w, float* h) const;
   bool onPager(float lx, float ly) const;
   int count = 10;
+  float fade[2] = {0, 0};
+  int fadeWait[2] = {0, 0};
   bool computer = true;
   int skill = 0;
   Widget* joints = nullptr;
@@ -50,6 +53,7 @@ class CharacterDialog : public Dialog {
   float gridX(int player) const;
   float gridY() const;
   void drawCell(Gfx& g, int player, int idx);
+  bool randomChosen(int player) const;
   void drawInfo(Gfx& g);
 };
 
