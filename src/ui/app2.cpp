@@ -443,8 +443,11 @@ void App::endLevelButton(int id, int mode) {
     return;
   }
   if (id == 1000) {
-    if (game == Game::Nights && m == EndLevelDialog::ChallengeLose) showTrophyScreen();
-    else doToMenu();
+    doToMenu();
+    return;
+  }
+  if (id == 0 && m == EndLevelDialog::ChallengeLose) {
+    showTrophyScreen();
     return;
   }
   if (id == 0 && (m == EndLevelDialog::QuickWin || m == EndLevelDialog::QuickLose) && playNewLevel()) return;

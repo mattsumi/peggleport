@@ -1249,10 +1249,11 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     a.duelEnd.active = false;
   }
   (void)p;
-  bMenu = patchButton(1000, msgMode && m == ChallengeLose && !deluxeForm ? "New Challenge" : msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
+  bMenu = patchButton(1000, msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   bNext = patchButton(1001, next, "IMAGE_DLG_BUTTON3", 0, 0);
   bMenu->visible = !(deluxeForm && m == ChallengeWin);
   if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, a.game == Game::Nights ? "Play New Level" : "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
+  else if (msgMode && m == ChallengeLose && !deluxeForm) bRetry = patchButton(0, "New Challenge", "IMAGE_DLG_BUTTON3", 0, 0);
   if (a.game == Game::Nights && m == AdventureWin && p && p->advCompletions == 0) {
     portraitStage = a.curStage;
     portraitLevel = a.curLevel;
@@ -1347,7 +1348,7 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     Rect r{insL, y, w - insL - insR, 400};
     float bodyH = g.wrappedHeight("PLAIN2", r.w, msgBody);
     if (draw) g.drawWrapped("PLAIN2", r, msgBody, 0xffffff, 1, Align::Center);
-    return y + bodyH + 18 + 36 + insB + 8;
+    return y + bodyH + 18 + 36 + (bRetry ? 39 : 0) + insB + 8;
   }
   bool list = mode == QuickWin || mode == QuickLose;
   const float L = insL, R = 390;
