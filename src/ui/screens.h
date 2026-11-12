@@ -132,13 +132,16 @@ class StoryScreen : public Screen {
   void onButton(int id) override;
   void finish();
   void initText();
+  void dreamIn();
+  void skipTyping();
+  void drawNights(Gfx& g);
   bool reveal, easter;
   int stage = 0;
   Button* bContinue = nullptr;
   int page = 1;
   int typed = 0, wait = 0, start = 20, boxFade = 0, boxes = 0, shownChars = 0;
   bool done = false, dreamy = false;
-  std::string text, head;
+  std::string text, text2, head;
   int totalVisible = 0, headVisible = 0;
   bool win = false;
   int tier = 0;

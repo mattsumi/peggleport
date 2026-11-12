@@ -504,6 +504,7 @@ void StoryScreen::initText() {
     for (auto& d : s->story[page]) text += d.text;
   }
   head.clear();
+  text2.clear();
   if (s && app.game != Game::Nights) {
     if (page != 1) head = "^ffffff^A few choice words of\nPeggle Wisdom^oldclr^";
     else for (auto& d : s->story[0]) head += d.text;
@@ -511,8 +512,15 @@ void StoryScreen::initText() {
     text.clear();
     for (auto& d : s->story[page]) text += d.text;
     headVisible = 0;
+  } else if (s) {
+    for (auto& d : s->story[0]) head += d.text;
+    while (!head.empty() && head.back() == '\n') head.pop_back();
+    text.clear();
+    for (auto& d : s->story[1]) text += d.text;
+    for (auto& d : s->story[2]) text2 += d.text;
+    headVisible = (int)text.size();
   }
-  totalVisible = (int)stripColorCodes(text).size();
+  totalVisible = (int)stripColorCodes(text).size() + (int)stripColorCodes(text2).size();
   start = 20;
   app.playMusic(app.game == Game::Deluxe || reveal ? "beats:48" : "music/09.mo3");
 }
@@ -530,19 +538,20 @@ void StoryScreen::update() {
   }
   if (done) return;
   if (start != 0) {
-    if (--start == 0) { boxes++; boxFade = 1; wait = 20; }
+    if (--start == 0) {
+      boxes++;
+      boxFade = 1;
+      wait = 20;
+      if (boxes == 2) dreamIn();
+    }
     return;
   }
   if (boxFade != 0 && ++boxFade == 20) boxFade = 0;
   if (wait != 0) { wait--; return; }
-  if (!dreamy && app.game == Game::Nights && stage != 10 && headVisible > 0 && typed >= headVisible) {
-    dreamy = true;
-    app.playSample("STAGE_DREAMY_IN");
-  }
   if (typed < totalVisible) {
     typed++;
     app.playSample("TYPING");
-    std::string vis = stripColorCodes(text);
+    std::string vis = stripColorCodes(text) + stripColorCodes(text2);
     int off = typed - 1;
     if (off >= 0 && off < (int)vis.size()) {
       switch (vis[off]) {
@@ -550,7 +559,11 @@ void StoryScreen::update() {
         case '.': case ',': wait = 10; break;
         default: wait = 2; break;
       }
-      if (off == (int)vis.size() - 1) wait = 50;
+      if (app.game == Game::Nights) {
+        if (off == headVisible - 1 || off == (int)vis.size() - 1) start = 50;
+      } else if (off == (int)vis.size() - 1) {
+        wait = 50;
+      }
     }
     return;
   }
@@ -566,9 +579,23 @@ void StoryScreen::finish() {
   app.showBoard(true, true);
 }
 void StoryScreen::onButton(int) { finish(); }
+void StoryScreen::dreamIn() {
+  if (dreamy || app.game != Game::Nights || stage == 10) return;
+  dreamy = true;
+  app.playSample("STAGE_DREAMY_IN");
+}
+void StoryScreen::skipTyping() {
+  typed = 1000000; wait = 0; start = 0; boxFade = 0;
+  if (app.game == Game::Nights) {
+    if (boxes < 2) dreamIn();
+    boxes = 2;
+  } else {
+    boxes = 1;
+  }
+}
 bool StoryScreen::input(const Input& in) {
   if (!win && in.type == Input::MouseDown && !done && in.button > 0) {
-    typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1;
+    skipTyping();
     return true;
   }
   return Panel::input(in);
@@ -577,7 +604,7 @@ void StoryScreen::keyDown(int key, int) {
   if (win) return;
   if (key == SDLK_ESCAPE || key == SDLK_RETURN || key == SDLK_SPACE) {
     if (done) finish();
-    else { typed = 1000000; wait = 0; start = 0; boxFade = 0; boxes = 1; }
+    else skipTyping();
   }
 }
 
@@ -601,6 +628,45 @@ static uint32_t charColor(int i) {
   return i >= 0 && i < 10 ? c[i] : 0xffffff;
 }
 
+void StoryScreen::drawNights(Gfx& g) {
+  const char* font = "STAGE";
+  const int ci = std::clamp(CharacterDialog::masterMetAt(app.game, stage), 0, 11);
+  const uint32_t rgb = charColor(stage);
+  auto fadeOf = [&](int index) { return boxes > index ? (boxFade > 0 && index == boxes - 1 ? boxFade / 20.0f : 1.0f) : 0.0f; };
+  auto portraitAt = [&](const std::string& name, float fade) {
+    if (Tex* pic = g.img(name)) {
+      g.draw(pic, 70, 120, Mode(fade));
+      if (Tex* bf = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(bf, 62, 112, pic->lw() + 16, pic->lh() + 16, Mode(fade));
+    }
+  };
+  Tex* tr = g.img("IMAGE_DLG_TEXTRECT");
+  if (boxes > 0) {
+    if (tr) g.drawBox(tr, 264, 120, 466, 190, Mode(0.5f * fadeOf(0), 0x000000));
+    portraitAt("IMAGE_CHR_CHARACTER_ADV" + std::to_string(ci + 1), fadeOf(0));
+  }
+  if (boxes > 1) {
+    if (tr) g.drawBox(tr, 70, 325, 660, 170, Mode(0.5f * fadeOf(1), 0x000000));
+    portraitAt("IMAGE_CHR_CHARACTER_NEW" + std::to_string(ci + 1), fadeOf(1));
+  }
+  auto typedLines = [&](float x, float y, float w, const std::string& block, int shown) {
+    const float ls = g.fontLineSpacing(font);
+    float base = y + g.fontAscent(font);
+    size_t at = 0;
+    for (const std::string& line : g.wrap(font, w, block)) {
+      size_t pos = line.empty() ? at : block.find(line, at);
+      if (pos == std::string::npos) pos = at;
+      const int n = std::clamp(shown - (int)pos, 0, (int)line.size());
+      if (n > 0) g.drawString(font, x, base, line.substr(0, (size_t)n), rgb);
+      at = pos + line.size();
+      base += ls;
+    }
+  };
+  const int first = (int)stripColorCodes(text).size();
+  typedLines(274, 130, 446, text, typed);
+  typedLines(90, 335, 620, text2, typed - first);
+  if (!head.empty()) g.drawWrapped("OVERLOAD24OUTLINE", {80, 53, 640, 0}, head, rgb, 1, Align::Center, 30);
+}
+
 void StoryScreen::drawLayer(Gfx& g) {
   if (win) {
     drawWin(g);
@@ -612,26 +678,28 @@ void StoryScreen::drawLayer(Gfx& g) {
   static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
   g.fill(0, 0, 0, 0, 0);
   std::string head = stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1);
-  g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, app.game == Game::Nights ? 45 + g.fontAscent("OVERLOAD24OUTLINE") : 45.0f, head, 0xddddff);
+  g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, 45.0f, head, 0xddddff);
+  if (app.game == Game::Nights) {
+    drawNights(g);
+    return;
+  }
   const float aX = 53, aY = first ? 200.0f : 135.0f;
-  const bool nights = app.game == Game::Nights;
-  int ci = nights ? CharacterDialog::masterMetAt(app.game, stage) : stage % 10;
-  Tex* portrait = g.img(std::string(nights ? "IMAGE_CHR_CHARACTER_ADV" : "IMAGE_CHR_CHARACTER") + std::to_string(ci + 1));
+  int ci = stage % 10;
+  Tex* portrait = g.img(std::string("IMAGE_CHR_CHARACTER") + std::to_string(ci + 1));
   float pw = portrait ? portrait->lw() : 184, ph = portrait ? portrait->lh() : 184;
   float fade = boxes == 0 ? 0.0f : (boxFade > 0 ? boxFade / 20.0f : 1.0f);
   if (boxes > 0) {
-    float tx = 20 + pw + aX, ty = (nights ? 20.0f : 10.0f) + aY, tw = 800 - tx - 50;
-    const float textH = std::max(180.0f, g.wrappedHeight("STAGE", tw, firstVisible(text, totalVisible)));
-    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, nights ? textH + 20 : 190.0f, Mode(0.5f * fade, 0x000000));
+    float tx = 20 + pw + aX, ty = 10.0f + aY, tw = 800 - tx - 50;
+    if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, tx - 10, ty - 10, tw + 20, 190.0f, Mode(0.5f * fade, 0x000000));
     if (portrait) {
       g.draw(portrait, aX, aY + 4, Mode(fade));
       if (Tex* bf = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(bf, aX - 8, aY + 4 - 8, pw + 16, ph + 16, Mode(fade));
     }
     std::string shown = firstVisible(text, typed);
     g.drawWrapped("STAGE", {tx, ty, tw, 180}, shown, charColor(ci), 1, Align::Left);
-    if (!nights) g.drawWrapped("OVERLOAD24OUTLINE", {80, page != 1 ? 105.0f : 65.0f, 640, 0}, this->head, charColor(ci), fade, Align::Center, 30);
+    g.drawWrapped("OVERLOAD24OUTLINE", {80, page != 1 ? 105.0f : 65.0f, 640, 0}, this->head, charColor(ci), fade, Align::Center, 30);
   }
-  if (!nights && stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
+  if (stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
     const float bx = 45, bw = 64 * 11 + 14;
     if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) {
       g.drawBox(tr, bx, 342, bw, 95, Mode(50 / 255.0f, 0x000000));
@@ -664,7 +732,7 @@ void StoryScreen::drawLayer(Gfx& g) {
       float cx = (float)(53 + 64 * i), cy = 342 + 25;
       bool open = i <= unlocked && i < 10;
       if (i < 10) {
-        if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, nights ? CharacterDialog::masterMetAt(app.game, i) : i, 0);
+        if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, i, 0);
         if (!open) {
           if (Tex* lk = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lk, cx, cy, Mode(120 / 255.0f));
           if (chars) g.fill(cx, cy, chars->cw(), chars->ch(), 0x000000, 110 / 255.0f);
@@ -673,7 +741,7 @@ void StoryScreen::drawLayer(Gfx& g) {
         g.draw(q, cx, cy);
       }
       float cw = chars ? chars->cw() : 52, chh = chars ? chars->ch() : 52;
-      if (Tex* fr = i == (nights ? stage : stage % 10) ? sel : frame) g.drawBox(fr, cx - 5, cy - 8, cw + 10 + 1, chh + 10 + 5);
+      if (Tex* fr = i == stage % 10 ? sel : frame) g.drawBox(fr, cx - 5, cy - 8, cw + 10 + 1, chh + 10 + 5);
     }
   }
 }
