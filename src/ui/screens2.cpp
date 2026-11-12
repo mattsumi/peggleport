@@ -894,7 +894,7 @@ void HelpScreen::drawLayer(Gfx& g) {
   const bool nights = app.game == Game::Nights;
   const HelpPage& hp = nights ? kHelpNights[page] : kHelp[page];
   g.drawString("OVERLOAD24GRAD1", 100, 50, "How to Play", 0xb6ffff);
-  g.drawString(nights ? "OVERLOAD16OUTLINE" : "OVERLOAD24OUTLINE", 400, nights ? 90 : 110, hp.name, 0xffffff, 1, Align::Center);
+  g.drawString("OVERLOAD24OUTLINE", 400, 110, hp.name, 0xffffff, 1, Align::Center);
   char pg[32];
   std::snprintf(pg, sizeof pg, "Page %d of %d", page + 1, numPages());
   g.drawString("OVERLOAD24GRAD1", nights ? 700 - g.textWidth("OVERLOAD24GRAD1", pg) : 540, 50, pg, 0xb6ffff);
