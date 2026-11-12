@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "gamepaths.h"
 
 #include "log.h"
 
@@ -440,12 +441,12 @@ static bool writeFileAtomic(const fs::path& p, const std::vector<uint8_t>& data)
   {
     std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
     if (!f) {
-      pp::log::error("game", "cannot save " + p.string() + ": the file cannot be written");
+      pp::log::error("game", "cannot save " + pathToUtf8(p) + ": the file cannot be written");
       return false;
     }
     f.write((const char*)data.data(), (std::streamsize)data.size());
     if (!f) {
-      pp::log::error("game", "cannot save " + p.string() + ": writing failed");
+      pp::log::error("game", "cannot save " + pathToUtf8(p) + ": writing failed");
       return false;
     }
   }
@@ -454,7 +455,7 @@ static bool writeFileAtomic(const fs::path& p, const std::vector<uint8_t>& data)
     fs::remove(p, ec);
     fs::rename(tmp, p, ec);
   }
-  if (ec) pp::log::error("game", "cannot save " + p.string() + ": " + ec.message());
+  if (ec) pp::log::error("game", "cannot save " + pathToUtf8(p) + ": " + ec.message());
   return !ec;
 }
 
@@ -542,7 +543,7 @@ bool HighScoreMgr::load(const fs::path& file) {
   std::vector<uint8_t> d;
   if (!readFile(file, d)) return false;
   if (!deserialize(d)) {
-    pp::log::warn("game", "the high score file " + file.string() + " is damaged and was ignored");
+    pp::log::warn("game", "the high score file " + pathToUtf8(file) + " is damaged and was ignored");
     return false;
   }
   return true;
@@ -659,10 +660,10 @@ bool ProfileMgr::load() {
   std::vector<uint8_t> d;
   if (!readFile(dir_ / "users.dat", d)) return false;
   if (!deserializeUsers(d)) {
-    pp::log::warn("game", "the player list " + (dir_ / "users.dat").string() + " is damaged or from another version and was ignored");
+    pp::log::warn("game", "the player list " + pathToUtf8(dir_ / "users.dat") + " is damaged or from another version and was ignored");
     return false;
   }
-  pp::log::info("game", "loaded " + std::to_string(profiles_.size()) + " player profile(s) from " + dir_.string());
+  pp::log::info("game", "loaded " + std::to_string(profiles_.size()) + " player profile(s) from " + pathToUtf8(dir_));
   return true;
 }
 bool ProfileMgr::save() { return writeFileAtomic(dir_ / "users.dat", serializeUsers()); }

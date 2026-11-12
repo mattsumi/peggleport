@@ -1,4 +1,5 @@
 #include "mods/manager.h"
+#include "gamepaths.h"
 
 #include <algorithm>
 #include <cctype>
@@ -84,7 +85,7 @@ void ModManager::loadConfig(std::vector<std::string>& enabled) {
   std::error_code ec;
   if (!fs::exists(userDir_ / "mods.json", ec)) return;
   if (!readFile(userDir_ / "mods.json", text, 1 << 20) || !Json::parse(text, j, nullptr) || j.t != Json::Obj) {
-    pp::log::warn("mods", "cannot read " + (userDir_ / "mods.json").string() + "; no mods are enabled");
+    pp::log::warn("mods", "cannot read " + pathToUtf8(userDir_ / "mods.json") + "; no mods are enabled");
     return;
   }
   if (auto* e = j.get("enabled")) for (auto& x : e->a) enabled.push_back(x.asStr());
@@ -112,7 +113,7 @@ bool ModManager::save() const {
   fs::create_directories(userDir_, ec);
   std::ofstream f(userDir_ / "mods.json", std::ios::binary);
   if (!f) {
-    pp::log::error("mods", "cannot save " + (userDir_ / "mods.json").string());
+    pp::log::error("mods", "cannot save " + pathToUtf8(userDir_ / "mods.json"));
     return false;
   }
   f << j.dump(2) << "\n";
@@ -159,7 +160,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
       if (subs.size() == 1 && (fs::exists(subs[0] / "mod.ini", ec) || fs::exists(subs[0] / "mod.json", ec))) dir = subs[0];
     }
   } else if (!fs::is_directory(srcIn, ec)) {
-    pp::log::warn("mods", "cannot find mod " + srcIn.string());
+    pp::log::warn("mods", "cannot find mod " + pathToUtf8(srcIn));
     return;
   }
   m->dir = dir;
@@ -175,7 +176,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
   for (auto it = mods_.begin(); it != mods_.end(); ++it)
     if ((*it)->m.id == m->m.id) {
       if (!cli) {
-        pp::log::warn("mod:" + m->m.id, "ignored " + srcIn.string() + ": another mod already uses this id");
+        pp::log::warn("mod:" + m->m.id, "ignored " + pathToUtf8(srcIn) + ": another mod already uses this id");
         return;
       }
       mods_.erase(it);
@@ -188,7 +189,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
 
 void ModManager::logDiscovered(const ModInfo& mi) {
   const std::string src = "mod:" + mi.m.id;
-  pp::log::info(src, "found " + mi.m.name + " " + mi.m.version + (mi.m.author.empty() ? "" : " by " + mi.m.author) + " in " + mi.source.string() + " (content hash " + mi.hashHex + ")");
+  pp::log::info(src, "found " + mi.m.name + " " + mi.m.version + (mi.m.author.empty() ? "" : " by " + mi.m.author) + " in " + pathToUtf8(mi.source) + " (content hash " + mi.hashHex + ")");
   for (auto& w : mi.m.warnings) pp::log::warn(src, "manifest: " + w);
   pp::log::info(src, "scan: " + mi.scan.summary() + " (" + std::to_string(mi.scan.filesScanned) + " file(s))");
   size_t shown = 0;
@@ -211,9 +212,9 @@ void ModManager::discover(const std::vector<std::string>& cliMods) {
   std::vector<std::string> enabled;
   loadConfig(enabled);
   std::error_code ec;
-  if (!userDir_.empty() && !fs::is_directory(modsDir(), ec)) pp::log::info("mods", "no mods folder yet: " + modsDir().string());
+  if (!userDir_.empty() && !fs::is_directory(modsDir(), ec)) pp::log::info("mods", "no mods folder yet: " + pathToUtf8(modsDir()));
   if (!userDir_.empty() && fs::is_directory(modsDir(), ec)) {
-    pp::log::info("mods", "looking for mods in " + modsDir().string());
+    pp::log::info("mods", "looking for mods in " + pathToUtf8(modsDir()));
     std::vector<fs::path> items;
     for (auto& e : fs::directory_iterator(modsDir(), ec)) {
       std::string nm = e.path().filename().string();
@@ -667,7 +668,7 @@ std::string ModManager::report() const {
     if (!m->error.empty()) o += "    error: " + m->error + "\n";
     o += "    " + m->scan.summary() + (m->consented ? " (consent given)" : "") + "\n";
   }
-  if (o.empty()) o = "no mods found in " + modsDir().string() + "\n";
+  if (o.empty()) o = "no mods found in " + pathToUtf8(modsDir()) + "\n";
   return o;
 }
 

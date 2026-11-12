@@ -1,4 +1,5 @@
 #include "log.h"
+#include "gamepaths.h"
 
 #include <chrono>
 #include <cstdarg>
@@ -217,13 +218,13 @@ bool exportToFile(const std::filesystem::path& file, std::string* err) {
   if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path(), ec);
   std::ofstream f(file, std::ios::binary);
   if (!f) {
-    if (err) *err = "cannot write " + file.string();
+    if (err) *err = "cannot write " + pathToUtf8(file);
     return false;
   }
   for (auto& e : all) f << formatLine(e) << "\n";
   f.flush();
   if (!f) {
-    if (err) *err = "cannot write " + file.string();
+    if (err) *err = "cannot write " + pathToUtf8(file);
     return false;
   }
   return true;

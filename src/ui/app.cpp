@@ -202,7 +202,7 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
   rng_ ^= cfg.seed * 2654435761u;
   crt_.seed(cfg.seed ? cfg.seed : (uint32_t)SDL_GetTicks());
   userDir = cfg.userDir.empty() ? defaultUserDir(game) : cfg.userDir;
-  log::info("game", titleText() + ": saved games are kept in " + userDir.string());
+  log::info("game", titleText() + ": saved games are kept in " + pathToUtf8(userDir));
   stages.load(vfs);
   highScores.setTops([this](const std::string& key) { return stages.scoreListTop(key); });
   PlayerInfo::advStages = stages.numStages() > 0 ? stages.numStages() : 11;

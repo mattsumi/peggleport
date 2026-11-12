@@ -1,4 +1,5 @@
 #include "ui/log_view.h"
+#include "gamepaths.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -570,8 +571,8 @@ void LogView::doSave() {
   fs::path file = app.userDir / "logs" / (std::string("peggleport-") + stamp + ".log");
   std::string err;
   if (log::exportToFile(file, &err)) {
-    say("Saved to " + file.string());
-    log::info("ui", "log saved to " + file.string());
+    say("Saved to " + pathToUtf8(file));
+    log::info("ui", "log saved to " + pathToUtf8(file));
   } else {
     say("Could not save the log: " + err);
     log::error("ui", "could not save the log: " + err);
