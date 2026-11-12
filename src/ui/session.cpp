@@ -143,6 +143,7 @@ bool configSane(const BoardConfig& c) {
   if (c.boardWidth < 650 || c.boardWidth > 1400) return false;
   if (c.players != 1 || c.duel) return false;
   if (c.balls < 0 || c.balls > 10000 || c.orange < 0 || c.orange > 10000) return false;
+  if (c.startScore != 0 || c.startScore2 != 0) return false;
   for (int m : c.master)
     if (m < 0 || m >= masters::kPowerSlots) return false;
   if (c.masterIndex < -1 || c.masterIndex > 64) return false;
