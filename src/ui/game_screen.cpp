@@ -1278,8 +1278,10 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     levelCur = levelTgt;
     totalCur = levelTgt;
   }
-  const std::string& pickedTip = a.stages.tip(a.rand());
-  if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0) || ((m == QuickWin || m == QuickLose) && rk <= 0 && !duelEnd))) tip = pickedTip;
+  if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0) || ((m == QuickWin || m == QuickLose) && rk <= 0 && !duelEnd))) {
+    tip = a.stages.tip(p->tipOther);
+    p->incTip(-1);
+  }
   w = 440;
   const auto& hs = a.highScores.scores(lname);
   for (auto& e : hs) table.push_back(e);
