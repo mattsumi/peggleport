@@ -300,7 +300,10 @@ void Renderer::emitDraw(const Board& b, int layer, size_t at) {
         alpha = alpha * ((float)p.age / (float)p.fadeIn);
       else if (p.fadeAt >= 0 && p.fadeAt <= p.age)
         alpha = alpha * (1.0f - (float)(p.age - p.fadeAt) / (float)std::max(1, p.life - p.fadeAt));
-      auto chan = [&](const Curve& c) { return std::clamp((int)(c.at(u) * 255.0f), 0, 255); };
+      auto chan = [&](const Curve& c) {
+        const float v = c.at(u) * 255.0f;
+        return v >= 255.0f ? 255 : v >= 1.0f ? (int)v : 0;
+      };
       const uint32_t rgb = ((uint32_t)chan(m.colR) << 16) | ((uint32_t)chan(m.colG) << 8) | (uint32_t)chan(m.colB);
       const int a = std::clamp((int)(std::clamp(alpha, 0.0f, 1.0f) * 255.0f), 0, 255);
       if (a == 0) continue;
