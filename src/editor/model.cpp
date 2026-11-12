@@ -1172,6 +1172,77 @@ bool setNum(Level& L, Node& n, const PropDef& d, double v) {
   if (n.type == 6 && !std::strncmp(k, "brick_", 6)) syncBrickCache(n);
   return true;
 }
+static double heldNumber(double v, const PropDef& d) {
+  if (std::isnan(v)) return d.def;
+  return std::clamp(v, d.lo, d.kind == PK::Enum ? d.lo + 99 : d.hi);
+}
+static void holdValue(Val& x, const PropDef& d) {
+  if (x.k != VK::Num) return;
+  if (x.p == Prim::F32) {
+    double cur = (double)x.f();
+    double h = heldNumber(cur, d);
+    if (h != cur) {
+      float f = (float)h;
+      std::memcpy(&x.bits, &f, 4);
+    }
+  } else {
+    double cur = (double)x.i();
+    double h = heldNumber(cur, d);
+    if (h != cur) x.bits = (uint32_t)(int64_t)h;
+  }
+}
+static bool keptAsGiven(const char* k) {
+  for (const char* e : {"rotation", "color.r", "color.g", "color.b", "rotation.rand", "velocity.x_rand"})
+    if (!std::strcmp(k, e)) return true;
+  return false;
+}
+static void holdProps(Node& n, const std::vector<PropDef>& props) {
+  for (const PropDef& d : props) {
+    if (d.kind != PK::Float && d.kind != PK::Int && d.kind != PK::Enum) continue;
+    const char* k = d.key;
+    if (keptAsGiven(k)) continue;
+    if (!std::strcmp(k, "pos.x") || !std::strcmp(k, "pos.y")) {
+      auto it = n.fields.find(k[4] == 'x' ? "x" : "y");
+      if (it != n.fields.end()) holdValue(it->second, d);
+      continue;
+    }
+    if (!std::strcmp(k, "move_type_abs")) {
+      auto it = n.fields.find("move_type");
+      if (it != n.fields.end() && it->second.k == VK::Num) {
+        int64_t t = it->second.i();
+        if (t > 99 || t < -99) it->second.bits = (uint32_t)(int64_t)(t < 0 ? -99 : 99);
+      }
+      continue;
+    }
+    Node* t = addr(n, k);
+    if (!t) continue;
+    auto it = t->fields.find(k);
+    if (it == t->fields.end()) continue;
+    if (d.vf) {
+      const Val& f = it->second;
+      if (f.k != VK::Child || !f.n || !f.n->i("tag")) continue;
+      auto vit = f.n->fields.find("value");
+      if (vit != f.n->fields.end()) holdValue(vit->second, d);
+      continue;
+    }
+    holdValue(it->second, d);
+  }
+}
+void holdToPanelRanges(Level& L) {
+  std::set<const Node*> seen;
+  std::function<void(Node&)> visit = [&](Node& n) {
+    if (!seen.insert(&n).second) return;
+    if (isObjectType(n.type)) holdProps(n, propsFor(n));
+    for (auto& kv : n.fields) {
+      Val& v = kv.second;
+      if ((v.k != VK::Ptr && v.k != VK::Child) || !v.n) continue;
+      if (kv.first == "mover" || kv.first == "sub") holdProps(*v.n, moverProps());
+      visit(*v.n);
+    }
+  };
+  for (auto& e : L.entries)
+    if (e.k == VK::Ptr && e.n) visit(*e.n);
+}
 bool setStr(Node& n, const PropDef& d, const std::string& s) {
   if (n.type == 9 && (!std::strcmp(d.key, "emitter_image") || !std::strcmp(d.key, "trigger_obj"))) {
     putStr(n, d.key, s);
