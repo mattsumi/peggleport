@@ -2,6 +2,7 @@ FetchContent_Declare(openmpt
   URL https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.8.10+release.makefile.tar.gz
       https://download.openmpt.org/archive/libopenmpt/src/libopenmpt-0.8.10+release.makefile.tar.gz
   URL_HASH SHA256=95073a10d33d0ed4352f41b68edccb9636002d2626f9fd2e00b191fcaabdd876
+  PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/openmpt-mo3.cmake
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(openmpt)
 
