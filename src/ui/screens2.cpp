@@ -490,17 +490,15 @@ StoryScreen::StoryScreen(App& a, bool rev, bool eg) : Screen(a), reveal(rev), ea
   stage = a.curProfile && a.curProfile->advStage >= 0 && a.gameMode == GameMode::Adventure ? a.curStage : (a.curProfile ? std::max(0, a.curProfile->advStage) : a.curStage);
   stage = std::clamp(a.curStage, 0, std::max(0, a.numStages() - 1));
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x21e);
-  bContinue->x = 400 - bContinue->w / 2;
-  if (a.game == Game::Nights)
-    if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
-      bContinue->image = pb;
-      bContinue->kind = Button::Kind::Embedded;
-      bContinue->labelOnEmbedded = true;
-      bContinue->w = pb->lw();
-      bContinue->h = pb->lh() / 2;
-      bContinue->textOffY = 0;
-      bContinue->x = (float)(400 - (int)bContinue->w / 2);
-    }
+  if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
+    bContinue->image = pb;
+    bContinue->kind = Button::Kind::Embedded;
+    bContinue->labelOnEmbedded = true;
+    bContinue->w = pb->lw();
+    bContinue->h = pb->lh() / 2;
+    bContinue->textOffY = 0;
+  }
+  bContinue->x = (float)(400 - (int)bContinue->w / 2);
   bContinue->visible = false;
   const int reached = a.curProfile ? std::max(0, a.curProfile->advStage) : 0;
   win = a.game != Game::Nights && (rev || (a.numStages() > 0 && reached >= a.numStages()));
@@ -550,7 +548,7 @@ void StoryScreen::update() {
     return;
   }
   if (bContinue->visible) {
-    float tx = app.game == Game::Nights ? (float)(400 - (int)bContinue->w / 2) : 400 - bContinue->w / 2;
+    float tx = (float)(400 - (int)bContinue->w / 2);
     if (bContinue->x < tx) bContinue->x = std::min(tx, bContinue->x + 30);
     if (bContinue->y > 0x21e) bContinue->y = std::max(0x21e * 1.0f, bContinue->y - 15);
   }
@@ -692,7 +690,7 @@ void StoryScreen::drawLayer(Gfx& g) {
   }
   g.fill(0, 0, 800, 600, 0x000000);
   if (Tex* bx = g.img("IMAGE_DLG_DIALOGBOX")) g.drawBox(bx, -2, -4, 804, 608);
-  if (app.game == Game::Nights && bContinue->visible)
+  if (bContinue->visible)
     if (Tex* plate = g.img("IMAGE_DLG_PLAYWIDGET1")) g.draw(plate, bContinue->x - 32, bContinue->y - 20);
   const bool first = !app.curProfile || stage == 0 || app.curProfile->advCompletions != 0;
   static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
