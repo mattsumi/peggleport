@@ -1008,7 +1008,9 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     header = "Try Again!";
     next = m == ChallengeLose ? "Retry Challenge" : "Retry Level";
   }
-  if (m == ChallengeLevelDone || (a.game == Game::Nights && (m == ChallengeWin || m == ChallengeLose || m == ChallengeLives))) {
+  const bool challengeEnd = m == ChallengeWin || m == ChallengeLose || m == ChallengeLives;
+  const bool deluxeForm = a.game == Game::Deluxe && challengeEnd && a.endHeaderOverride.empty();
+  if (m == ChallengeLevelDone || deluxeForm || (a.game == Game::Nights && challengeEnd)) {
     msgMode = true;
     if (m == ChallengeLevelDone) {
       const TrophyInfo* t = a.trophies.byId(a.curChallenge);
@@ -1028,7 +1030,13 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
       next = more ? "Continue Challenge" : "Trophy Menu";
     } else {
       header = "Try Again!";
-      msgBody = a.endBodyOverride + "Would you like to retry the challenge?";
+      std::string why = a.endBodyOverride;
+      if (const TrophyInfo* t = deluxeForm ? a.trophies.byId(a.curChallenge) : nullptr) {
+        if (t->scoreReq > 0) why = "You didn't get " + commas(t->scoreReq) + " points.\n\n";
+        else if (t->clearLevel) why = "You didn't clear all of the pegs on the level.\n\n";
+        else if (t->lives > 1) why = "You ran out of lives.\n\n";
+      }
+      msgBody = why + "Would you like to retry the challenge?";
       next = "Retry Challenge";
     }
     a.endBodyOverride.clear();
@@ -1042,8 +1050,9 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     a.duelEnd.active = false;
   }
   (void)p;
-  bMenu = patchButton(1000, msgMode && m == ChallengeLose ? "New Challenge" : msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
+  bMenu = patchButton(1000, msgMode && m == ChallengeLose && !deluxeForm ? "New Challenge" : msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   bNext = patchButton(1001, next, "IMAGE_DLG_BUTTON3", 0, 0);
+  bMenu->visible = !(deluxeForm && m == ChallengeWin);
   if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, a.game == Game::Nights ? "Play New Level" : "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
   countUp = m == AdventureWin || m == AdventureComplete;
   tgt[0] = o.shotPoints; tgt[1] = o.feverPoints; tgt[2] = o.stylePoints; tgt[3] = o.tryBonus; tgt[4] = o.effBonus;
@@ -1200,6 +1209,7 @@ void EndLevelDialog::layout() {
   }
   bMenu->x = insL; bMenu->w = bw; bMenu->y = by;
   bNext->x = insL + bw + 10; bNext->w = bw; bNext->y = by;
+  if (!bMenu->visible) { bNext->x = insL; bNext->w = w - insL - insR; }
 }
 
 void EndLevelDialog::update() {
