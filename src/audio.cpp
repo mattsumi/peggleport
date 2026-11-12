@@ -582,10 +582,9 @@ void Audio::playMusic(const std::string& path, bool loop, int startOrder, float 
       return;
     }
     openmpt_module_set_repeat_count(m->mod, loop ? -1 : 0);
-    if (low != "music/pegglebeats.mo3") {
-      openmpt_module_set_render_param(m->mod, OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL, 780);
-      openmpt_module_set_render_param(m->mod, OPENMPT_MODULE_RENDER_INTERPOLATIONFILTER_LENGTH, 2);
-    }
+    const bool beats = low == "music/pegglebeats.mo3";
+    openmpt_module_set_render_param(m->mod, OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL, beats ? 87 : 780);
+    openmpt_module_set_render_param(m->mod, OPENMPT_MODULE_RENDER_INTERPOLATIONFILTER_LENGTH, 2);
     if (startOrder > 0) openmpt_module_set_position_order_row(m->mod, startOrder, 0);
 #else
     pp::log::writeOnce(pp::log::Level::Warn, "game", "music " + path + " is skipped: this build cannot play tracker music");
