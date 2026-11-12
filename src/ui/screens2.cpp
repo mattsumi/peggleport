@@ -1124,6 +1124,21 @@ void TrophyScreen::drawLayer(Gfx& g) {
       const size_t n = t.levels.size();
       const int row = n >= 1 && n <= 10 ? kRow[n - 1] : -1;
       if (rl && row >= 0) g.drawStretchSrc(rl, 0, (float)row * rl->ch(), rl->cw(), rl->ch(), cx, cy, 200, 177);
+    } else if (t.levels.size() == 3) {
+      for (int row = 0; row < 177; row++) g.fill(cx, cy + (float)row, 200, 1, (uint32_t)(0x60 + row));
+      static const float kPart[3][2] = {{49, 30}, {-1, 98}, {100, 98}};
+      g.pushClip(cx, cy, 200, 177);
+      for (int k = 2; k >= 0; k--) {
+        const std::string file = "levels/cached_thumbnails/" + t.levels[(size_t)k];
+        Tex* part = theirs ? og->picture(file) : g.img(file);
+        const float px = cx + kPart[k][0], py = cy + kPart[k][1];
+        if (part && part->valid()) g.drawStretch(part, px, py, 102, 86);
+        g.fill(px, py, 102, 1, 0x808080);
+        g.fill(px, py + 85, 102, 1, 0x808080);
+        g.fill(px, py, 1, 86, 0x808080);
+        g.fill(px + 101, py, 1, 86, 0x808080);
+      }
+      g.popClip();
     } else if (th && th->valid()) {
       g.drawStretch(th, cx, cy, 200, 177);
     } else {
