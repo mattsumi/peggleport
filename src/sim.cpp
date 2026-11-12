@@ -245,6 +245,9 @@ void Board::addLevel(const Level& L, bool fromBase) {
 
 void Board::widen() {
   float dw = (float)(W - 650), k = W / 650.0f;
+  float bumper = 0.0f;
+  for (const auto& o : objs)
+    if (o.fromBase && o.id == "fever" && o.shape == Shape::Circle) bumper = std::max(bumper, o.radius);
   for (auto& o : objs) {
     if (!o.fromBase) {
       if (o.hasMover) o.mv.ax += dw * 0.5f;
@@ -264,6 +267,7 @@ void Board::widen() {
     } else if (o.id == "fever") {
       if (o.hasMover) o.mv.ax *= k;
       else o.pos.x *= k;
+      if (o.shape == Shape::Hole) o.hw = (o.hw + bumper) * k - bumper;
     } else if (o.id == "flipper") {
       if (o.hasMover ? o.mv.ax > 300 : o.pos.x > 300) {
         if (o.hasMover) o.mv.ax += dw;
