@@ -10,6 +10,16 @@
 #include <set>
 #include <system_error>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace pp {
@@ -542,20 +552,32 @@ ImportScan scanOriginalSaves(const fs::path& chosen) {
 std::vector<fs::path> originalSaveFolders(Game g) {
   std::vector<fs::path> cand;
   const char* product = g == Game::Nights ? "PeggleNights" : "Peggle";
+#ifdef _WIN32
+  auto env = [](const wchar_t* n) -> fs::path {
+    DWORD need = GetEnvironmentVariableW(n, nullptr, 0);
+    if (need == 0) return {};
+    std::wstring s((size_t)need, L'\0');
+    DWORD got = GetEnvironmentVariableW(n, s.data(), need);
+    if (got == 0 || got >= need) return {};
+    s.resize((size_t)got);
+    return fs::path(s);
+  };
+#else
   auto env = [](const char* n) -> std::string {
     const char* v = std::getenv(n);
     return v ? v : "";
   };
+#endif
   auto tail = [&](const fs::path& root) { return root / "PopCap Games" / product / "userdata"; };
   auto shared = [&](const fs::path& root) {
     cand.push_back(tail(root));
     cand.push_back(root / "Steam" / product / "userdata");
   };
 #ifdef _WIN32
-  for (const char* v : {"ProgramData", "ALLUSERSPROFILE", "PUBLIC"})
-    if (auto e = env(v); !e.empty()) shared(fs::path(e));
+  for (const wchar_t* v : {L"ProgramData", L"ALLUSERSPROFILE", L"PUBLIC"})
+    if (fs::path e = env(v); !e.empty()) shared(e);
   shared(fs::path("C:/ProgramData"));
-  if (auto e = env("APPDATA"); !e.empty()) cand.push_back(tail(fs::path(e)));
+  if (fs::path e = env(L"APPDATA"); !e.empty()) cand.push_back(tail(e));
 #else
   const char* steamId = g == Game::Nights ? "3540" : "3480";
   std::string home = env("HOME");
