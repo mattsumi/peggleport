@@ -619,7 +619,7 @@ void GameScreen::update() {
     if (b.phase == Phase::Over) {
       if (!done_) finishLevel();
       overTicks++;
-      if (b.result.cleared && overTicks < 100) overTicks = 0;
+      if (b.result.cleared && !demo_ && overTicks < 100) overTicks = 0;
       if (demo_ && overTicks > 100 && !endShown_) { endShown_ = true; app.doToMenu(); return; }
       if (!endShown_ && overTicks > 100) {
         endShown_ = true;
@@ -875,7 +875,7 @@ void GameScreen::drawOverlay(Gfx& g) {
   float dw = (float)(canvasWidth() - 800);
   std::string corner = replaying_ ? std::string("Instant Replay") : cornerText();
   if (!corner.empty()) g.drawString("OVERLOAD16OUTLINE", 588 + dw / 2, 28, corner, 0xffffff, 1, Align::Center);
-  if (board_.phase == Phase::Over && board_.result.cleared && overTicks < 100 && !endShown_)
+  if (board_.phase == Phase::Over && board_.result.cleared && !demo_ && overTicks < 100 && !endShown_)
     g.drawString("OVERLOAD16OUTLINE", 75 + 325 + dw / 2, 40 + 440, "Click to Continue", 0xffffff, 0.6f + 0.4f * std::sin(updateCount * 0.08f), Align::Center);
   if (pauseFade_ > 0 && !app.anyDialog()) {
     g.fill(-dw, 0, 800 + 2 * dw, 600, 0x000000, std::min(1.0f, (100 * pauseFade_ / 10) / 255.0f));
