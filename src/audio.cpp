@@ -379,7 +379,7 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
         break;
       case Event::FeverSlot:
         if (e.b == 1) play("SCORECOUNTER", (float)b.feverBallsPaid, 1, 1);
-        else if (e.b >= 2) play(e.a > 50000 ? "FIREWORKS2" : "FIREWORKS1", 0, 1, 1);
+        else if (e.b >= 2) play(((b.cfg.duel && b.players > 1) ? e.a * 2 : e.a) > 50000 ? "FIREWORKS2" : "FIREWORKS1", 0, 1, 1);
         break;
         break;
       case Event::Power: {
