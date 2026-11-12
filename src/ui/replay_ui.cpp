@@ -50,6 +50,7 @@ class SaveReplayDialog : public Dialog {
     edit->onEnter = [this] { onButton(105); };
     list->onClick = [this](int i, int clicks) {
       list->select = i;
+      app.playSample("BUTTON1");
       if (showing && clicks >= 2) { play(); return; }
       if (i >= 0 && i < (int)files.size()) {
         edit->value = stemOf(files[(size_t)i]);
