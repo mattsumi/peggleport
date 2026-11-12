@@ -54,6 +54,7 @@ class OnlineGameScreen : public Screen {
     rematchAsked_ = false;
     wheelNudge_ = 0;
     statusKey_.clear();
+    turnNoted_ = -1;
     if (ready_) noteStatus();
   }
 
@@ -66,6 +67,14 @@ class OnlineGameScreen : public Screen {
     std::string line = std::string(info_.party ? "Peg Party" : "Online Duel") + " | you are " + rawName(local_);
     if (!note.empty()) line += " | " + linkText(note, false);
     pp::log::info("net", line + " | checked by host: " + checked + " | rollbacks: " + rollbacks);
+  }
+
+  void noteTurn() {
+    if (info_.party || !ready_ || state_ != Playing || match_.over()) return;
+    const int cur = match_.boards[0].cur;
+    if (cur == turnNoted_) return;
+    turnNoted_ = cur;
+    pp::log::info("net", "Online Duel | turn: " + cleanText(rawName(cur), 48) + (cur == local_ ? " (you)" : ""));
   }
 
   std::string rawName(int p) const {
@@ -193,6 +202,7 @@ class OnlineGameScreen : public Screen {
         if (match_.over()) state_ = Over;
       }
     }
+    noteTurn();
     noteStatus();
     arrange();
   }
@@ -262,15 +272,7 @@ class OnlineGameScreen : public Screen {
       }
       app.boardRenderer->draw(vb, lb_, hud);
     }
-    if (state_ == Playing && !menu_) {
-      bool turn = match_.canFire(local_);
-      if (!info_.party && !turn && !match_.boards[0].result.finished) {
-        std::string t = "Waiting for " + nameOf(match_.boards[0].cur) + "...";
-        g.fill(0, 548, cw, 22, 0x000000, 0.45f);
-        g.drawString("OVERLOAD16OUTLINE", cw / 2, 565, t, 0xffe070, 0.95f, Align::Center);
-      }
-      return;
-    }
+    if (state_ == Playing && !menu_) return;
     if (card_.shown) drawCard(g, cw);
   }
 
@@ -285,6 +287,7 @@ class OnlineGameScreen : public Screen {
   bool ready_ = false, wantFire_ = false, menu_ = false, rematchAsked_ = false, peerGone_ = false;
   float mx_ = 325, my_ = 300, wheelNudge_ = 0;
   std::string message_, statusKey_;
+  int turnNoted_ = -1;
   Card card_;
   float cardY_ = 170, cardH_ = 250;
   Button *bRematch_, *bLeave_, *bKeep_;
