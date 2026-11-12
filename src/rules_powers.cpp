@@ -155,7 +155,7 @@ void Board::hatInit(Ball& b, bool atOrigin) {
   b.hat = true;
   b.hatAge = 0;
   const V2 from = atOrigin ? V2{0.0f, 0.0f} : b.pos;
-  b.disp = {from.x <= 325.0f ? from.x + 200.0f : from.x - 200.0f, from.y - 200.0f};
+  b.disp = {from.x <= (float)W * 0.5f ? from.x + 200.0f : from.x - 200.0f, from.y - 200.0f};
   b.hatPos = b.hatPrev = {b.disp.x, b.disp.y - 21.0f};
   b.hx0 = b.hy0 = -6.0f;
   b.hx1 = b.hy1 = 6.0f;
