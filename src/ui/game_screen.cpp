@@ -1426,14 +1426,15 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
   const char* kTip = "PLAINOUTLINE";
   const float tipW = w - insL - insR - 42;
   const float tipH = tip.empty() ? 0.0f : g.wrappedHeight(kTip, tipW, tip);
-  bool room = y + buttons + tipH <= 535;
+  const float slack = (nights ? 30.0f : 0.0f) + (bRetry ? 7.0f : 19.0f);
+  bool room = y + buttons + tipH + slack <= 535;
   if (!tip.empty() && room) {
     const float tipTop = sy + g.fontAscent(kPlain);
     if (draw) {
       g.drawWrapped(kTip, {insL + 42, tipTop, tipW, tipH}, tip, nights ? 0x87fdfd : 0xfdfd87, 1, Align::Left);
       if (Tex* icon = g.img("IMAGE_DLG_TIP")) g.draw(icon, insL - 5, tipTop + (tipH - icon->lh()) / 2);
     }
-    y = tipTop + tipH + 8;
+    y = tipTop + tipH + 8 + slack;
   }
   return y + buttons;
 }
