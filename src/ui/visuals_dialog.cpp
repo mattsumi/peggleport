@@ -40,7 +40,7 @@ VisualsDialog::VisualsDialog(App& a) : Dialog(a, D_Visuals, true, "ENHANCED VISU
   extraH = rows.size() * kRowH + 38 + 12;
 }
 
-float VisualsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + extraH; }
+float VisualsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH; }
 
 void VisualsDialog::layout() {
   float y = contentTop(app.gfx) - 8;

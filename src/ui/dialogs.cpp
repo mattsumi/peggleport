@@ -72,7 +72,7 @@ UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "",
   };
 }
 
-float UserDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + 0xff + buttonH + 5; }
+float UserDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + 0xff + buttonH + 5; }
 
 void UserDialog::layout() {
   float left = insL, top = contentTop(app.gfx);
@@ -187,7 +187,7 @@ float NewUserDialog::preferredHeight(float width) {
     Tex* c = app.gfx.img("IMAGE_MM_CERTIFICATE");
     return c ? c->lh() : 461;
   }
-  return Dialog::preferredHeight(width) + 0x28;
+  return Dialog::preferredHeight(width) + kOwnLayoutExtra + 0x28;
 }
 
 void NewUserDialog::layout() {
@@ -349,7 +349,7 @@ void OptionsDialog::updateHomeLabel() { homeBtn->label = std::string("Main Menu:
 
 void OptionsDialog::updateWidescreenLabel() { widescreen->label = std::string("Widescreen: ") + widescreenName(app.widescreenMode()); }
 
-float OptionsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + extraH; }
+float OptionsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH; }
 
 void OptionsDialog::layout() {
   Gfx& g = app.gfx;

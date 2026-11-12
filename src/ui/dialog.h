@@ -20,6 +20,7 @@ class Dialog : public Panel {
   int escapeButton = ID_NO, returnButton = ID_YES;
   float insL = 35, insT = 20, insR = 35, insB = 26;
   float spaceAfterHeader = 32;
+  static constexpr float kOwnLayoutExtra = 3;
   std::string headerFont = "OVERLOAD24GRAD1", linesFont = "PLAINOUTLINE";
   uint32_t headerColor = 0x63f7ff, linesColor = 0xffffff;
   int textAlign = 0;

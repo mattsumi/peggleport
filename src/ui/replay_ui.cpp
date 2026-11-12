@@ -49,7 +49,7 @@ class ReplayFileDialog : public Dialog {
     return t + "  -  " + h.player + "  -  " + commas(h.score);
   }
   const ReplayFile* selected() const { return list->select >= 0 && list->select < (int)files.size() ? &files[list->select] : nullptr; }
-  float preferredHeight(float width) override { return Dialog::preferredHeight(width) + 0xff; }
+  float preferredHeight(float width) override { return Dialog::preferredHeight(width) + kOwnLayoutExtra + 0xff; }
   void layout() {
     list->x = insL + 10;
     list->y = contentTop(app.gfx);

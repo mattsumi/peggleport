@@ -41,7 +41,7 @@ float Dialog::preferredHeight(float width) {
   float hgt = insT + insB;
   bool needSpace = false;
   if (!header.empty()) {
-    hgt += g.fontHeight(headerFont);
+    hgt += g.fontHeight(headerFont) - g.fontAscentPadding(headerFont);
     needSpace = true;
   }
   if (!lines.empty()) {
@@ -55,7 +55,7 @@ float Dialog::preferredHeight(float width) {
     needSpace = true;
   }
   if (yesBtn) {
-    if (needSpace) hgt += 8;
+    if (needSpace) hgt += 10;
     hgt += buttonH + 8;
   }
   return hgt;
@@ -136,9 +136,9 @@ void Dialog::drawLayer(Gfx& g) {
   else g.fill(0, 0, w, h, 0x203050, 0.95f);
   float curY = insT;
   if (!header.empty()) {
-    float asc = g.fontAscent(headerFont);
+    float asc = g.fontAscent(headerFont) - g.fontAscentPadding(headerFont);
     g.drawString(headerFont, w / 2, curY + asc, header, headerColor, 1, Align::Center);
-    curY += g.fontHeight(headerFont) + spaceAfterHeader;
+    curY += g.fontHeight(headerFont) - g.fontAscentPadding(headerFont) + spaceAfterHeader;
   }
   if (!lines.empty()) {
     Align al = textAlign < 0 ? Align::Left : textAlign > 0 ? Align::Right : Align::Center;
