@@ -636,7 +636,7 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
       break;
     }
     case Event::LevelDone: {
-      if (e.a == 1 && !(b.cfg.duel && b.players > 1)) {
+      if (b.result.cleared) {
         FxEffect& r = fxAdd(7, 325.0f, 320.0f, 0);
         r.age = -130;
         r.life = 0;
