@@ -482,6 +482,26 @@ fs::path systemSpelling(const std::wstring& text) {
     DWORD got = GetLongPathNameW(w.c_str(), buf.data(), need + 1);
     if (got > 0 && got <= need) w.assign(buf.data(), got);
   }
+  if (w.size() >= 3 && w[1] == L':' && w[2] == L'\\') {
+    std::wstring walked = w.substr(0, 2);
+    size_t at = 3;
+    while (at <= w.size()) {
+      size_t end = w.find(L'\\', at);
+      if (end == std::wstring::npos) end = w.size();
+      std::wstring part = w.substr(at, end - at);
+      if (!part.empty()) {
+        WIN32_FIND_DATAW found;
+        HANDLE probe = FindFirstFileW((walked + L"\\" + part).c_str(), &found);
+        if (probe != INVALID_HANDLE_VALUE) {
+          part = found.cFileName;
+          FindClose(probe);
+        }
+        walked += L"\\" + part;
+      }
+      at = end + 1;
+    }
+    w = walked.size() == 2 ? walked + L"\\" : walked;
+  }
   if (w.size() >= 2 && w[1] == L':' && w[0] >= L'a' && w[0] <= L'z') w[0] = (wchar_t)(w[0] - L'a' + L'A');
   return fs::path(w);
 }
