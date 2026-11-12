@@ -532,7 +532,7 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
     std::string s = adv < 0 ? (isNights ? "Welcome to Peggle Nights," : "Welcome to Peggle,") : "Welcome Back,";
     float ty = tY - 10 + g.fontHeight("PLAIN2BIG");
     g.drawString("PLAIN2BIG", bx + tW / 2 + 10, ty, s, 0x86065d, alpha, Align::Center);
-    g.drawString("PLAIN2BIG", bx + 0xfa / 2.0f + 10, ty + g.fontHeight("PLAIN2BIG") - 10, name + "!", 0x86065d, alpha, Align::Center);
+    g.drawString("PLAIN2BIG", bx + 0xfa / 2.0f + (isNights ? 10 : 0), ty + g.fontHeight("PLAIN2BIG") - 10, name + "!", 0x86065d, alpha, Align::Center);
   }
   if (which == 8) {
     float k = 1.0f;
