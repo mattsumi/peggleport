@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <utility>
 
 #include "visopts.h"
 
@@ -138,6 +139,7 @@ class HighScoreMgr {
   int submit(const std::string& key, const std::string& name, int score);
   bool wouldRank(const std::string& key, int score);
   void setSeed(uint32_t s) { rng_ = s; }
+  void setTops(std::function<int(const std::string&)> f) { tops_ = std::move(f); }
   std::vector<uint8_t> serialize() const;
   bool deserialize(const std::vector<uint8_t>& d);
   const std::map<std::string, std::vector<HighScoreEntry>>& all() const { return tables_; }
@@ -145,6 +147,7 @@ class HighScoreMgr {
  private:
   Game game_;
   std::map<std::string, std::vector<HighScoreEntry>> tables_;
+  std::function<int(const std::string&)> tops_;
   uint32_t rng_ = 0x1234567;
 };
 

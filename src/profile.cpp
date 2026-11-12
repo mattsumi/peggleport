@@ -469,11 +469,13 @@ const std::vector<HighScoreEntry>& HighScoreMgr::scores(const std::string& key) 
   auto& t = tables_[key];
   if (t.empty()) {
     bool adv = key.compare(0, 10, "_adventure") == 0;
-    int s = adv ? 20000000 : 300000;
+    const int top = !adv && game_ == Game::Nights && tops_ ? tops_(key) : -1;
+    int s = top >= 0 ? top : adv ? 20000000 : 300000;
     for (int i = 0; i < 10; i++) {
       rng_ = rng_ * 1103515245u + 12345u;
       t.push_back({game_ == Game::Nights ? kNightsNames[(rng_ >> 16) % 36] : kNames[(rng_ >> 16) & 31], s});
-      s -= adv ? (i == 0 ? 3000000 : 1500000) : 10000;
+      if (top >= 0) s = std::max(50000, s - (i > 0 ? 25000 : top >= 400000 ? 100000 : top >= 300000 ? 75000 : 50000));
+      else s -= adv ? (i == 0 ? 3000000 : 1500000) : 10000;
     }
   }
   return t;

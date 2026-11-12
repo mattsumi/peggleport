@@ -167,6 +167,11 @@ const LevelInfo* StageMgr::levelByName(const std::string& name) const {
   return &stages_[it->second.first].levels[it->second.second];
 }
 
+int StageMgr::scoreListTop(const std::string& key) const {
+  const LevelInfo* li = levelByName(key.substr(0, key.find("@w")));
+  return !li ? -1 : li->ace > 0 ? li->ace : 999999;
+}
+
 std::string StageMgr::title(int i) const {
   static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
   const StageInfo* s = stage(i);

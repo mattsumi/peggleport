@@ -203,6 +203,7 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
   userDir = cfg.userDir.empty() ? defaultUserDir(game) : cfg.userDir;
   log::info("game", titleText() + ": saved games are kept in " + userDir.string());
   stages.load(vfs);
+  highScores.setTops([this](const std::string& key) { return stages.scoreListTop(key); });
   PlayerInfo::advStages = stages.numStages() > 0 ? stages.numStages() : 11;
   trophies.load(vfs);
   profiles.setDir(userDir);

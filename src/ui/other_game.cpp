@@ -30,6 +30,7 @@ bool OtherGame::load(const std::filesystem::path& gameDir, const std::filesystem
   trophies.load(vfs);
   profiles.setDir(userDir);
   profiles.load();
+  highScores.setTops([this](const std::string& key) { return stages.scoreListTop(key); });
   highScores.load(userDir / "highscores.dat");
   blank.reset(false);
   player = &blank;
