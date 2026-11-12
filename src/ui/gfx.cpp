@@ -154,6 +154,13 @@ void Gfx::applyClip() {
   if (clipStack_.empty()) SDL_SetRenderClipRect(r_, nullptr);
   else SDL_SetRenderClipRect(r_, &clipStack_.back());
 }
+void Gfx::clipToCanvas() {
+  if (!r_) return;
+  const int x0 = (int)std::floor(ox_), y0 = (int)std::floor(oy_);
+  const int x1 = (int)std::ceil(ox_ + cw_ * s_), y1 = (int)std::ceil(oy_ + ch_ * s_);
+  clipStack_.push_back({x0, y0, x1 - x0, y1 - y0});
+  applyClip();
+}
 void Gfx::pushClip(float x, float y, float w, float h) {
   int x0 = (int)std::floor(ox_ + (orgX_ + x) * s_), y0 = (int)std::floor(oy_ + (orgY_ + y) * s_);
   int x1 = (int)std::ceil(ox_ + (orgX_ + x + w) * s_), y1 = (int)std::ceil(oy_ + (orgY_ + y + h) * s_);

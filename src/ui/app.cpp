@@ -974,6 +974,7 @@ void App::frame(int canvasW) {
   gfx.setBackdropEnabled(widescreenMode() != WidescreenMode::Classic4x3);
   const bool backdrop = !(cur_ && cur_->isGame()) && gfx.beginBackdrop();
   gfx.clear(0);
+  if (!backdrop) gfx.clipToCanvas();
   for (auto& m : movers_)
     if (m.owned) m.owned->draw(gfx);
   if (cur_) cur_->draw(gfx);
@@ -984,6 +985,7 @@ void App::frame(int canvasW) {
   gfx.popOrigin();
   if (logView_) logView_->drawView(gfx);
   if (backdrop) gfx.endBackdrop();
+  else gfx.popClip();
   for (auto& m : movers_)
     if (auto* last = dynamic_cast<LastPicture*>(m.owned.get())) last->drawOverWindow();
   if (auto* last = dynamic_cast<LastPicture*>(cur_.get())) last->drawOverWindow();

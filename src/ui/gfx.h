@@ -73,6 +73,7 @@ class Gfx {
   float originX() const { return orgX_; }
   float originY() const { return orgY_; }
   void pushClip(float x, float y, float w, float h);
+  void clipToCanvas();
   void popClip();
 
   Tex* img(const std::string& idOrPath);
