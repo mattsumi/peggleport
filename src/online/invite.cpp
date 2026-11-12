@@ -134,12 +134,31 @@ bool extractInvite(const std::string& text, Invite* out) {
   }
 }
 
+#ifdef _WIN32
+static std::string utf8Text(const std::wstring& w) {
+  if (w.empty()) return {};
+  int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+  if (n <= 0) return {};
+  std::string s((size_t)n, '\0');
+  WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
+  return s;
+}
+static std::wstring wideText(const std::string& s) {
+  if (s.empty()) return {};
+  int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+  if (n <= 0) return {};
+  std::wstring w((size_t)n, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+  return w;
+}
+#endif
+
 std::string selfExePath(const char* argv0) {
   std::error_code ec;
 #ifdef _WIN32
-  char b[MAX_PATH * 2];
-  DWORD n = GetModuleFileNameA(nullptr, b, sizeof b);
-  if (n > 0 && n < sizeof b) return std::string(b, n);
+  wchar_t b[MAX_PATH * 2];
+  DWORD n = GetModuleFileNameW(nullptr, b, MAX_PATH * 2);
+  if (n > 0 && n < MAX_PATH * 2) return utf8Text(std::wstring(b, n));
 #elif defined(__APPLE__)
   char b[4096];
   uint32_t n = sizeof b;
@@ -174,7 +193,9 @@ bool registerUrlHandler(const std::string& exe, std::string* report) {
   auto set = [&](const char* path, const char* name, const std::string& v) {
     HKEY h;
     if (RegCreateKeyExA(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_WRITE, nullptr, &h, nullptr) != ERROR_SUCCESS) return false;
-    LONG r = RegSetValueExA(h, name, 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)v.size() + 1);
+    const std::wstring wn = name ? wideText(name) : std::wstring();
+    const std::wstring wv = wideText(v);
+    LONG r = RegSetValueExW(h, name ? wn.c_str() : nullptr, 0, REG_SZ, (const BYTE*)wv.c_str(), (DWORD)((wv.size() + 1) * sizeof(wchar_t)));
     RegCloseKey(h);
     return r == ERROR_SUCCESS;
   };
