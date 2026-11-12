@@ -11,7 +11,7 @@ All of it is done from the game. The only thing that needs a command line is the
 3. **To join**: click a room (a double click joins it), or type its 5-character code, or press **Paste Invite** with an invite link on your clipboard.
    **To host**: press **Create Room**, choose Duel or Peg Party with 3 or 4 players, the level and your Master, then **Open Room**. Masters added by mods are listed after the original ones.
 4. In the waiting room everybody presses **Ready** and the host presses **Start Match**. **Copy Invite** puts a link on your clipboard that your friends can open.
-5. Playing: aim with the mouse and click (or press Space or Enter) on your turn. Esc opens the leave menu. The log (F10) says who you are, whether you are on a direct link (`Direct UDP link (23 ms)`) or relayed through the lobby, how many shots the host has verified, and rollbacks.
+5. Playing: aim with the mouse and click (or press Space or Enter) on your turn. Esc opens the leave menu. In a Peg Party the two boxes at the top list everybody with their scores, yours first and marked YOU. The log (F10) says who you are, whether you are on a direct link (`Direct UDP link (23 ms)`) or relayed through the lobby, how many shots the host has verified, and rollbacks.
 6. When the match ends, **Rematch** needs everybody to ask (the host picks a new seed), or choose **Leave**.
 
 A disconnect or a mismatch puts a clear message on the screen instead of silently carrying on.

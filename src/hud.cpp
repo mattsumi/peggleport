@@ -23,6 +23,17 @@ std::string commaSep(long long v) {
   }
   return v < 0 ? "-" + out : out;
 }
+
+std::string fitName(const Font& f, std::string name, const std::string& mark, int room) {
+  if (f.width(name + mark) <= room) return name + mark;
+  while (!name.empty()) {
+    while (name.size() > 1 && ((unsigned char)name.back() & 0xc0) == 0x80) name.pop_back();
+    name.pop_back();
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    if (f.width(name + "..." + mark) <= room) break;
+  }
+  return name + "..." + mark;
+}
 }
 
 void Renderer::drawFrame(int dw) {
@@ -438,6 +449,14 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
       detail("Score", true, 0);
       mode("Top Score", false);
       if (hud.topScore > 0) detail(hud.topName, false, 0);
+    } else if (hud.mode == Hud::ModeParty && !hud.party.empty()) {
+      for (size_t i = 0; i < hud.party.size() && i < 4; i++) {
+        const bool rightBox = i >= 2;
+        const float x0 = rightBox ? 508.0f + dw / 2.0f : 128.0f, x1 = rightBox ? 670.0f + dw : 295.0f + dw / 2.0f;
+        const float colW = std::floor((x1 - x0 - 12.0f) / 2.0f), x = x0 + (i % 2) * (colW + 12.0f);
+        drawText(small, x, 20, fitName(*small, hud.party[i].name, i == 0 ? " (you)" : "", (int)colW), 0xffffffff, TextAlign::Left, 1, false);
+        drawText(small, x, 35, commaSep(i == 0 ? b.dispScore[p < 2 ? p : 0] : hud.party[i].score), 0xffffffff, TextAlign::Left, 1, false);
+      }
     } else {
       detail("Score", true, 0);
       mode(hud.challengeText.empty() ? "Challenge" : hud.challengeText, true);
@@ -453,7 +472,7 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
       drawText(sc, right - w, 28, t, 0xffffffff);
     }
   }
-  if (score) {
+  if (score && hud.mode != Hud::ModeParty) {
     std::string s = commaSep(b.dispScore[p < 2 ? p : 0]);
     int w = score->width(s);
     float right = 295.0f + (w > 100 ? 5 : 0) + dw / 2.0f;

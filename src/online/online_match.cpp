@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
 #include <utility>
 #include <memory>
@@ -256,22 +255,12 @@ class OnlineGameScreen : public Screen {
         hud.topName = nameOf(1 - vb.cur);
         hud.topScore = vb.score[1 - vb.cur];
       } else {
-        hud.mode = Hud::ModeQuick;
-        int best = 0, who = -1;
+        hud.mode = Hud::ModeParty;
+        hud.party.push_back({rawName(local_), scoreOf(local_)});
         for (int p = 0; p < info_.players; p++)
-          if (p != local_ && (who < 0 || scoreOf(p) > best)) { best = scoreOf(p); who = p; }
-        if (who >= 0) { hud.topScore = best; hud.topName = nameOf(who); }
+          if (p != local_) hud.party.push_back({rawName(p), scoreOf(p)});
       }
       app.boardRenderer->draw(vb, lb_, hud);
-    }
-    if (info_.party) {
-      float y = 104;
-      for (int p = 0; p < info_.players; p++) {
-        char row[96];
-        std::snprintf(row, sizeof row, "%s: %d", nameOf(p).c_str(), scoreOf(p));
-        g.drawString("PLAIN", 6, y, row, p == local_ ? 0xffff88 : 0xffffff, 0.9f, Align::Left);
-        y += 14;
-      }
     }
     if (state_ == Playing && !menu_) {
       bool turn = match_.canFire(local_);

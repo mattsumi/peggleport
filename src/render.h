@@ -32,11 +32,16 @@ struct Hud {
   bool showGuide = true;
   bool menuOver = false, replayOver = false;
   bool clearedBefore = false;
-  enum Mode { ModeStage = 0, ModeQuick = 1, ModeChallenge = 2, ModeDemo = 3, ModeDuel = 4 } mode = ModeStage;
+  enum Mode { ModeStage = 0, ModeQuick = 1, ModeChallenge = 2, ModeDemo = 3, ModeDuel = 4, ModeParty = 5 } mode = ModeStage;
   int topScore = 0, totalScore = 0;
   std::string topName, challengeText, challengeRight;
   float alpha = 1.0f;
   int stageNo = -1, levelNo = -1;
+  struct Seat {
+    std::string name;
+    int score = 0;
+  };
+  std::vector<Seat> party;
 };
 
 struct EmitFx;
