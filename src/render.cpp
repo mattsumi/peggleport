@@ -757,7 +757,7 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
   if (auto t = objImage(o.image)) {
     V2 off = rot({o.imgDx, o.imgDy}, o.rot);
     float lw = t->lw(), lh = t->lh();
-    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y, lw, lh, o.rot, a, false, 0xffffff, o.mirror);
+    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y + (b.cfg.nights && o.shape == Shape::Hole ? 2.0f : 0.0f), lw, lh, o.rot, a, false, 0xffffff, o.mirror);
   }
   if (feverSlot && lightImg && o.flash > 0) {
     float hx = BX + o.pos.x, hy = BY + o.pos.y;
