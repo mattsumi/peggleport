@@ -461,6 +461,10 @@ static const char* kNames[32] = {"Andy", "Anthony", "Ben", "Bill", "Brian", "Ace
                                  "Eric", "Hans", "Isaac", "Jason", "James", "Jeff", "Joe", "John", "Josh", "Juho", "Kathy",
                                  "Katrina", "Mark", "Matt", "Max", "Shawn", "Stephen", "Sukhbir", "Tysen", "Walter", "Wes"};
 
+static const char* kNightsNames[36] = {"Adam", "Anthony", "Ben", "Bill", "Brian", "Carl", "Chad", "Chris", "DP", "Dan", "Dave", "Ed",
+                                       "Eric", "Ethan", "George", "Heather", "Isaac", "Jason", "Jeff", "Jeremy", "Joe", "John", "Josh", "Kirk",
+                                       "Kurt", "Marcia", "Matt", "Mike", "Rich", "Scott", "Shawn", "Stephen", "Sukhbir", "Tod", "Tysen", "Walter"};
+
 const std::vector<HighScoreEntry>& HighScoreMgr::scores(const std::string& key) {
   auto& t = tables_[key];
   if (t.empty()) {
@@ -468,7 +472,7 @@ const std::vector<HighScoreEntry>& HighScoreMgr::scores(const std::string& key) 
     int s = adv ? 20000000 : 300000;
     for (int i = 0; i < 10; i++) {
       rng_ = rng_ * 1103515245u + 12345u;
-      t.push_back({kNames[(rng_ >> 16) & 31], s});
+      t.push_back({game_ == Game::Nights ? kNightsNames[(rng_ >> 16) % 36] : kNames[(rng_ >> 16) & 31], s});
       s -= adv ? (i == 0 ? 3000000 : 1500000) : 10000;
     }
   }
