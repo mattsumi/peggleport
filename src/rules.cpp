@@ -237,7 +237,9 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
   const std::string k = lc(key);
   const std::string v = trim(value);
   const bool flag = lc(v) == "true";
-  const int n = std::atoi(v.c_str());
+  const long long raw = std::strtoll(v.c_str(), nullptr, 10);
+  const int n = (int)std::clamp(raw, 0LL, 1000000000LL);
+  const int count = (int)std::clamp(raw, 0LL, 1000000LL);
   if (k == "nofreeballs") noFreeballs = flag;
   else if (k == "nogreens") noGreens = flag;
   else if (k == "noforcewin") noForceWin = flag;
@@ -246,7 +248,7 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
   else if (k == "scorereq") scoreReq = n;
   else if (k == "scoreceil") scoreCeil = n;
   else if (k == "stylescorereq") styleScoreReq = n;
-  else if (k == "uniquestyleshotsreq") uniqueStyleReq = n;
+  else if (k == "uniquestyleshotsreq") uniqueStyleReq = count;
   else if (k == "gravitymod") gravityMod = (float)std::atof(v.c_str());
   else if (k == "projspeedmod") projSpeedMod = (float)std::atof(v.c_str());
   else if (k == "stylershots" || k == "styleshots") {
@@ -256,13 +258,13 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
       std::string nm = trim(v.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
       int cnt = 1;
       size_t eq = nm.find('=');
-      if (eq != std::string::npos) { cnt = std::atoi(nm.c_str() + eq + 1); nm = trim(nm.substr(0, eq)); }
+      if (eq != std::string::npos) { cnt = (int)std::clamp(std::strtoll(nm.c_str() + eq + 1, nullptr, 10), 0LL, 1000000LL); nm = trim(nm.substr(0, eq)); }
       std::string want;
       for (char ch : lc(nm)) if (ch != ' ') want.push_back(ch);
       for (int i = 0; i < 24 && !want.empty(); i++) {
         std::string nn;
         for (char ch : lc(kStyle[i].name)) if (ch != ' ') nn.push_back(ch);
-        if (nn == want) styleShots[i] += cnt;
+        if (nn == want) styleShots[i] = std::min(styleShots[i] + cnt, 1000000);
       }
       if (e == std::string::npos) break;
       pos = e + 1;
@@ -276,13 +278,13 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
       std::string nm = trim(v.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
       int cnt = 1;
       size_t eq = nm.find('=');
-      if (eq != std::string::npos) { cnt = std::atoi(nm.c_str() + eq + 1); nm = trim(nm.substr(0, eq)); }
+      if (eq != std::string::npos) { cnt = (int)std::clamp(std::strtoll(nm.c_str() + eq + 1, nullptr, 10), 0LL, 1000000LL); nm = trim(nm.substr(0, eq)); }
       const std::string ln = lc(nm);
       if (ln == "magichat") magicHat = cnt;
       else if (ln == "triplescore") tripleScore = cnt;
       else
         for (int i = 1; i < 15; i++)
-          if (ln == names[i]) powerups[i] += cnt + 1;
+          if (ln == names[i]) powerups[i] = std::min(powerups[i] + cnt + 1, 1000000);
       if (e == std::string::npos) break;
       pos = e + 1;
     }
