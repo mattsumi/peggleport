@@ -294,13 +294,14 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   auto mkCheck = [&](int id, const char* label, bool v) {
     auto c = std::make_unique<Checkbox>();
     c->id = id;
-    c->image = a.gfx.img("IMAGE_DLG_BUTTON2");
-    c->style = 1;
+    c->image = a.gfx.img("IMAGE_DLG_BUTTON1");
+    c->style = 0;
     c->label = label;
     c->checked = v;
-    c->labelX = 30;
-    c->w = a.gfx.textWidth("BUTTON", label) + 30;
-    c->h = c->image ? c->image->lh() / 3 : 24;
+    c->labelX = 40;
+    c->labelY = 2;
+    c->w = 0xb6;
+    c->h = c->image ? c->image->lh() / 4 : 34;
     return add(std::move(c));
   };
   fullscreen = mkCheck(3, "Fullscreen", a.settings.fullscreen);
