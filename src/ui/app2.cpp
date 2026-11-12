@@ -260,8 +260,10 @@ void App::dialogButton(int dlg, int btn) {
       off(dlg);
       if (yes) {
         finishOptionsDialog(true, true);
-        if (gameMode == GameMode::QuickPlay || gameMode == GameMode::Duel) showLevelScreen(false);
-        else if (gameMode == GameMode::Challenge) restartChallenge();
+        if (gameMode == GameMode::QuickPlay || gameMode == GameMode::Duel) {
+          if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->dropSession();
+          showLevelScreen(false);
+        } else if (gameMode == GameMode::Challenge) restartChallenge();
         else if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
       }
       return;

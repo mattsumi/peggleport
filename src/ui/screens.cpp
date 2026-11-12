@@ -621,6 +621,7 @@ void MainMenu::onButton(int id) {
       break;
     case 1:
       app.gameMode = GameMode::QuickPlay;
+      if (sessionsOf(app).askToContinue(true)) break;
       startGame();
       break;
     case 2:

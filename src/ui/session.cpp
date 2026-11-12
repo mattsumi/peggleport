@@ -171,7 +171,7 @@ void syncBody(Ar& a, SavedSession& s) {
 
 bool bodySane(const SavedSession& s) {
   if (s.game < 0 || s.game > 1) return false;
-  if (s.mode != (int)GameMode::Adventure) return false;
+  if (s.mode != (int)GameMode::Adventure && s.mode != (int)GameMode::QuickPlay) return false;
   if (s.level.empty()) return false;
   if (s.frames < 0 || s.frames > SavedSession::kMaxFrames || s.tick < 0 || s.tick > s.frames) return false;
   if (s.shots < 0 || s.ballsLeft < 0) return false;
@@ -316,16 +316,21 @@ bool SessionKeeper::keep(const GameScreen& gs) {
 
 bool SessionKeeper::find(GameMode m) {
   ready_.reset();
-  if (m != GameMode::Adventure) return false;
+  if (m != GameMode::Adventure && m != GameMode::QuickPlay) return false;
   const std::filesystem::path path = file(m);
   std::error_code ec;
   if (path.empty() || !std::filesystem::exists(path, ec)) return false;
   auto r = std::make_unique<ReadySession>();
-  const LevelInfo* li = app_.curLevelInfo();
+  const LevelInfo* li = m == GameMode::Adventure ? app_.curLevelInfo() : nullptr;
   std::string err;
-  const bool ok = SavedSession::load(path, r->saved) && r->saved.game == (app_.game == Game::Nights ? 1 : 0) && r->saved.mode == (int)m && li &&
-                  li->file == r->saved.level && loadLevelBundle(app_.vfs, r->saved.level, r->bundle, &err) &&
-                  r->saved.rebuild(r->bundle, r->board, r->snap, r->haveSnap);
+  bool ok = SavedSession::load(path, r->saved) && r->saved.game == (app_.game == Game::Nights ? 1 : 0) && r->saved.mode == (int)m;
+  if (ok && m == GameMode::QuickPlay) li = app_.stages.levelByName(r->saved.level);
+  ok = ok && li && (m != GameMode::Adventure || li->file == r->saved.level) && loadLevelBundle(app_.vfs, r->saved.level, r->bundle, &err) &&
+       r->saved.rebuild(r->bundle, r->board, r->snap, r->haveSnap);
+  if (ok) {
+    r->saved.stage = li->stage;
+    r->saved.levelNo = li->index;
+  }
   if (!ok) {
     pp::log::warn("game", "the saved level in " + pathToUtf8(path) + " could not be used and was removed");
     std::filesystem::remove(path, ec);
@@ -346,6 +351,12 @@ bool SessionKeeper::resume() {
   if (!ready_) return false;
   std::unique_ptr<ReadySession> r = std::move(ready_);
   drop((GameMode)r->saved.mode);
+  app_.gameMode = (GameMode)r->saved.mode;
+  if (app_.gameMode != GameMode::Adventure) {
+    app_.curStage = r->saved.stage;
+    app_.curLevel = r->saved.levelNo;
+    app_.packStage = -1;
+  }
   if (app_.curProfile) app_.applyColorblind(app_.curProfile->colorblind);
   app_.setScreen(std::make_unique<GameScreen>(app_, *r), App::Left);
   return true;
@@ -368,7 +379,7 @@ class ContinueDialog : public Dialog {
   ContinueDialog(App& a, const std::string& text, bool newGame) : Dialog(a, D_ContinueGame, true, "Continue Game?", text, "Cancel", BUTTONS_FOOTER) {
     textAlign = -1;
     goOn_ = extra(0, "Continue");
-    again_ = extra(1, "Restart Level");
+    again_ = extra(1, a.gameMode == GameMode::Adventure ? "Restart Level" : "New Game");
     if (newGame) fresh_ = extra(2, "New Game");
   }
   float preferredHeight(float width) override { return Dialog::preferredHeight(width) + (app.game == Game::Nights ? 0x3c : 0x28); }
@@ -425,16 +436,27 @@ class ContinueDialog : public Dialog {
 
 bool SessionKeeper::askToContinue(bool ask) {
   PlayerInfo* p = app_.curProfile;
-  if (!p || app_.gameMode != GameMode::Adventure) return false;
-  if (ask && app_.game == Game::Deluxe && p->advCompletions > 0) return false;
-  app_.curStage = std::clamp(p->advStage, 0, std::max(0, app_.numStages() - 1));
-  app_.curLevel = std::clamp(p->advLevel, 0, 5);
-  if (!find(GameMode::Adventure)) return false;
-  if (ready_->saved.shots == 0 || !ask) return resume();
-  const std::string text = "Do you want to ^00FF00^continue^oldclr^ the level in progress or ^00FF00^restart^oldclr^ the level?\n\n^44DAFB^Score: " +
-                           withCommas(ready_->saved.score) + "\nBalls Left: " + std::to_string(ready_->saved.ballsLeft) + "\n";
+  const GameMode mode = app_.gameMode;
+  if (!p || (mode != GameMode::Adventure && mode != GameMode::QuickPlay)) return false;
+  if (mode == GameMode::Adventure) {
+    if (ask && app_.game == Game::Deluxe && p->advCompletions > 0) return false;
+    app_.curStage = std::clamp(p->advStage, 0, std::max(0, app_.numStages() - 1));
+    app_.curLevel = std::clamp(p->advLevel, 0, 5);
+  }
+  if (!find(mode)) return false;
+  const SavedSession& s = ready_->saved;
+  if (mode == GameMode::Adventure && (s.shots == 0 || !ask)) return resume();
+  std::string text;
+  if (mode == GameMode::Adventure) {
+    text = "Do you want to ^00FF00^continue^oldclr^ the level in progress or ^00FF00^restart^oldclr^ the level?\n\n^44DAFB^Score: " + withCommas(s.score) +
+           "\nBalls Left: " + std::to_string(s.ballsLeft) + "\n";
+  } else {
+    text = "Do you want to ^00FF00^continue^oldclr^ the game in progress or start a ^00FF00^new game^oldclr^?\n\n^44DAFB^";
+    const LevelInfo* li = app_.stages.levelByName(s.level);
+    text += "Level: " + (li ? li->title : s.level) + "\nScore: " + withCommas(s.score) + "\n";
+  }
   app_.killDialog(D_ContinueGame);
-  auto d = std::make_unique<ContinueDialog>(app_, text, app_.game == Game::Nights && p->advCompletions > 0);
+  auto d = std::make_unique<ContinueDialog>(app_, text, mode == GameMode::Adventure && app_.game == Game::Nights && p->advCompletions > 0);
   ContinueDialog* raw = d.get();
   app_.positionDialog(raw, 0x177);
   raw->place();
@@ -445,7 +467,7 @@ bool SessionKeeper::askToContinue(bool ask) {
 
 void SessionKeeper::startAsUsual() {
   if (auto* menu = dynamic_cast<MainMenu*>(app_.screen())) {
-    app_.gameMode = GameMode::Adventure;
+    if (app_.gameMode == GameMode::None) app_.gameMode = GameMode::Adventure;
     menu->startGame();
   } else if (auto* adv = dynamic_cast<AdventureScreen*>(app_.screen())) {
     adv->startGame();
@@ -462,14 +484,14 @@ void SessionKeeper::backOut() {
 
 void SessionKeeper::finishContinue(bool goOn) {
   if (goOn && resume()) return;
-  drop(GameMode::Adventure);
+  drop(app_.gameMode);
   if (!goOn && app_.game == Game::Nights && app_.curProfile) app_.curProfile->countFailedTry();
   startAsUsual();
 }
 
 bool SessionKeeper::askToLeave() {
   auto* gs = dynamic_cast<GameScreen*>(app_.screen());
-  if (!gs || !gs->keepsSession() || file(GameMode::Adventure).empty()) return false;
+  if (!gs || !gs->keepsSession() || file(app_.gameMode).empty()) return false;
   const PlayerInfo* p = app_.curProfile;
   if (!p || p->b58 >= 3 || gs->board().result.shots <= 0) {
     app_.finishOptionsDialog(true, false);
@@ -483,8 +505,13 @@ bool SessionKeeper::askToLeave() {
 }
 
 bool GameScreen::keepsSession() const {
-  if (!ready_ || done_ || viewer_ || demo_ || duel_ || !recording_ || !app.curProfile) return false;
-  if (app.gameMode != GameMode::Adventure || statsMode_ != GameMode::Adventure) return false;
+  if (!ready_ || done_ || viewer_ || demo_ || duel_ || sessionOff_ || !recording_ || !app.curProfile) return false;
+  if (app.gameMode != statsMode_) return false;
+  if (app.gameMode == GameMode::QuickPlay) {
+    if (board_.score[0] <= 0) return false;
+  } else if (app.gameMode != GameMode::Adventure) {
+    return false;
+  }
   return board_.phase != Phase::Over && board_.frames <= SavedSession::kMaxFrames && log_.size() <= SavedSession::kMaxEvents;
 }
 
