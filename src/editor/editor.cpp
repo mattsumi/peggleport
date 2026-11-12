@@ -153,7 +153,7 @@ std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& mo
       value = pre + dir + leaf;
     }
     if (!seen.insert(normKey(value)).second) return;
-    out.push_back({value, src, real ? real->string() : std::string()});
+    out.push_back({value, src, real ? pathToUtf8(*real) : std::string()});
   };
   if (vfs)
     for (auto& L : vfs->layers()) {

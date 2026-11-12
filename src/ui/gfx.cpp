@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iterator>
 
+#include "gamepaths.h"
 #include "image.h"
 #include "log.h"
 
@@ -251,7 +252,7 @@ Tex* Gfx::imgFile(const std::string& file) {
   auto it = cache_.find(key);
   if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
   Tex T;
-  std::ifstream f(file, std::ios::binary);
+  std::ifstream f(pathFromUtf8(file), std::ios::binary);
   std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   Image im;
   if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {

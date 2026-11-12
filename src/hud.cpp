@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 
+#include "gamepaths.h"
 #include "masters.h"
 #include "render.h"
 
@@ -199,7 +200,7 @@ void Renderer::drawModPortrait(const Board& b, int dw) {
   if (it == cache_.end()) {
     Tex T;
     if (!mm->portraitFile.empty()) {
-      std::ifstream f(mm->portraitFile, std::ios::binary);
+      std::ifstream f(pathFromUtf8(mm->portraitFile), std::ios::binary);
       std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
       Image im;
       if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {

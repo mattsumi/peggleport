@@ -606,11 +606,12 @@ void ModManager::installMasters() {
   auto portraitFor = [&](ModInfo& m, const std::string& id, const std::string& rel) -> std::string {
     if (rel.empty()) return "";
     std::error_code ec;
-    if (!safeRelPath(rel) || !fs::is_regular_file(m.dir / rel, ec)) {
+    const fs::path file = m.dir / pathFromUtf8(rel);
+    if (!safeRelPath(rel) || !fs::is_regular_file(file, ec)) {
       host_.log(m.m.id, pp::log::Level::Warn, "Master '" + id + "': the portrait file '" + rel + "' was not found in the mod folder, a placeholder is used");
       return "";
     }
-    return (m.dir / rel).string();
+    return pathToUtf8(file);
   };
   for (auto& mp : mods_) {
     ModInfo& m = *mp;
