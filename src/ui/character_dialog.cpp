@@ -96,7 +96,6 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
     if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
       yesBtn->image = pb;
       yesBtn->kind = Button::Kind::Embedded;
-      yesBtn->idleImage = true;
       yesBtn->labelOnEmbedded = true;
       yesBtn->textOffY = -4;
     }
