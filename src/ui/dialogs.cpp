@@ -38,6 +38,7 @@ void ListBox::draw(Gfx& g) {
     else g.drawString(font, 4, y + g.fontAscent(font), lines[idx], col, 1);
   }
   g.popClip();
+  if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, -8, -8, w + 16, h + 16);
 }
 bool ListBox::mouseDown(float lx, float ly, int button, int clicks) {
   if (button != 1) return false;
@@ -105,8 +106,6 @@ void UserDialog::layout() {
 void UserDialog::drawLayer(Gfx& g) {
   layout();
   Dialog::drawLayer(g);
-  Tex* fr = g.img("IMAGE_DLG_BLUEFRAME");
-  if (fr) g.drawBox(fr, list->x - 8, list->y - 8, list->w + 16, list->h + 16);
 }
 
 bool UserDialog::input(const Input& in) {

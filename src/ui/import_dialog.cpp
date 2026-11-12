@@ -86,7 +86,6 @@ void ImportDialog::drawLayer(Gfx& g) {
   layout();
   yesBtn->enabled = haveScan && selected() >= 0 && selected() < (int)scan.profiles.size() && scan.profiles[(size_t)selected()].readable;
   Dialog::drawLayer(g);
-  if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, list->x - 8, list->y - 8, list->w + 16, list->h + 16);
   float ty = list->y + list->h + 14;
   float th = fileBtn->y - ty - 6;
   std::string text;

@@ -132,7 +132,6 @@ class SaveReplayDialog : public Dialog {
     layout();
     Dialog::drawLayer(g);
     if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) {
-      g.drawBox(fr, list->x - 8, list->y - 8, list->w + 16, list->h + 16);
       g.fill(edit->x, edit->y, edit->w, edit->h, 0xffffff);
       g.drawBox(fr, edit->x - 8, edit->y - 10, edit->w + 16, edit->h + 18);
     }
