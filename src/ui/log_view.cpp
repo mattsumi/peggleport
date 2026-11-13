@@ -1,5 +1,6 @@
 #include "ui/log_view.h"
 #include "gamepaths.h"
+#include "mods/text.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -245,7 +246,7 @@ void LogView::layout(Gfx& g) {
 
 void LogView::appendRows(const log::Entry& e) {
   std::string label = fitText("[" + e.source + "]", srcW_ - 6, false);
-  std::vector<std::string> parts = wrapText(e.text, textW_);
+  std::vector<std::string> parts = wrapText(mods::gameText(e.text), textW_);
   for (size_t i = 0; i < parts.size(); i++) {
     Row r;
     r.seq = e.sequence;
@@ -571,7 +572,7 @@ void LogView::doSave() {
   fs::path file = app.userDir / "logs" / (std::string("peggleport-") + stamp + ".log");
   std::string err;
   if (log::exportToFile(file, &err)) {
-    say("Saved to " + pathToUtf8(file));
+    say("Saved to " + mods::gameText(pathToUtf8(file)));
     log::info("ui", "log saved to " + pathToUtf8(file));
   } else {
     say("Could not save the log: " + err);
