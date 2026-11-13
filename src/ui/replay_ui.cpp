@@ -131,10 +131,7 @@ class SaveReplayDialog : public Dialog {
   void drawLayer(Gfx& g) override {
     layout();
     Dialog::drawLayer(g);
-    if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) {
-      g.fill(edit->x, edit->y, edit->w, edit->h, 0xffffff);
-      g.drawBox(fr, edit->x - 8, edit->y - 10, edit->w + 16, edit->h + 18);
-    }
+    if (Tex* box = g.img("IMAGE_DLG_TEXTBOX")) g.drawBox(box, edit->x - 8, edit->y - 11, edit->w + 17, edit->h + 20);
     g.drawString("PLAIN", 35, 241, "Name", 0xffffff);
   }
   bool input(const Input& in) override {
