@@ -300,7 +300,12 @@ void LobbyServer::poll() {
         c.lastActivity = now;
         if (c.role == Conn::Pipe && c.peer) {
           c.peer->out.append(buf, (size_t)n);
-          if (c.peer->out.size() > limits.maxOutBuf) { drop(*c.peer); c.peer->closeAfter = true; break; }
+          if (c.peer->out.size() > limits.maxOutBuf) {
+            Conn* slow = c.peer;
+            drop(*slow);
+            slow->closeAfter = true;
+            break;
+          }
         } else c.in.append(buf, (size_t)n);
         if (c.in.size() > 4096) { drop(c); break; }
       } else {
