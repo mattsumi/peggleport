@@ -187,7 +187,9 @@ NewUserDialog::NewUserDialog(App& a, bool isRename, bool cert, bool canCancel)
     lines.clear();
     rope = false;
   } else {
-    w = 400;
+    w = 300;
+    edit->paper = true;
+    edit->ink = 0x000000;
   }
 }
 
@@ -196,7 +198,7 @@ float NewUserDialog::preferredHeight(float width) {
     Tex* c = app.gfx.img("IMAGE_MM_CERTIFICATE");
     return c ? c->lh() : 461;
   }
-  return Dialog::preferredHeight(width) + kOwnLayoutExtra + 0x28;
+  return Dialog::preferredHeight(width) + 0x28;
 }
 
 void NewUserDialog::layout() {
@@ -219,10 +221,10 @@ void NewUserDialog::layout() {
     }
   } else {
     layoutButtons();
-    edit->x = 0x30;
-    edit->y = 0x69;
-    edit->w = w - 96;
-    edit->h = 0x18;
+    edit->x = 48;
+    edit->y = 108;
+    edit->w = w - 97;
+    edit->h = 20;
   }
 }
 
@@ -230,6 +232,7 @@ void NewUserDialog::drawLayer(Gfx& g) {
   layout();
   if (!certificate) {
     Dialog::drawLayer(g);
+    if (Tex* box = g.img("IMAGE_DLG_TEXTBOX")) g.drawBox(box, edit->x - 8, edit->y - 11, edit->w + 17, edit->h + 20);
     return;
   }
   Tex* c = g.img("IMAGE_MM_CERTIFICATE");

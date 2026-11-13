@@ -57,7 +57,11 @@ class NewUserDialog : public Dialog {
   void drawLayer(Gfx& g) override;
   void update() override;
   std::string name() const { return edit->value; }
-  void setName(const std::string& n) { edit->value = n; edit->caret = (int)n.size(); }
+  void setName(const std::string& n) {
+    edit->value = n;
+    edit->caret = (int)n.size();
+    edit->selectAll = !n.empty();
+  }
   void onButton(int id) override;
   void finish(bool accepted);
   void doApproved();
