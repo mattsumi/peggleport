@@ -234,7 +234,7 @@ void NewUserDialog::drawLayer(Gfx& g) {
   }
   Tex* c = g.img("IMAGE_MM_CERTIFICATE");
   if (c) g.draw(c, 0, 0);
-  g.drawString("PLAIN", 0x87 - g.textWidth("PLAIN", dateText) / 2, 0x186, dateText, 0x808080);
+  g.drawString("PLAIN", 0x87 - g.textWidth("PLAIN", dateText) / 2, 0x186, dateText, 0x000080);
   if (noBtn->visible || importBtn) g.fill(0x133, 0x164, 0x88, 0x32, 0xd6cfc0);
   if (stamp > 0) {
     Tex* st = g.img("IMAGE_MM_APPROVEDSTAMP");
