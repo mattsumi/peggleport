@@ -129,7 +129,7 @@ bool GameScreen::startLevel(const std::string& name) {
     if (char1Used)
       if (const int mp = modPowerFor(app, 0)) cfg.master[0] = mp;
   }
-  cfg.boardWidth = app.boardWidthForNewBoard();
+  cfg.boardWidth = std::max(cfg.boardWidth, app.boardWidthForNewBoard());
   bool adv = app.gameMode == GameMode::Adventure;
   setRuleInputs(cfg, app.curProfile, adv ? 5 * app.curStage + app.curLevel : -1, app.game == Game::Nights,
                 adv && app.curProfile ? app.curProfile->tryNumber(app.game == Game::Nights) : 1, 0);
