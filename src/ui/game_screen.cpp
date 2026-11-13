@@ -100,8 +100,10 @@ bool GameScreen::startLevel(const std::string& name) {
   BoardConfig cfg = lb_.cfg;
   cfg.seed = seed;
   int stage = app.curStage;
-  const bool remember = app.gameMode == GameMode::Duel;
+  const TrophyInfo* ctr = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
+  const bool duelChallenge = ctr && !ctr->opponents.empty();
   auto randomMaster = [&](int c, int slot) {
+    const bool remember = app.gameMode == GameMode::Duel || (duelChallenge && slot == 0);
     int& last = slot == 0 ? app.lastRolled : app.lastOpponent;
     if (c != CharacterDialog::randomChoice(app.game)) {
       if (remember) last = c;
@@ -180,8 +182,6 @@ bool GameScreen::startLevel(const std::string& name) {
         if (k >= 0) cfg.master[0] = Board::masterByName(kMasterNames[k]);
       }
     }
-  const TrophyInfo* ctr = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
-  const bool duelChallenge = ctr && !ctr->opponents.empty();
   duel_ = app.gameMode == GameMode::Duel || duelChallenge;
   cfg.players = duel_ ? 2 : 1;
   cfg.duel = duel_;
