@@ -106,8 +106,9 @@ bool GameScreen::startLevel(const std::string& name) {
   };
   int mi = std::clamp(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay ? CharacterDialog::masterMetAt(app.game, std::clamp(stage, 0, 10)) : (app.curProfile ? randomMaster(app.curProfile->char1) : 0), 0, 10);
   if (app.game == Game::Deluxe) mi = std::min(mi, 9);
-  if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack) mi = std::clamp(app.curProfile ? app.curProfile->char1 : 0, 0, 10);
-  if (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
+  const bool fixedChoice = app.curProfile && app.curProfile->char1 != CharacterDialog::randomChoice(app.game);
+  if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack && fixedChoice) mi = std::clamp(app.curProfile->char1, 0, 10);
+  if (fixedChoice && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
   const bool ownChoice = choosesMaster();
   if (ownChoice) mi = chosenMaster();
   if (app.gameMode == GameMode::Demo) {
