@@ -151,7 +151,10 @@ class SaveReplayDialog : public Dialog {
       std::filesystem::rename(f->path, to, ec);
       refresh();
     } else if (id == 102) {
-      if (const ReplayFile* f = selected()) app.doConfirmDeleteReplay(stemOf(*f));
+      if (const ReplayFile* f = selected()) {
+        app.doConfirmDeleteReplay(stemOf(*f));
+        placeChild(app.getDialog(D_DeleteReplay));
+      }
     } else if (id == 103) {
       std::error_code ec;
       std::filesystem::create_directories(dir(), ec);
@@ -167,6 +170,11 @@ class SaveReplayDialog : public Dialog {
         save();
       }
     }
+  }
+  void placeChild(Dialog* c) {
+    if (!c) return;
+    const float top = scrollActive ? scrollTarget : y;
+    c->scrollTarget = std::max(top, std::max(10.0f, top + 255 - c->h));
   }
   void play() {
     const ReplayFile* f = selected();
@@ -188,13 +196,14 @@ class SaveReplayDialog : public Dialog {
     std::error_code ec;
     const std::filesystem::path to = dir() / pathFromUtf8(pending + replayExt(app.game == Game::Nights ? 1 : 0));
     if (!overwriteOk && std::filesystem::exists(to, ec)) {
-      app.doDialog(D_OverwriteReplay, true, "Overwrite Replay?", n + " already exists.  Do you want to overwrite it?", "", BUTTONS_YES_NO);
+      placeChild(app.doDialog(D_OverwriteReplay, true, "Overwrite Replay?", n + " already exists.  Do you want to overwrite it?", "", BUTTONS_YES_NO));
       return;
     }
     auto* gs = dynamic_cast<GameScreen*>(app.screen());
     if (gs && gs->replayAllShots()) {
       Dialog* d = app.doDialog(D_SaveAll, true, "Save All?", "Would you like to save all the shots in the replay or just this individual shot?", "", BUTTONS_YES_NO);
       d->setYesNo("Save Single", "Save All");
+      placeChild(d);
       return;
     }
     commit(false);
@@ -205,7 +214,7 @@ class SaveReplayDialog : public Dialog {
     if (gs && gs->saveReplay(all, &path, pending)) {
       doScrollOff();
     } else {
-      app.doDialog(D_ReplayError, true, "File Error", "Unable to open replay file.", "OK", BUTTONS_FOOTER);
+      placeChild(app.doDialog(D_ReplayError, true, "File Error", "Unable to open replay file.", "OK", BUTTONS_FOOTER));
     }
   }
 };
