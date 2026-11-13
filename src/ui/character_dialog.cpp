@@ -13,6 +13,7 @@ static const float kW = 520, kGridX[2] = {30, 360}, kGridY = 105, kCellW = 61, k
 static const float kInfoW = 184;
 static const float kTwoH = 525, kBoxX = 175, kBoxY = 110, kBoxW = 170, kBoxH = 34, kLevelDX = 20, kLevelW = 130, kLevelH = 27, kLevelGap = 5;
 static const float kNameX[2] = {90, 425}, kNameY = 100, kJointDX = 8, kFootX = 172;
+static const float kNightsPagerY = 420;
 static const float kPanelX = 167, kPanelY = 297, kPanelW = 186, kPanelBottom = 410;
 static const bool kInfoAlways = false;
 static const float kSoloW = 400, kSoloGridY = 70, kSoloInfoX = 180, kSoloInfoY = 80, kSoloPagerGap = 9;
@@ -80,9 +81,9 @@ CharacterDialog::CharacterDialog(App& a, bool twoPlayers)
   }
   count = a.game == Game::Nights ? 11 : 10;
   if (two && a.curProfile) {
-    const int last = a.game == Game::Nights ? count - 1 : 10;
-    sel[0] = a.curProfile->char1 > last ? 0 : std::clamp(a.curProfile->char1, 0, 10);
-    sel[1] = a.curProfile->char2 > last ? 0 : std::clamp(a.curProfile->char2, 0, 10);
+    const int last = randomChoice(a.game);
+    sel[0] = a.curProfile->char1 > last ? 0 : std::clamp(a.curProfile->char1, 0, last);
+    sel[1] = a.curProfile->char2 > last ? 0 : std::clamp(a.curProfile->char2, 0, last);
   }
   if (!two) {
     sel[0] = 0;
@@ -140,24 +141,23 @@ float CharacterDialog::gridX(int player) const { return two ? kGridX[player] : k
 float CharacterDialog::gridY() const { return two ? kGridY : kSoloGridY; }
 
 int CharacterDialog::cellCount() const {
-  if (app.game == Game::Deluxe) return 11;
-  return two ? count : 12;
+  return app.game == Game::Deluxe ? 11 : 12;
 }
 
 int CharacterDialog::cellMaster(int idx) const {
-  return two ? idx : masterMetAt(app.game, idx);
+  return masterMetAt(app.game, idx);
 }
 
 bool CharacterDialog::cellRandom(int idx) const {
-  if (app.game == Game::Deluxe) return idx == 10;
-  return !two && idx == 11;
+  return idx == randomChoice(app.game);
 }
 
 bool CharacterDialog::cellOpen(int idx) const {
   const PlayerInfo* p = app.curProfile;
-  if (!two) return cellRandom(idx) || idx < mastersMet(app.game, p);
+  if (cellRandom(idx)) return true;
+  if (!two) return idx < mastersMet(app.game, p);
   const int unlocked = p ? p->maxStage : 0;
-  return idx < 10 ? idx <= unlocked : (app.game == Game::Deluxe || unlocked >= 10 || (p && p->advCompletions > 0));
+  return idx < 10 ? idx <= unlocked : (unlocked >= 10 || (p && p->advCompletions > 0));
 }
 
 void CharacterDialog::layoutBoxes() {
@@ -228,8 +228,12 @@ void CharacterDialog::pagerRect(int player, float* x, float* y, float* pw, float
     *ph = kRandH;
     return;
   }
+  if (!deluxe) {
+    *x = kBoxX; *y = kNightsPagerY; *pw = kBoxW; *ph = kRandH;
+    return;
+  }
   *x = kGridX[player] + kPitchX;
-  *y = kGridY + 5 * kPitchY + (deluxe ? 0 : (kCellH - kRandH) / 2);
+  *y = kGridY + 5 * kPitchY;
   *pw = kCellW;
   *ph = kRandH;
 }
@@ -285,7 +289,7 @@ static void drawModIcon(Gfx& g, const ModMaster& m, float x, float y, float w, f
 }
 
 bool CharacterDialog::randomChosen(int r) const {
-  return two && app.game == Game::Deluxe && modSel[r] < 0 && sel[r] == 10;
+  return two && modSel[r] < 0 && sel[r] == randomChoice(app.game);
 }
 
 void CharacterDialog::update() {
@@ -318,20 +322,18 @@ void CharacterDialog::drawCell(Gfx& g, int r, int i) {
   float cx, cy, cw, ch;
   cellRect(r, i, &cx, &cy, &cw, &ch);
   const Mode look = chosen || (open && i == hover) ? Mode() : Mode(1.0f, 0x9b9b9b);
-  if (two && cellRandom(i) && !mods.empty()) {
+  if (two && app.game == Game::Deluxe && cellRandom(i) && !mods.empty()) {
     if (frame) g.drawBox(frame, cx, cy, cw, ch);
     g.drawString("PLAIN2", cx + cw / 2, cy + ch / 2 + g.fontAscent("PLAIN2") / 2 - 2, "Random", 0xffffff, 1, Align::Center);
     return;
   }
   if (cellRandom(i)) {
     if (Tex* t = g.img("IMAGE_DLG_RANDOM")) g.draw(t, cx, cy, look);
-  } else if (two && i >= 10) {
-    if (Tex* q = g.img("IMAGE_DLG_QUESTIONMARK")) g.draw(q, cx, cy, look);
   } else if (Tex* t = open ? chars : shadows) {
     if (two && r == 1) g.drawCelMirror(t, cx, cy, cellMaster(i), 0, look);
     else g.drawCel(t, cx, cy, cellMaster(i), 0, look);
   }
-  if (!open && !cellRandom(i) && !(two && i >= 10))
+  if (!open && !cellRandom(i))
     if (Tex* lock = g.img("IMAGE_LS_LOCK_SMALL")) g.draw(lock, cx, cy, Mode(60 / 255.0f));
   if (randomChosen(r) && !cellRandom(i)) {
     const int alpha = (int)((double)fade[r] * 255.0);
@@ -364,7 +366,7 @@ void CharacterDialog::drawLayer(Gfx& g) {
     } else {
       for (int i = 0; i < cellCount(); i++) drawCell(g, r, i);
     }
-    if (!mods.empty()) {
+    if (!mods.empty() && !(two && app.game == Game::Nights && r == 1)) {
       float px, py, pw, ph;
       pagerRect(r, &px, &py, &pw, &ph);
       if (frame) g.drawBox(frame, px, py, pw, ph);
