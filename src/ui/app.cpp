@@ -875,7 +875,7 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
   } else {
     bool cert = other->dialogId == D_CreateUser && dynamic_cast<NewUserDialog*>(other) && static_cast<NewUserDialog*>(other)->certificate;
     y = (cert ? 0x8c : 0) + other->y;
-    x = (other->w - width) / 2 + other->x;
+    x = std::trunc((other->w - width) / 2) + other->x;
   }
   d->resize(x, y, width, hgt);
 }
