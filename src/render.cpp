@@ -903,6 +903,21 @@ void Renderer::drawBoardShadow() {
   for (auto& p : pieces) put(t, {p.x, p.y, p.w, p.h}, X + p.x + p.dx, Y + p.y, {}, p.w + p.dw, p.h);
 }
 
+void Renderer::drawWallMarks(float padL) {
+  if (padL <= 0) return;
+  const float x0 = 75.0f, x1 = BX, x2 = BX + (float)boardW_, x3 = 75.0f + (float)boardW_ + 2.0f * padL;
+  SDL_SetRenderDrawBlendMode(r_, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawColor(r_, 0, 0, 0, 80);
+  SDL_FRect l{px(x0), py(BY), px(x1) - px(x0), 560.0f * s_}, rr{px(x2), py(BY), px(x3) - px(x2), 560.0f * s_};
+  SDL_RenderFillRect(r_, &l);
+  SDL_RenderFillRect(r_, &rr);
+  Tex* t = img("IMAGE_INT_BACKSHADOW");
+  if (!t) return;
+  const float W = t->lw(), h2 = t->lh() - 25;
+  put(t, {0, 0, 30, h2}, 76.0f + padL, 49.0f);
+  put(t, {615, 0, W - 615, h2}, 691.0f + padL, 49.0f);
+}
+
 void Renderer::drawBoardShadowBottom(float rows, float top) {
   Tex* t = img("IMAGE_INT_BACKSHADOW");
   if (!t) return;
@@ -1195,6 +1210,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawEffects(b, 1);
   drawBoardShadow();
+  drawWallMarks(padL);
   drawHud(b, hud);
   SDL_SetRenderClipRect(r_, &objClip);
   for (size_t i = 0; i <= b.objs.size(); i++) {
