@@ -446,7 +446,7 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
       mode(hud.topName, false);
       detail("Score", false, 0);
     } else if (hud.mode == Hud::ModeQuick || hud.mode == Hud::ModeDemo) {
-      if (hud.mode == Hud::ModeQuick) mode("Quick", true);
+      mode(hud.mode == Hud::ModeQuick ? "Quick" : "Demo", true);
       detail("Score", true, 0);
       mode("Top Score", false);
       if (hud.topScore > 0) detail(hud.topName, false, 0);
