@@ -79,6 +79,7 @@ class Gfx {
   Tex* img(const std::string& idOrPath);
   void reloadAssets(const VfsChange& change);
   Tex* imgFile(const std::string& file);
+  Tex* duelDim(const std::string& id);
   void preload(const std::string& id) { img(id); }
   void draw(Tex* t, float x, float y, Mode m = {});
   void drawCel(Tex* t, float x, float y, int col, int row, Mode m = {});
@@ -117,6 +118,7 @@ class Gfx {
   Manifest man_;
   bool haveMan_ = false;
   std::map<std::string, Tex> cache_;
+  std::map<std::string, Tex> dimCache_;
   std::map<std::array<int, 8>, Tex> boxCache_;
   std::map<const Tex*, std::vector<uint8_t>> rgbaCache_;
   Tex* boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int H);

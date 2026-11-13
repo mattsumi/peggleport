@@ -30,6 +30,8 @@ Gfx::~Gfx() {
     if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : boxCache_)
     if (t.t) SDL_DestroyTexture(t.t);
+  for (auto& [_, t] : dimCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
 }
 
 void Gfx::begin(int canvasW, int canvasH) {
@@ -225,6 +227,9 @@ Tex* Gfx::img(const std::string& idOrPath) {
 
 void Gfx::reloadAssets(const VfsChange& change) {
   if (!change.any) return;
+  for (auto& [_, t] : dimCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  dimCache_.clear();
   const bool manifest = change.touches("properties/resources.xml");
   if (manifest) {
     man_ = Manifest();
@@ -343,6 +348,37 @@ void Gfx::drawRotCel(Tex* t, float cx, float cy, int col, int row, float rad, fl
 void Gfx::drawBox(Tex* t, float x, float y, float w, float h, Mode m) {
   if (t) drawBoxSrc(t, 0, 0, t->lw(), t->lh(), x, y, w, h, m);
 }
+Tex* Gfx::duelDim(const std::string& id) {
+  auto it = dimCache_.find(id);
+  if (it != dimCache_.end()) return it->second.valid() ? &it->second : nullptr;
+  Tex& D = dimCache_[id];
+  Tex* t = img(id);
+  if (!r_ || !t || t->path.empty()) return nullptr;
+  auto im = loadGameImage(vfs_, t->path, t->mask);
+  if (!im || im->w != t->w || im->h != t->h) return nullptr;
+  std::vector<uint8_t> px(im->rgba.begin(), im->rgba.end());
+  for (size_t i = 0; i + 3 < px.size(); i += 4) {
+    const int lum = (76 * px[i] + 153 * px[i + 1] + 26 * px[i + 2]) / 255;
+    for (size_t k = 0; k < 3; k++) {
+      const int grey = (100 * px[i + k] + 155 * lum) / 255;
+      px[i + k] = (uint8_t)(grey * 155 / 255);
+    }
+  }
+  D.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, t->w, t->h);
+  if (!D.t) return nullptr;
+  SDL_UpdateTexture(D.t, nullptr, px.data(), t->w * 4);
+  SDL_SetTextureBlendMode(D.t, SDL_BLENDMODE_BLEND);
+  SDL_SetTextureScaleMode(D.t, SDL_SCALEMODE_LINEAR);
+  D.w = t->w;
+  D.h = t->h;
+  D.cols = t->cols;
+  D.rows = t->rows;
+  D.scale = t->scale;
+  D.path = t->path;
+  D.mask = t->mask;
+  return &D;
+}
+
 Tex* Gfx::boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int H) {
   if (!r_ || !t || t->path.empty()) return nullptr;
   std::array<int, 8> key{(int)(uint32_t)(uintptr_t)t, (int)(uint32_t)((uint64_t)(uintptr_t)t >> 32), (int)std::lround(sx * 4) * 4096 + (int)std::lround(sy * 4), (int)std::lround(sw * 4) * 4096 + (int)std::lround(sh * 4), W, H, 0, 0};

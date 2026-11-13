@@ -313,23 +313,28 @@ void CharacterDialog::update() {
 }
 
 void CharacterDialog::drawCell(Gfx& g, int r, int i) {
-  Tex* chars = g.img("IMAGE_CHR_CHARACTERS");
-  Tex* shadows = g.img("IMAGE_CHR_CHARACTERSHADOWS");
   Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
   Tex* selFrame = g.img("IMAGE_DLG_SELECTORFRAME");
   const bool open = cellOpen(i);
   const bool chosen = modSel[r] < 0 && cellMaster(i) == sel[r];
   float cx, cy, cw, ch;
   cellRect(r, i, &cx, &cy, &cw, &ch);
-  const Mode look = chosen || (open && i == hover) ? Mode() : Mode(1.0f, 0x9b9b9b);
+  const bool lit = chosen || (open && i == hover);
+  const Mode look = lit || two ? Mode() : Mode(1.0f, 0x9b9b9b);
+  const bool dimCopy = two && !lit;
+  auto pick = [&](const char* id) -> Tex* {
+    if (dimCopy)
+      if (Tex* d = g.duelDim(id)) return d;
+    return g.img(id);
+  };
   if (two && app.game == Game::Deluxe && cellRandom(i) && !mods.empty()) {
     if (frame) g.drawBox(frame, cx, cy, cw, ch);
     g.drawString("PLAIN2", cx + cw / 2, cy + ch / 2 + g.fontAscent("PLAIN2") / 2 - 2, "Random", 0xffffff, 1, Align::Center);
     return;
   }
   if (cellRandom(i)) {
-    if (Tex* t = g.img("IMAGE_DLG_RANDOM")) g.draw(t, cx, cy, look);
-  } else if (Tex* t = open ? chars : shadows) {
+    if (Tex* t = pick("IMAGE_DLG_RANDOM")) g.draw(t, cx, cy, look);
+  } else if (Tex* t = pick(open ? "IMAGE_CHR_CHARACTERS" : "IMAGE_CHR_CHARACTERSHADOWS")) {
     if (two && r == 1) g.drawCelMirror(t, cx, cy, cellMaster(i), 0, look);
     else g.drawCel(t, cx, cy, cellMaster(i), 0, look);
   }
