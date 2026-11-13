@@ -422,7 +422,10 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::SpookyRespawn: play(e.a == 0 ? "SPOOKYBALL2" : e.a == 1 ? "SPOOKYBALL3" : "SPOOKYBALL4"); break;
       case Event::Penalty: if (e.a > 0) playLater(e.a, "PENALTY", 0, 1, 1); else play("PENALTY", 0, 1, 1); break;
       case Event::FlipperMove: play(e.a ? "FLIPPERUP" : "FLIPPERDOWN"); break;
-      case Event::Zen: if (e.a == 1 || e.a == 2) play("GONG"); break;
+      case Event::Zen:
+        if (e.a == 1) play("GONG", 5.0f, 1, 5);
+        else if (e.a == 2) play("GONG", 0, 1, 1);
+        break;
       case Event::Hint: play("COINSPIN_NO"); break;
       case Event::StyleShot: if (e.a != 18) play("SKILLSHOT", 0, 1, 1); break;
       case Event::ChainStart: play("LIGHTNING_START"); chainLoopAt_ = updates_ + 40; break;
