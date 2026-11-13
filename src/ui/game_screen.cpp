@@ -967,6 +967,10 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
     app.audio->playAfter(130, "TING");
     app.audio->playAfter(160, "APPLAUSE");
   }
+  if (app.audio && o.cleared && aced && mode != EndLevelDialog::AdventureComplete) {
+    app.audio->playAfter(211, "TING");
+    app.audio->playAfter(211, "APPLAUSE");
+  }
   if (app.game == Game::Nights && p && won) {
     int after = 0;
     for (int i = 0; i < 4; i++) after |= MainMenu::mantelEarned(app, i) ? 1 << i : 0;
