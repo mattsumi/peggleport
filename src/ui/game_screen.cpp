@@ -1082,7 +1082,6 @@ static bool inMenuButton(float x, float y) { return x >= 12 && x < 63 && y >= 54
 
 bool GameScreen::input(const Input& in) {
   if (replayPanel_) return Panel::input(in);
-  if (demo_ && (in.type == Input::MouseDown || in.type == Input::KeyDown)) { app.doToMenu(); return true; }
   const auto menuLive = [&]() { return inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0; };
   const auto replayLive = [&]() {
     return inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn();
@@ -1153,6 +1152,7 @@ void GameScreen::menuThroughDialog(const Input& in) {
 
 void GameScreen::keyDown(int key, int) {
   if (replayPanel_) return;
+  if (demo_ && key != SDLK_ESCAPE) return;
   if (replaying_ && key == SDLK_ESCAPE) { stopReplay(); if (viewer_) app.doToMenu(); return; }
   if (key == SDLK_ESCAPE) {
     if (!app.getDialog(D_Options) && !done_) app.doOptionsDialog();
