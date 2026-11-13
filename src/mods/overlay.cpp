@@ -16,7 +16,7 @@ struct ModOverlayAccess {
     Renderer& R;
     explicit Sink(Renderer& r) : R(r) {}
     void canvas(float x, float y, bool screen, float& cx, float& cy) const {
-      cx = screen ? x : R.BX + x;
+      cx = screen ? R.BX - 75.0f + x : R.BX + x;
       cy = screen ? y : Renderer::BY + y;
     }
     static void color(SDL_Renderer* r, uint32_t c) { SDL_SetRenderDrawColor(r, (Uint8)(c >> 24), (Uint8)(c >> 16), (Uint8)(c >> 8), (Uint8)c); }
