@@ -312,7 +312,7 @@ void App::dialogButton(int dlg, int btn) {
     case D_Character:
       if (auto* cd = dynamic_cast<CharacterDialog*>(getDialog(dlg))) {
         cd->accept();
-        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->masterChosen(cd->picked[0]);
+        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->masterChosen(cd->picked[0] || cd->picked[1]);
       }
       off(dlg);
       return;

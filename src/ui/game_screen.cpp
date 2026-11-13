@@ -100,11 +100,24 @@ bool GameScreen::startLevel(const std::string& name) {
   BoardConfig cfg = lb_.cfg;
   cfg.seed = seed;
   int stage = app.curStage;
-  auto randomMaster = [&](int c) {
-    if (c != CharacterDialog::randomChoice(app.game)) return c;
-    return CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)CharacterDialog::mastersMet(app.game, app.curProfile)));
+  const bool remember = app.gameMode == GameMode::Duel;
+  auto randomMaster = [&](int c, int slot) {
+    int& last = slot == 0 ? app.lastRolled : app.lastOpponent;
+    if (c != CharacterDialog::randomChoice(app.game)) {
+      if (remember) last = c;
+      return c;
+    }
+    if (remember && keepRoll_ && last >= 0 && last < 10) return last;
+    const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+    int pick = 0;
+    for (int tries = remember && met > 1 ? 50 : 1; tries > 0; tries--) {
+      pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+      if (pick != last) break;
+    }
+    if (remember) last = pick;
+    return pick;
   };
-  int mi = std::clamp(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay ? CharacterDialog::masterMetAt(app.game, std::clamp(stage, 0, 10)) : (app.curProfile ? randomMaster(app.curProfile->char1) : 0), 0, 10);
+  int mi = std::clamp(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay ? CharacterDialog::masterMetAt(app.game, std::clamp(stage, 0, 10)) : (app.curProfile ? randomMaster(app.curProfile->char1, 0) : 0), 0, 10);
   if (app.game == Game::Deluxe) mi = std::min(mi, 9);
   const bool fixedChoice = app.curProfile && app.curProfile->char1 != CharacterDialog::randomChoice(app.game);
   if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack && fixedChoice) mi = std::clamp(app.curProfile->char1, 0, 10);
@@ -174,8 +187,9 @@ bool GameScreen::startLevel(const std::string& name) {
   human2_ = duel_ && app.gameMode == GameMode::Duel && app.curProfile && !app.curProfile->computerPlayer;
   if (!duel_ && lb_.cfg.master[0] >= masters::kFirstPower && masters::byPower(lb_.cfg.master[0])) cfg.master[0] = lb_.cfg.master[0];
   if (duel_) {
-    cfg.master[1] = Board::masterByName(kMasterNames[std::clamp(app.curProfile ? randomMaster(app.curProfile->char2) : 1, 0, app.game == Game::Nights ? 10 : 9)]);
+    cfg.master[1] = Board::masterByName(kMasterNames[std::clamp(app.curProfile ? randomMaster(app.curProfile->char2, 1) : 1, 0, app.game == Game::Nights ? 10 : 9)]);
     if (const int mp = modPowerFor(app, 1)) cfg.master[1] = mp;
+    keepRoll_ = false;
   }
   demo_ = app.gameMode == GameMode::Demo;
   if (duelChallenge) {
