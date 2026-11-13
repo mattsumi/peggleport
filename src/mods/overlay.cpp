@@ -6,6 +6,7 @@
 #include <string>
 
 #include "mods/manager.h"
+#include "mods/text.h"
 #include "render.h"
 
 namespace pp {
@@ -63,7 +64,7 @@ struct ModOverlayAccess {
       if (!f) return;
       float cx, cy;
       canvas(x, y, screen, cx, cy);
-      R.drawText(f, cx, cy, s, rgba, align == 1 ? TextAlign::Center : align == 2 ? TextAlign::Right : TextAlign::Left, scale <= 0 ? 1.0f : scale);
+      R.drawText(f, cx, cy, mods::gameText(s), rgba, align == 1 ? TextAlign::Center : align == 2 ? TextAlign::Right : TextAlign::Left, scale <= 0 ? 1.0f : scale);
     }
     void image(const std::string& path, float x, float y, float scale, float alpha, bool screen) override {
       Renderer::Tex* t = R.tex(path);

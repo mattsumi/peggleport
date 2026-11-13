@@ -16,6 +16,7 @@
 #include "mods/hostreg.h"
 #include "gamepaths.h"
 #include "mods/json.h"
+#include "mods/text.h"
 #include "vfs.h"
 
 namespace fs = std::filesystem;
@@ -98,6 +99,9 @@ bool parseManifest(const std::string& text, bool json, const std::string& folder
   m.version = get("version", "0");
   m.author = get("author");
   m.description = get("description");
+  m.name = gameText(m.name);
+  m.author = gameText(m.author);
+  m.description = gameText(m.description);
   m.api = std::atoi(get("api", get("api_level", std::to_string(kModApi))).c_str());
   m.scripts = scripts;
   m.native = get("native", get("plugin"));
@@ -136,7 +140,7 @@ bool loadManifest(const fs::path& dir, Manifest& m, std::string* err) {
   } else if (readFile(dir / "mod.ini", text, 1 << 20)) {
     if (!parseManifest(text, false, folder, m, err)) return false;
   } else {
-    m.name = folder;
+    m.name = gameText(folder);
     m.id = sanitizeId(folder);
     m.format = "none";
   }
