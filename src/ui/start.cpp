@@ -12,6 +12,7 @@
 
 #include "gamepaths.h"
 #include "log.h"
+#include "mods/text.h"
 #include "ui/app.h"
 #include "ui/dialog.h"
 
@@ -167,7 +168,7 @@ class FolderBox : public Dialog {
 
 int gameMessage(App& app, const GameWait& wait, const std::string& text, const std::vector<std::string>& buttons) {
   std::string shown;
-  for (char c : text) {
+  for (char c : mods::gameText(text)) {
     shown += c;
     if (c == '^') shown += c;
   }
