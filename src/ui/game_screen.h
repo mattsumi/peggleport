@@ -61,12 +61,7 @@ class GameScreen : public Screen {
   const char* name() const override { return "board"; }
   bool isGame() const override { return true; }
   bool wantsMouseHidden() const override { return false; }
-  int canvasWidth() const override {
-    if (!ready_) return 800;
-    int w = 800 + (board_.W - 650);
-    if (app.settings.vis.ultraWideHud && app.boardRenderer) w = std::max(w, app.boardRenderer->canvasWidth());
-    return w;
-  }
+  int canvasWidth() const override { return app.frameCanvasWidth(800 + (board_.W - 650)); }
   void update() override;
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
@@ -176,7 +171,7 @@ class GameScreen : public Screen {
   int heldButton_ = 0;
   int pauseCount_ = 0, pauseFade_ = 0;
   int mouseBx_ = 0, mouseBy_ = 0;
-  int boardLeft() const { return app.boardRenderer ? (int)app.boardRenderer->boardLeft() : 75; }
+  int boardLeft() const { return 75 + (canvasWidth() - 800 - (board_.W - 650)) / 2; }
   bool haveMouse_ = false;
   std::string levelFile_;
   int pendingMode_ = 0, pendingRank_ = 0;

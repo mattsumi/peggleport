@@ -758,7 +758,7 @@ GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
     a.newMantel = false;
   }
   if (a.audio) a.audio->dropQueued();
-  mouseBx_ = (int)std::floor(a.mouseX) - boardLeft();
+  mouseBx_ = (int)std::floor(a.pointerOnCanvas(canvasWidth())) - boardLeft();
   mouseBy_ = (int)std::floor(a.mouseY) - 40;
   haveMouse_ = true;
   ready_ = true;

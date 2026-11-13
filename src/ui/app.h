@@ -110,6 +110,8 @@ class App : public WidgetHost {
   void tick();
   WidescreenMode widescreenMode() const;
   int boardWidthForNewBoard() const;
+  int frameCanvasWidth(int boardCanvas) const;
+  float pointerOnCanvas(int canvasW) const;
   void frame(int canvasW = 0);
   void input(const Input& in);
   void shutdown();

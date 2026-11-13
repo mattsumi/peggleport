@@ -45,6 +45,12 @@ inline int widescreenCanvasWidth(WidescreenMode m, int outW, int outH) {
   if (w < 808) w = 800;
   return w;
 }
-inline int widescreenBoardWidth(WidescreenMode m, int outW, int outH) { return (widescreenCanvasWidth(m, outW, outH) - 150) & ~1; }
+inline int widescreenFrameWidth(int boardCanvas, int outW, int outH, int cap, bool stretchHud) {
+  if (outW <= 0 || outH <= 0) return boardCanvas;
+  const double win = 600.0 * outW / outH;
+  const double w = stretchHud ? win : std::min(win, (double)cap);
+  if (w <= boardCanvas + 4.0) return boardCanvas;
+  return boardCanvas + 2 * (int)std::floor((w - boardCanvas) * 0.5);
+}
 
 }

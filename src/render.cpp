@@ -1087,11 +1087,8 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   }
   boardW_ = b.W;
   canvasW_ = 800 + (b.W - 650);
-  float padL = 0;
-  if (vis_.ultraWideHud && ow > 0 && oh > 0) {
-    float winCanvas = (float)ow * 600.0f / (float)oh;
-    if (winCanvas > (float)canvasW_ + 4.0f) padL = std::floor((winCanvas - (float)canvasW_) * 0.5f);
-  }
+  const float padL = frameCanvas_ > canvasW_ ? (float)((frameCanvas_ - canvasW_) / 2) : 0.0f;
+  frameCanvas_ = 0;
   canvasW_ += (int)(2 * padL);
   BX = 75.0f + padL;
   {

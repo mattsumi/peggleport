@@ -33,7 +33,9 @@ class OnlineGameScreen : public Screen {
 
   const char* name() const override { return "onlinematch"; }
   bool isGame() const override { return true; }
-  int canvasWidth() const override { return ready_ ? 800 + (match_.boards[0].W - 650) : 800; }
+  int boardExtra() const { return ready_ ? match_.boards[0].W - 650 : 0; }
+  int canvasWidth() const override { return app.frameCanvasWidth(800 + boardExtra()); }
+  int boardLeft() const { return 75 + (canvasWidth() - 800 - boardExtra()) / 2; }
 
   void startMatch(uint32_t seed) {
     BoardConfig cfg = lb_.cfg;
@@ -216,7 +218,7 @@ class OnlineGameScreen : public Screen {
   bool input(const Input& in) override {
     switch (in.type) {
       case Input::MouseMove:
-        mx_ = std::floor(in.x) - 75;
+        mx_ = std::floor(in.x) - (float)boardLeft();
         my_ = std::floor(in.y) - 40;
         wheelNudge_ = 0;
         break;
@@ -229,7 +231,7 @@ class OnlineGameScreen : public Screen {
     }
     bool used = Panel::input(in);
     if (in.type == Input::MouseDown && in.button == 1 && !used && state_ == Playing && !menu_) {
-      mx_ = std::floor(in.x) - 75;
+      mx_ = std::floor(in.x) - (float)boardLeft();
       my_ = std::floor(in.y) - 40;
       wantFire_ = true;
     }
@@ -270,6 +272,7 @@ class OnlineGameScreen : public Screen {
         for (int p = 0; p < info_.players; p++)
           if (p != local_) hud.party.push_back({rawName(p), scoreOf(p)});
       }
+      app.boardRenderer->setFrameCanvas(canvasWidth());
       app.boardRenderer->draw(vb, lb_, hud);
     }
     if (state_ == Playing && !menu_) return;

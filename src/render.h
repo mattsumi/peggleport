@@ -61,6 +61,7 @@ class Renderer {
   const VisualOptions& visualOptions() const { return vis_; }
   int canvasWidth() const { return canvasW_; }
   float boardLeft() const { return BX; }
+  void setFrameCanvas(int w) { frameCanvas_ = w; }
   V2 toBoard(float px, float py) const;
   void advance(const Board& b);
   std::vector<FxSound> takeSounds() { return std::exchange(fx_.sounds, {}); }
@@ -215,7 +216,7 @@ class Renderer {
   ImageManifest man_{vfs_};
   std::map<const Image*, SDL_Texture*> fontTex_;
   float s_ = 1, ox_ = 0, oy_ = 0;
-  int canvasW_ = 800, boardW_ = 650;
+  int canvasW_ = 800, boardW_ = 650, frameCanvas_ = 0;
 };
 
 inline void (*g_modOverlay)(Renderer&, const Board&) = nullptr;

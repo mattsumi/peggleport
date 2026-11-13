@@ -959,13 +959,21 @@ void App::input(const Input& in) {
 
 WidescreenMode App::widescreenMode() const { return (WidescreenMode)std::clamp(settings.widescreen, 0, kWidescreenModes - 1); }
 
-int App::boardWidthForNewBoard() const {
-  if (cfg.boardWidth >= 650) return cfg.boardWidth;
+int App::boardWidthForNewBoard() const { return cfg.boardWidth >= 650 ? cfg.boardWidth : 650; }
+
+float App::pointerOnCanvas(int canvasW) const {
+  if (canvasW == (int)gfx.canvasW()) return mouseX;
   int ow = 800, oh = 600;
   gfx.outputSize(ow, oh);
-  WidescreenMode m = widescreenMode();
-  if (gfx.headless() && m == WidescreenMode::Auto) return 650;
-  return widescreenBoardWidth(m, ow, oh);
+  const float wx = gfx.offX() + mouseX * gfx.scale();
+  const float s = std::min((float)ow / (float)canvasW, (float)oh / 600.0f);
+  return (wx - ((float)ow - (float)canvasW * s) * 0.5f) / s;
+}
+
+int App::frameCanvasWidth(int boardCanvas) const {
+  int ow = 800, oh = 600;
+  gfx.outputSize(ow, oh);
+  return widescreenFrameWidth(boardCanvas, ow, oh, widescreenCanvasWidth(widescreenMode(), ow, oh), settings.vis.ultraWideHud);
 }
 
 void App::frame(int canvasW) {

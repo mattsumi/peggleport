@@ -56,7 +56,7 @@ GameScreen::GameScreen(App& a, bool fromAdventure, bool newLevel) : Screen(a) {
     return;
   }
   levelFile_ = name;
-  mouseBx_ = (int)std::floor(a.mouseX) - boardLeft();
+  mouseBx_ = (int)std::floor(a.pointerOnCanvas(canvasWidth())) - boardLeft();
   mouseBy_ = (int)std::floor(a.mouseY) - 40;
   haveMouse_ = true;
   countLevelStart();
@@ -1046,6 +1046,7 @@ void GameScreen::drawLayer(Gfx& g) {
     hud_.menuOver = mouseOverMenu_ && pauseCount_ == 0;
     hud_.replayOver = mouseOverReplay_ && pauseCount_ == 0;
     app.boardRenderer->setVisualOptions(app.settings.vis);
+    app.boardRenderer->setFrameCanvas(canvasWidth());
     hud_.alpha = pauseCount_ == 0 && !app.anyDialog() ? app.renderAlpha : 1.0f;
     app.boardRenderer->draw(replaying_ || viewer_ ? replay_ : board_, lb_, hud_);
   }
