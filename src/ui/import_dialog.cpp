@@ -8,6 +8,7 @@
 #include <mutex>
 
 #include "gamepaths.h"
+#include "mods/text.h"
 
 namespace pp::ui {
 
@@ -97,7 +98,7 @@ void ImportDialog::drawLayer(Gfx& g) {
     for (auto& w : originalSaveFolders(app.game)) {
       std::error_code ec;
       if (std::filesystem::equivalent(w, app.userDir, ec)) continue;
-      usual = pathToUtf8(w);
+      usual = mods::gameText(pathToUtf8(w));
       break;
     }
     text += usual.empty() ? "\n\nNo saves of the original game were found in the usual places on this computer." : "\n\nUsual place on this computer:\n" + usual;
