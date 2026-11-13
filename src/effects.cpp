@@ -1741,11 +1741,22 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
         segs = n - 1;
       }
       if (segs <= s0) break;
+      SDL_Rect keepClip{0, 0, 0, 0};
+      const bool inFrame = BX > 75.0f && SDL_GetRenderClipRect(r_, &keepClip);
+      if (inFrame) {
+        SDL_Rect field{(int)px(BX), (int)py(BY), (int)std::ceil((float)b.W * s_), (int)std::ceil(560.0f * s_)}, both;
+        if (keepClip.w > 0 && keepClip.h > 0) {
+          if (!SDL_GetRectIntersection(&keepClip, &field, &both)) both = SDL_Rect{0, 0, 0, 0};
+        } else {
+          both = field;
+        }
+        SDL_SetRenderClipRect(r_, &both);
+      }
       float u = ((float)((e.age / 2) % 50) + 0.5f) / 50.0f, v0 = 0.5f / (float)t->h, v1 = 1.0f - v0;
       SDL_FColor col{1, 1, 1, alpha};
       std::vector<SDL_Vertex> vs;
       std::vector<int> idx;
-      const float k = (float)b.W + 2.0f * (BX - 75.0f) > 650.0f ? (560.0f - e.y + 400.0f) / 400.0f : 1.0f;
+      const float k = b.W > 650 ? (560.0f - e.y + 400.0f) / 400.0f : 1.0f;
       const float cy = Y + 400.0f * (k - 1.0f);
       float th = 0.025f * (float)s0;
       for (int i = s0; i <= segs; i++, th += 0.025f) {
@@ -1774,6 +1785,7 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
             put(st, {0, 0, st->lw(), st->lh()}, c.x - 30.0f, c.y - 30.0f, {0xffffffffu, Blend::Normal}, 60.0f, 60.0f);
           }
       }
+      if (inFrame) SDL_SetRenderClipRect(r_, keepClip.w > 0 && keepClip.h > 0 ? &keepClip : nullptr);
       break;
     }
     case 0x15: {
