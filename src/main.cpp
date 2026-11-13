@@ -70,7 +70,8 @@ int main(int argc, char** argv) {
 
   int exitCode = 0;
   {
-    pp::ui::GameFolders folders(pp::ui::GameFolders::defaultStoreFile(), pp::systemFindSources(pp::ui::GameFolders::programDir()), pp::ui::systemDialogs());
+    pp::ui::GameFolders folders(
+        pp::ui::GameFolders::defaultStoreFile(), [] { return pp::systemFindSources(pp::ui::GameFolders::programDir()); }, pp::ui::systemDialogs());
     folders.detect();
     pp::ui::GameRequest request;
     bool play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
@@ -82,6 +83,7 @@ int main(int argc, char** argv) {
       std::string reason;
       if (!vfs->mountGame(dir, &reason)) {
         window.dropLeftGame();
+        if (folders.copyFailed(request.game)) continue;
         std::string problem = std::string("The game files in ") + pp::pathToUtf8(dir) + " could not be loaded: " + reason;
         folders.drop(request.game);
         request = pp::ui::GameRequest();

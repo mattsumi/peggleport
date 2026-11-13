@@ -233,7 +233,9 @@ struct Finder {
 
   explicit Finder(const FindSources& s) : src(s) { out.notes = s.notes; }
 
-  bool done() const { return !out.dir[0].empty() && !out.dir[1].empty(); }
+  bool wanted(int i) const { return !src.skip[i] && out.dir[i].empty(); }
+
+  bool done() const { return !wanted(0) && !wanted(1); }
 
   static bool firstVisit(std::vector<std::string>& seen, const fs::path& p) {
     std::string k = placeKey(p);
@@ -259,7 +261,7 @@ struct Finder {
     Spot spot = lookAtGameFolder(dir);
     FindLook& l = out.looks[add(kind, dir, from, spot.seen, guessed, i)];
     l.there = spot.there;
-    if (!out.dir[i].empty() || spot.game.empty()) return;
+    if (!wanted(i) || spot.game.empty()) return;
     out.dir[i] = spot.game;
     out.from[i] = source;
     l.found = true;
@@ -267,7 +269,8 @@ struct Finder {
 
   void remembered() {
     for (int i = 0; i < 2; i++) {
-      if (src.remembered[i].empty()) add(FindLook::Kind::Remembered, {}, "", "no folder is remembered", false, i);
+      if (src.skip[i]) add(FindLook::Kind::Remembered, {}, "", "its own copy is used", false, i);
+      else if (src.remembered[i].empty()) add(FindLook::Kind::Remembered, {}, "", "no folder is remembered", false, i);
       else lookAtFolder(FindLook::Kind::Remembered, i, src.remembered[i], "remembered from an earlier start", "remembered from an earlier start", false);
     }
   }
@@ -287,7 +290,7 @@ struct Finder {
     }
     const std::string source = "Steam library " + pathToUtf8(lib);
     for (int i = 0; i < 2; i++) {
-      if (!out.dir[i].empty()) continue;
+      if (!wanted(i)) continue;
       Game g = gameAt(i);
       const std::string record = manifestName(g);
       PathKind rk = pathKind(apps / record, &why);
@@ -347,7 +350,7 @@ struct Finder {
   void installs() {
     for (int i = 0; i < 2; i++)
       for (auto& place : src.installs[i]) {
-        if (!out.dir[i].empty()) break;
+        if (!wanted(i)) break;
         lookAtFolder(FindLook::Kind::Install, i, place.path, place.from, place.from, place.guessed);
       }
   }
@@ -375,7 +378,7 @@ struct Finder {
       std::vector<fs::path> subs = subFolders(dir, &listWhy);
       bool any = false;
       for (int i = 0; i < 2; i++) {
-        if (!out.dir[i].empty()) continue;
+        if (!wanted(i)) continue;
         for (auto& sub : subs) {
           if (!namedLike(sub, gameAt(i))) continue;
           any = true;

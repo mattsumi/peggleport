@@ -30,6 +30,7 @@ struct FindSources {
   std::vector<FindPlace> publisherDirs;
   std::vector<FindPlace> gamesDirs;
   std::vector<std::string> notes;
+  bool skip[2] = {false, false};
   bool wholeComputer = true;
 };
 
