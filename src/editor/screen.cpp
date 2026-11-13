@@ -79,6 +79,7 @@ class EditorScreen : public Screen {
   float scroll_[5]{};
   std::string modName_ = "MyLevels";
   bool exitArmed_ = false;
+  bool exitWasArmed_ = false;
   struct Prompt {
     bool on = false;
     std::string label, text;
@@ -1441,7 +1442,7 @@ void EditorScreen::indexMod(const fs::path& dir) {
   if (!mounted) app.vfs.mountMod(dir, &e2);
 }
 void EditorScreen::exitEditor() {
-  if (ed.dirty() && !exitArmed_) {
+  if (ed.dirty() && !exitWasArmed_) {
     exitArmed_ = true;
     say("unsaved changes: press Exit again to leave");
     return;
@@ -1569,6 +1570,7 @@ bool EditorScreen::input(const Input& in) {
         return true;
       }
       rebuild();
+      exitWasArmed_ = exitArmed_;
       exitArmed_ = false;
       for (size_t i = ctls_.size(); i-- > 0;) {
         Ctl& c = ctls_[i];
