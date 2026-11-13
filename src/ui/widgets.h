@@ -74,7 +74,7 @@ class Button : public Widget {
   int labelStyle = -1;
   bool labelFullGradient = false;
   bool additiveDown = false;
-  std::string hoverSound = "MOUSEOVER", clickSound = "BUTTON1";
+  std::string hoverSound, clickSound = "BUTTON1";
   float hoverPitch = 0;
   int lastHoverTick = -1000, *tickRef = nullptr;
   int blink = 0;

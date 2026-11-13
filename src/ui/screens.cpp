@@ -38,7 +38,6 @@ LoadingScreen::LoadingScreen(App& a) : Screen(a) {
     playBtn->h = playBtn->image->ch();
   }
   playBtn->idleImage = true;
-  playBtn->hoverSound = "MOUSEOVER";
   for (const char* g : {"Init", "Common", "MainMenu", "LevelSelect", "Dialog", "Interface", "Loading"})
     for (auto& id : a.gfx.man().groupImages(g)) resList.push_back(id);
   if (resList.size() > 400) resList.resize(400);
@@ -338,6 +337,7 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   auto emb = [&](int id, const char* img, float pitch) {
     Button* b = embeddedButton(id, img, 0, 0);
     b->additiveDown = true;
+    b->hoverSound = "MOUSEOVER";
     b->hoverPitch = pitch;
     return b;
   };
@@ -347,6 +347,7 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   bChal = emb(3, "IMAGE_MM_CHALLENGE", 5);
   auto brown = [&](int id, const char* label, float pitch) {
     Button* b = patchButton(id, label, "IMAGE_DLG_BROWNBUTTON1", 0, 0);
+    b->hoverSound = "MOUSEOVER";
     b->hoverPitch = pitch;
     return b;
   };
@@ -354,6 +355,7 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   bOptions = brown(5, "Options", 9);
   bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demo", 11);
   bQuit = patchButton(7, "Quit", "IMAGE_DLG_PURPLEBUTTON", 7, 0x215);
+  bQuit->hoverSound = "MOUSEOVER";
   bQuit->hoverPitch = 12;
   online::addMainMenuButton(*this);
   auto lk = std::make_unique<Button>();

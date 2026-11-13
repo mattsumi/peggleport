@@ -817,6 +817,7 @@ void showOnline(App& app) { app.setScreen(std::make_unique<OnlineScreen>(app, st
 
 void addMainMenuButton(Panel& menu) {
   Button* b = menu.patchButton(kMenuButtonId, "Online", "IMAGE_DLG_BROWNBUTTON1", 0x23a, 0x22a);
+  b->hoverSound = "MOUSEOVER";
   b->hoverPitch = 15;
   b->clickSound = "BUTTON1";
   if (Widget* r = menu.findWidget(4)) { b->w = r->w; b->h = r->h; }
