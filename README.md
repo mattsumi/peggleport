@@ -9,7 +9,7 @@ PegglePort is a fan project. It has nothing to do with PopCap Games or Electroni
 ## What you get
 
 * Both games with their menus, adventure, quick play, challenges, duels, trophies, profiles and high scores.
-* Real widescreen. The board gets wider on 16:9, 16:10 and 21:9 windows instead of showing black bars. The classic 4:3 board is still there.
+* Real widescreen. On 16:9, 16:10 and 21:9 windows the picture fills the window instead of showing black bars. The board keeps the original width in the middle, so every level plays exactly as in the original. The classic 4:3 picture is still there.
 * Optional nicer visuals (smoother slow motion, bloom, sparks). They are off by default so the game looks like the original.
 * A level editor inside the game.
 * Mods: replace art, sound and levels, or write Lua scripts and native plugins. A mod that wants the network has to ask you first.

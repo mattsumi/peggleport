@@ -9,7 +9,7 @@ enum { D_Visuals = 61 };
 class VisualsDialog : public Dialog {
  public:
   explicit VisualsDialog(App& a);
-  Checkbox *interp, *smooth, *bloom, *sparks, *uwhud, *sepWide;
+  Checkbox *interp, *smooth, *bloom, *sparks, *uwhud;
   Slider* bloomStr;
   float extraH = 0;
   struct Row { Checkbox* box; const char* hint; };

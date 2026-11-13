@@ -778,7 +778,6 @@ bool Settings::load(const fs::path& file) {
     else if (k == "WinW") winW = std::atoi(v.c_str());
     else if (k == "WinH") winH = std::atoi(v.c_str());
     else if (k == "Widescreen") widescreen = std::clamp(std::atoi(v.c_str()), 0, 4);
-    else if (k == "SeparateWideScores") separateWideScores = bl();
     else if (k == "VisInterpolate") vis.interpolate = bl();
     else if (k == "VisSmooth") vis.smooth = bl();
     else if (k == "VisBloom") vis.bloom = bl();
@@ -795,7 +794,7 @@ bool Settings::save(const fs::path& file) const {
   std::ostringstream o;
   o << "MusicVolume=" << music << "\nSfxVolume=" << sfx << "\nFeverVolume=" << fever << "\nMuted=" << (muted ? 1 : 0) << "\nFullscreen=" << (fullscreen ? 1 : 0)
     << "\nCustomCursors=" << (customCursors ? 1 : 0) << "\nWaitForVSync=" << (vsync ? 1 : 0) << "\nCurUser=" << curUser << "\nMaxStage=" << maxStage
-    << "\nMaxLevel=" << maxLevel << "\nWinW=" << winW << "\nWinH=" << winH << "\nWidescreen=" << widescreen << "\nSeparateWideScores=" << (separateWideScores ? 1 : 0) << "\nVisInterpolate=" << (vis.interpolate ? 1 : 0)
+    << "\nMaxLevel=" << maxLevel << "\nWinW=" << winW << "\nWinH=" << winH << "\nWidescreen=" << widescreen << "\nVisInterpolate=" << (vis.interpolate ? 1 : 0)
     << "\nVisSmooth=" << (vis.smooth ? 1 : 0) << "\nVisBloom=" << (vis.bloom ? 1 : 0) << "\nVisSparks=" << (vis.sparks ? 1 : 0)
     << "\nVisUltraWideHud=" << (vis.ultraWideHud ? 1 : 0) << "\nVisBloomStrength=" << vis.bloomStrength << "\n";
   std::string s = o.str();

@@ -196,7 +196,6 @@ struct Settings {
   std::string curUser;
   int maxStage = 0, maxLevel = 0;
   int winW = 0, winH = 0;
-  bool separateWideScores = false;
   int widescreen = 0;
   bool load(const std::filesystem::path& file);
   bool save(const std::filesystem::path& file) const;

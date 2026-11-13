@@ -373,7 +373,7 @@ void LevelScreen::drawLevelInfo(Gfx& g, float, float) {
     const LevelInfo& li = s->levels[hovered];
     g.drawString("OVERLOAD16OUTLINE", 400 - g.textWidth("OVERLOAD16OUTLINE", li.title) / 2, 365, li.title, 0xffff00);
     if (normal) {
-      const auto& hs = (other ? og->highScores : app.highScores).scores(app.scoreKey(li.file, app.boardWidthForNewBoard()));
+      const auto& hs = (other ? og->highScores : app.highScores).scores(li.file);
       if (pageGame == Game::Nights) {
         const char* af = "PLAINOUTLINE";
         const std::string ace = "Ace Score: " + commas(li.ace);

@@ -102,11 +102,10 @@ That is the goal and I have put most of the work into it: the physics, scoring, 
 ## Display
 
 **How do I turn on widescreen?**
-Options, then **Widescreen**. The default is **Auto**, which makes the board as wide as your window needs it. You can also lock it to 16:9, 16:10 or 21:9, or go back to the classic 4:3 board. Menus stay centred over a blurred backdrop.
-High scores set on a wide board go in the same list as the classic board. If you would rather keep them apart, open **Enhanced Visuals...** and tick **Separate Wide Scores**.
+Options, then **Widescreen**. The default is **Auto**, which makes the picture as wide as your window. You can also lock it to 16:9, 16:10 or 21:9, or go back to the classic 4:3 picture. The board keeps the width it has in the original and stands in the middle, and the room at the sides is dimmed, so levels, scores, replays and high scores are exactly the same as in the original. Menus stay centred over a blurred backdrop.
 
 **What are Enhanced Visuals?**
-Options, then **Enhanced Visuals...**. They are extras that do not change how the game plays: smoother slow motion, edge smoothing, bloom, sparks and a wider HUD for ultra wide windows. They are all off by default so the game looks like the original.
+Options, then **Enhanced Visuals...**. They are extras that do not change how the game plays: smoother slow motion, edge smoothing, bloom, sparks and a frame that stretches to the corners of any wide window. They are all off by default so the game looks like the original.
 
 **Fullscreen?**
 Tick **Fullscreen** in Options. The window also remembers its size.

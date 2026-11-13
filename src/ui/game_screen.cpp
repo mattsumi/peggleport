@@ -698,7 +698,7 @@ void GameScreen::update() {
   if (stageDialogDelay_ > 0 && --stageDialogDelay_ == 0) showStageDialog();
   if (endPending_) {
     endPending_ = false;
-    app.showEndLevel(pendingMode_, pendingOut_, app.scoreKey(levelFile_, board_.cfg.boardWidth), pendingTitle_, pendingRank_, pendingBest_);
+    app.showEndLevel(pendingMode_, pendingOut_, levelFile_, pendingTitle_, pendingRank_, pendingBest_);
     app.setRandState(randAfter_);
   }
   if (tipPaused_ && !app.getDialog(D_Tip)) { tipPaused_ = false; pause(false); }
@@ -739,7 +739,7 @@ void GameScreen::update() {
       if (demo_ && overTicks > 100 && !endShown_) { endShown_ = true; app.doToMenu(); return; }
       if (!endShown_ && overTicks > 100) {
         endShown_ = true;
-        app.showEndLevel(pendingMode_, pendingOut_, app.scoreKey(levelFile_, board_.cfg.boardWidth), pendingTitle_, pendingRank_, pendingBest_);
+        app.showEndLevel(pendingMode_, pendingOut_, levelFile_, pendingTitle_, pendingRank_, pendingBest_);
       }
     }
   }
@@ -887,7 +887,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   if (app.gameMode == GameMode::Adventure) {
     mode = won ? EndLevelDialog::AdventureWin : EndLevelDialog::AdventureLose;
     if (won && p) {
-      rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+      rank = app.highScores.submit(levelFile_, p->name, o.totalScore);
       o.prevTotal = p->advScore;
       o.tryNumber = p->tryNumber(app.game == Game::Nights);
       o.tryBonus = tryBonus(o.tryNumber);
@@ -940,7 +940,7 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
       }
     }
     if (p && won && !duel_) {
-      if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+      if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(levelFile_, p->name, o.totalScore);
       if (app.game == Game::Nights && app.gameMode != GameMode::Challenge && li && li->ace > 0 && o.totalScore >= li->ace) p->acedLevels.insert(levelFile_);
     }
     if (p && o.cleared && !duel_ && (app.game == Game::Deluxe || (won && app.gameMode != GameMode::Challenge))) {
@@ -956,11 +956,11 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         p->awardTrophy(t->id);
         p->checkTrophyTopScore(t->id, o.totalScore);
       }
-      if (app.gameMode == GameMode::Challenge) app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+      if (app.gameMode == GameMode::Challenge) app.highScores.submit(levelFile_, p->name, o.totalScore);
     }
   }
   if (p && !won && !duel_ && !demo_ && !viewer_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay))
-    rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+    rank = app.highScores.submit(levelFile_, p->name, o.totalScore);
   newBest = rank == 1;
   const bool aced = app.game == Game::Nights && won && !duel_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) && li && li->ace > 0 && o.totalScore >= li->ace;
   if (app.audio && !o.cleared && (mode == EndLevelDialog::AdventureComplete || aced)) {
@@ -1030,7 +1030,7 @@ void GameScreen::drawLayer(Gfx& g) {
       hud_.topName = board_.cur == 0 ? oppName() : me;
       hud_.topScore = board_.score[1 - board_.cur] + 0;
     }
-        const auto& hs = app.highScores.scores(app.scoreKey(levelFile_, board_.cfg.boardWidth));
+        const auto& hs = app.highScores.scores(levelFile_);
         if (!hs.empty() && !duel_) { hud_.topScore = hs[0].score; hud_.topName = hs[0].name; }
         break;
       }

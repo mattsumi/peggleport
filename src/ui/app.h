@@ -217,7 +217,6 @@ class App : public WidgetHost {
   void pauseBoard(bool on);
   void doOptionsDialog();
   void doVisualsDialog();
-  std::string scoreKey(const std::string& level, int boardWidth) const { return settings.separateWideScores && boardWidth != 650 && !level.empty() && level[0] != '_' ? level + "@w" + std::to_string(boardWidth) : level; }
   void doUserDialog();
   void doImportProfileDialog();
   void importDialogButton(int dlg, int btn);
