@@ -2,7 +2,7 @@
 
 PegglePort is an unofficial, open source engine that runs **Peggle Deluxe** and **Peggle Nights** on Windows, macOS and Linux. It is written in C++20 with SDL3.
 
-You need your own copy of the games. PegglePort reads the files of your install (`main.pak` and the level packs) when it starts and never copies, changes or ships any of them. There is no PopCap or EA code or art in this repository.
+You need your own copy of the games. Once PegglePort has found them it keeps its own copy of the files it needs (`main.pak`, the music, the level packs) in its own folder and plays from that, so it does not need Steam any more; it never changes your install and never ships any of the files. There is no PopCap or EA code or art in this repository.
 
 PegglePort is a fan project. It has nothing to do with PopCap Games or Electronic Arts, and "Peggle" and "PopCap" belong to their owners. The libraries it uses are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
