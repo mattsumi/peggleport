@@ -16,6 +16,7 @@
 
 #include "log.h"
 #include "mods/manager.h"
+#include "mods/text.h"
 #include "ui/consent_dialog.h"
 #include "ui/mod_text.h"
 
@@ -204,7 +205,7 @@ void ModsScreen::openFolder() {
   std::error_code ec;
   fs::create_directories(dir, ec);
   if (SDL_OpenURL(fileUrl(dir).c_str())) {
-    status_ = "Opened " + pathToUtf8(dir);
+    status_ = "Opened " + mods::gameText(pathToUtf8(dir));
     log::info("ui", "opened the mods folder " + pathToUtf8(dir));
   } else {
     status_ = std::string("Could not open the mods folder: ") + SDL_GetError();
@@ -299,7 +300,7 @@ void ModsScreen::drawLayer(Gfx& g) {
   g.drawString(kText, 400, 74, "F10 shows the log anywhere", 0xa0b8d8, 1, Align::Center);
   auto* mm = mods::g_mods;
   if (!mm || mm->mods().empty()) {
-    const std::string text = mm ? "No mods found. Put a mod folder or .zip into:\n" + pathToUtf8(mm->modsDir()) + "\n\nIt shows up here when you come back to the game." : "No mod manager.";
+    const std::string text = mm ? "No mods found. Put a mod folder or .zip into:\n" + mods::gameText(pathToUtf8(mm->modsDir())) + "\n\nIt shows up here when you come back to the game." : "No mod manager.";
     float y = 160 + g.fontAscent(kText);
     for (auto& l : wrapPlain(g, kText, 680, text)) {
       drawPlain(g, kText, 400, y, l, 0xffffff, 1, Align::Center);
