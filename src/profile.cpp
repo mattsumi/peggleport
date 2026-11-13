@@ -555,7 +555,7 @@ bool ProfileMgr::validName(const std::string& n) {
   if (n.empty() || n.size() > 40) return false;
   for (unsigned char c : n)
     if (c < 32) return false;
-  return n.find_first_not_of(' ') != std::string::npos;
+  return true;
 }
 
 PlayerInfo* ProfileMgr::find(const std::string& name) {
@@ -669,9 +669,7 @@ bool ProfileMgr::load() {
 bool ProfileMgr::save() { return writeFileAtomic(dir_ / "users.dat", serializeUsers()); }
 
 PlayerInfo* ProfileMgr::add(const std::string& name) {
-  std::string n = name;
-  while (!n.empty() && n.front() == ' ') n.erase(n.begin());
-  while (!n.empty() && n.back() == ' ') n.pop_back();
+  const std::string& n = name;
   if (!validName(n) || find(n)) return nullptr;
   auto p = std::make_unique<PlayerInfo>();
   p->reset(false);
