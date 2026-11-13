@@ -811,6 +811,17 @@ bool App::anyDialog() const {
   return false;
 }
 
+void App::releaseCovered() {
+  bool covered = false;
+  for (size_t i = dialogs_.size(); i-- > 0;) {
+    Dialog* d = dialogs_[i].get();
+    if (d->gone) continue;
+    if (covered) d->releaseHover();
+    else if (d->modal) covered = true;
+  }
+  if (covered && cur_ && !cur_->isGame()) cur_->releaseHover();
+}
+
 bool App::boardPaused() const {
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   return gs && gs->paused();
@@ -904,6 +915,7 @@ void App::tick() {
   if (audio) audio->tickMusic();
   serviceModApply();
   updateMovers();
+  releaseCovered();
   for (auto& d : dialogs_) d->update();
   if (logView_ && logView_->visible()) logView_->update();
   if (cur_) cur_->update();

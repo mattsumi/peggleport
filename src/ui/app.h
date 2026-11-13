@@ -59,6 +59,11 @@ class Panel : public WidgetHost {
   virtual void drawOverlay(Gfx& g) {}
   void draw(Gfx& g);
   virtual bool input(const Input& in);
+  void releaseHover() {
+    if (!hover) return;
+    hover->mouseLeave();
+    hover = nullptr;
+  }
   virtual void keyDown(int key, int mod) {}
   virtual void onShow() {}
 
@@ -213,6 +218,7 @@ class App : public WidgetHost {
   void addDialog(int id, std::unique_ptr<Dialog> d);
   bool hasModal() const;
   bool anyDialog() const;
+  void releaseCovered();
   bool boardPaused() const;
   void pauseBoard(bool on);
   void doOptionsDialog();
