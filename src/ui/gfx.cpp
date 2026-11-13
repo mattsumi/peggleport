@@ -469,7 +469,7 @@ void Gfx::drawString(const std::string& font, float x, float y, const std::strin
   else if (a == Align::Right) cx = x - total;
   for (auto& r : runs) {
     uint32_t c = r.rgb < 0 ? rgb : (uint32_t)r.rgb;
-    fp_->draw(font, orgX_ + cx, orgY_ + y, r.text, c, alpha);
+    fp_->draw(font, std::floor(orgX_ + cx), std::floor(orgY_ + y), r.text, c, alpha);
     cx += fp_->width(font, r.text);
   }
 }
