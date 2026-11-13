@@ -63,7 +63,7 @@ float Dialog::preferredHeight(float width) {
 
 void Dialog::layoutButtons() {
   if (yesBtn && noBtn) {
-    float bw = (w - insL - insR - 8) / 2;
+    float bw = std::trunc((w - insL - insR - 8) / 2);
     yesBtn->x = insL;
     yesBtn->y = h - insB - buttonH;
     yesBtn->w = bw;
