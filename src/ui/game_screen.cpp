@@ -1491,7 +1491,8 @@ void EndLevelDialog::update() {
   if (i < 3) {
     levelCur += step;
     if (levelCur == levelTgt) delay = 50;
-  } else if (i == 3 && cur[3] == tgt[3]) {
+  } else if ((i == 3 || i == 4) && !pauseDone && cur[3] == tgt[3]) {
+    pauseDone = true;
     delay = 100;
     pitchAcc = 0;
   }
