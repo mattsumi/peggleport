@@ -246,7 +246,7 @@ bool listGameFiles(const fs::path& install, std::vector<Item>& out, std::string&
   return true;
 }
 
-bool copyOne(Item& item, const fs::path& copyDir, std::string& why) {
+bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::string& why) {
   const fs::path dest = copyDir / pathFromUtf8(item.rel);
   std::error_code ec;
   fs::create_directories(dest.parent_path(), ec);
@@ -254,8 +254,6 @@ bool copyOne(Item& item, const fs::path& copyDir, std::string& why) {
     why = "cannot make the folder " + pathToUtf8(dest.parent_path());
     return false;
   }
-  fs::path part = dest;
-  part += ".part";
   std::uint64_t got = 0;
   std::uint32_t crc = 0;
   bool ok = true;
@@ -318,12 +316,11 @@ bool copyOne(Item& item, const fs::path& copyDir, std::string& why) {
   return true;
 }
 
-bool writeManifest(const fs::path& copyDir, const fs::path& source, const std::vector<Item>& items, std::uint64_t total, std::string& why) {
+bool writeManifest(const fs::path& copyDir, const fs::path& source, const std::vector<Item>& items, std::uint64_t total, const fs::path& part, std::string& why) {
   std::string text = std::string(kManifestHead) + "\n";
   text += "source=" + pathToUtf8(source) + "\n";
   for (auto& item : items) text += "file=" + std::to_string(item.size) + "\t" + hex8(item.crc) + "\t" + item.rel + "\n";
   text += "end=" + std::to_string(items.size()) + "\t" + std::to_string(total) + "\n";
-  const fs::path part = copyDir / (std::string(kManifestName) + ".part");
   {
     std::ofstream o(part, std::ios::binary | std::ios::trunc);
     if (!o) {
@@ -566,10 +563,21 @@ GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copy
   std::set<std::string> keep;
   for (auto& item : items) keep.insert(item.rel);
   pruneCopy(copyDir, keep);
-  for (auto& item : items) {
-    if (!copyOne(item, copyDir, r.why)) return r;
+  const fs::path staging = copyDir / ".collect-part";
+  if (!fs::create_directory(staging, ec)) {
+    r.why = "cannot make the folder " + pathToUtf8(staging);
+    return r;
   }
-  if (!writeManifest(copyDir, installDir, items, total, r.why)) return r;
+  const fs::path part = staging / "file";
+  for (auto& item : items) {
+    if (!copyOne(item, copyDir, part, r.why)) {
+      fs::remove_all(staging, ec);
+      return r;
+    }
+  }
+  const bool written = writeManifest(copyDir, installDir, items, total, part, r.why);
+  fs::remove_all(staging, ec);
+  if (!written) return r;
   r.ok = true;
   r.files = items.size();
   r.bytes = total;
