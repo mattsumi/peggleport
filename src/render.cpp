@@ -108,6 +108,8 @@ Renderer::~Renderer() {
   if (bloomB_) SDL_DestroyTexture(bloomB_);
   for (auto& [_, t] : cache_)
     if (t.t) SDL_DestroyTexture(t.t);
+  for (auto& [_, t] : modCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : fontTex_)
     if (t) SDL_DestroyTexture(t);
 }
@@ -117,8 +119,11 @@ void Renderer::reloadAssets(const VfsChange& change) {
   for (auto& [_, t] : cache_)
     if (t.t) SDL_DestroyTexture(t.t);
   cache_.clear();
+  for (auto& [_, t] : modCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : fontTex_)
     if (t) SDL_DestroyTexture(t);
+  modCache_.clear();
   fontTex_.clear();
   fonts_.reset();
   man_ = ImageManifest(vfs_);
@@ -201,12 +206,15 @@ void Renderer::beginCanvas(int canvasW) {
   oy_ = (oh - 600 * s_) * 0.5f;
 }
 
-Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor) {
+Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor) { return tex(path, rows, cols, mask, alphaColor, false); }
+
+Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor, bool limited) {
   std::string key = path + "|" + std::to_string(rows) + "x" + std::to_string(cols) + "|" + mask + "|" + std::to_string(alphaColor) + "|q" + std::to_string(texQ_);
-  auto it = cache_.find(key);
-  if (it != cache_.end()) return it->second.t ? &it->second : nullptr;
+  auto& cache = limited ? modCache_ : cache_;
+  auto it = cache.find(key);
+  if (it != cache.end()) return it->second.t ? &it->second : nullptr;
   Tex T;
-  if (auto im = loadGameImage(vfs_, path, mask)) {
+  if (auto im = loadGameImage(vfs_, path, mask, limited)) {
     if (alphaColor >= 0)
       for (size_t i = 0; i + 3 < im->rgba.size(); i += 4) {
         im->rgba[i] = (alphaColor >> 16) & 255;
@@ -232,7 +240,18 @@ Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const 
       T.cols = std::max(1, cols);
     }
   }
-  auto& slot = cache_[key] = T;
+  if (limited) {
+    if (!T.t) return nullptr;
+    size_t bytes = (size_t)T.w * T.h * 4;
+    for (const auto& [_, t] : cache) bytes += (size_t)t.w * t.h * 4;
+    while (!cache.empty() && (cache.size() >= 256 || bytes > 67108864)) {
+      auto old = cache.begin();
+      bytes -= (size_t)old->second.w * old->second.h * 4;
+      SDL_DestroyTexture(old->second.t);
+      cache.erase(old);
+    }
+  }
+  auto& slot = cache[key] = T;
   return slot.t ? &slot : nullptr;
 }
 

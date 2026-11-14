@@ -87,6 +87,7 @@ class Renderer {
     float ch() const { return lh() / rows; }
   };
   Tex* tex(const std::string& path, int rows = 1, int cols = 1, const std::string& mask = "", int alphaColor = -1);
+  Tex* tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor, bool limited);
   Tex* img(const std::string& resId);
   Tex* grayImg(const std::string& resId);
   void put(Tex* t, SDL_FRect srcLogical, float x, float y, Paint p = {}, float w = -1, float h = -1, float rotRad = 0, float pivotX = 0, float pivotY = 0);
@@ -212,7 +213,7 @@ class Renderer {
   size_t lastObjs_ = 0;
   SDL_Renderer* r_;
   const Vfs& vfs_;
-  std::map<std::string, Tex> cache_;
+  std::map<std::string, Tex> cache_, modCache_;
   FontManager fonts_{vfs_};
   ImageManifest man_{vfs_};
   std::map<const Image*, SDL_Texture*> fontTex_;

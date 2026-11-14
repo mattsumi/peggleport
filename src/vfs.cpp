@@ -4,6 +4,7 @@
 #include "log.h"
 
 #include <cctype>
+#include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -63,11 +64,13 @@ std::map<std::string, std::string> readIni(const std::string& text) {
   return out;
 }
 
-static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
+static bool slurp(const fs::path& p, std::vector<uint8_t>& out, size_t maxBytes = std::numeric_limits<size_t>::max()) {
   std::ifstream f(p, std::ios::binary);
   if (!f) return false;
   f.seekg(0, std::ios::end);
-  out.resize((size_t)f.tellg());
+  auto size = f.tellg();
+  if (size < 0 || (uint64_t)size > maxBytes) return false;
+  out.resize((size_t)size);
   f.seekg(0);
   f.read((char*)out.data(), (std::streamsize)out.size());
   return (bool)f;
@@ -267,13 +270,16 @@ void vfsLogMiss(const char* kind, std::string_view path) {
   pp::log::writeOnce(pp::log::Level::Warn, "game", std::string("missing ") + kind + ": " + std::string(path));
 }
 
-std::optional<VfsHit> Vfs::read(std::string_view path) const {
+std::optional<VfsHit> Vfs::read(std::string_view path) const { return read(path, std::numeric_limits<size_t>::max()); }
+
+std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
   std::string k = normKey(path);
   for (auto& L : layers_) {
     if (L.kind == Layer::PakFile) {
       auto it = L.pakIndex.find(k);
       if (it == L.pakIndex.end()) continue;
       auto& e = L.pak->entries[it->second];
+      if (e.size > maxBytes) return std::nullopt;
       VfsHit h;
       h.layer = &L;
       h.bytes.assign(L.pak->data.begin() + e.offset, L.pak->data.begin() + e.offset + e.size);
@@ -283,7 +289,7 @@ std::optional<VfsHit> Vfs::read(std::string_view path) const {
     if (it == L.files.end()) continue;
     VfsHit h;
     h.layer = &L;
-    if (!slurp(it->second, h.bytes)) continue;
+    if (!slurp(it->second, h.bytes, maxBytes)) continue;
     return h;
   }
   return std::nullopt;
