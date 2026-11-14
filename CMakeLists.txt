@@ -14,10 +14,10 @@ option(PP_FETCH_DEPS "Download and build SDL3, OpenJPEG, Ogg and Vorbis instead 
 
 add_library(pp_flags INTERFACE)
 if(MSVC)
-  target_compile_options(pp_flags INTERFACE /fp:strict /W3 /utf-8)
+  target_compile_options(pp_flags INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:/fp:strict;/W3;/utf-8>")
   target_compile_definitions(pp_flags INTERFACE _CRT_SECURE_NO_WARNINGS NOMINMAX _USE_MATH_DEFINES)
 else()
-  target_compile_options(pp_flags INTERFACE -ffp-contract=off -fno-fast-math -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare)
+  target_compile_options(pp_flags INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off;-fno-fast-math;-Wall;-Wextra;-Wno-unused-parameter;-Wno-sign-compare>")
 endif()
 
 if(PP_FETCH_DEPS)
@@ -201,6 +201,20 @@ add_executable(peggleport WIN32
   src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
+if(WIN32)
+  enable_language(RC)
+  target_sources(peggleport PRIVATE packaging/windows/peggleport.rc)
+  target_include_directories(peggleport PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows")
+  if(PP_STEAM)
+    set(PP_STEAM_RUNTIME "${STEAMWORKS_SDK_DIR}/redistributable_bin/win64/steam_api64.dll")
+    if(NOT EXISTS "${PP_STEAM_RUNTIME}")
+      message(FATAL_ERROR "Steam runtime not found: ${PP_STEAM_RUNTIME}")
+    endif()
+    add_custom_command(TARGET peggleport POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PP_STEAM_RUNTIME}" "$<TARGET_FILE_DIR:peggleport>/steam_api64.dll"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/steam_appid.txt" "$<TARGET_FILE_DIR:peggleport>/steam_appid.txt")
+  endif()
+endif()
 
 add_executable(pp_lobbyd src/lobbyd.cpp)
 target_link_libraries(pp_lobbyd PRIVATE pp_core)
