@@ -18,6 +18,9 @@ class TlsStream {
 
   static std::unique_ptr<TlsStream> connect(sock_t s, const std::string& host, int timeoutMs, const std::atomic<bool>* stop, std::string* err);
 
+  static bool randomBytes(unsigned char* data, size_t len);
+  Status writeSome(const char* data, size_t len, size_t* sent, std::string* err);
+  void clearCancellation();
   Status read(char* buf, size_t cap, size_t* got, int waitMs, std::string* err);
   bool writeAll(const char* data, size_t len, int idleMs, std::string* err);
   void shutdown();

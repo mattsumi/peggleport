@@ -83,6 +83,7 @@ add_library(pp_core STATIC
   src/online/rudp.cpp
   src/online/rendezvous.cpp
   src/online/direct.cpp
+  src/online/endpoint.cpp
   src/online/invite.cpp
   src/online/content_hash.cpp
   src/online/steam.cpp
@@ -167,15 +168,18 @@ else()
 endif()
 add_library(pp_mods STATIC
   src/mods/json.cpp src/mods/manifest.cpp src/mods/zip.cpp src/mods/scanner.cpp
-  src/mods/luamod.cpp src/mods/tls.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp ${PP_HOSTPROC_SOURCE})
+  src/mods/luamod.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp ${PP_HOSTPROC_SOURCE})
 target_include_directories(pp_mods PUBLIC src third_party include)
 target_link_libraries(pp_mods PUBLIC pp_core pp_flags pp_lua SDL3::SDL3 ${CMAKE_DL_LIBS} Threads::Threads)
-target_link_libraries(pp_mods PRIVATE mbedtls mbedx509 mbedcrypto)
+add_library(pp_tls STATIC src/mods/tls.cpp src/online/websocket.cpp)
+target_include_directories(pp_tls PUBLIC src)
+target_link_libraries(pp_tls PUBLIC pp_flags PRIVATE mbedtls mbedx509 mbedcrypto)
+target_link_libraries(pp_core PUBLIC pp_tls Threads::Threads)
 if(WIN32)
-  target_link_libraries(pp_mods PUBLIC ws2_32 crypt32 bcrypt)
+  target_link_libraries(pp_tls PUBLIC ws2_32 crypt32 bcrypt)
 endif()
 if(APPLE)
-  target_link_libraries(pp_mods PUBLIC "-framework Security" "-framework CoreFoundation")
+  target_link_libraries(pp_tls PUBLIC "-framework Security" "-framework CoreFoundation")
 endif()
 
 add_library(pp_editor_core STATIC src/editor/model.cpp src/editor/json.cpp src/editor/editor.cpp)
