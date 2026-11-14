@@ -373,18 +373,29 @@ fs::path gameCopyFolder(const fs::path& dataDir, Game g) { return dataDir / "gam
 
 bool sameFolder(const fs::path& a, const fs::path& b) {
   if (a.empty() || b.empty()) return false;
-  auto key = [](const fs::path& p) {
-    std::error_code ec;
-    fs::path c = fs::weakly_canonical(p, ec);
-    if (ec || c.empty()) c = fs::absolute(p, ec).lexically_normal();
-    std::string k = pathToUtf8(c);
-    while (k.size() > 1 && (k.back() == '/' || k.back() == '\\')) k.pop_back();
-#if defined(_WIN32) || defined(__APPLE__)
-    k = lower(k);
-#endif
-    return k;
-  };
-  return key(a) == key(b);
+  std::error_code ec;
+  if (fs::equivalent(a, b, ec)) return true;
+  const fs::path ca = fs::weakly_canonical(a, ec);
+  if (ec || ca.empty()) return false;
+  const fs::path cb = fs::weakly_canonical(b, ec);
+  return !ec && ca == cb;
+}
+
+bool foldersOverlap(const fs::path& a, const fs::path& b) {
+  std::error_code ec;
+  const fs::path ca = fs::weakly_canonical(a, ec);
+  if (ec || ca.empty()) return true;
+  const fs::path cb = fs::weakly_canonical(b, ec);
+  if (ec || cb.empty()) return true;
+  for (fs::path p = ca; !p.empty(); p = p.parent_path()) {
+    if (sameFolder(p, cb)) return true;
+    if (p == p.parent_path()) break;
+  }
+  for (fs::path p = cb; !p.empty(); p = p.parent_path()) {
+    if (sameFolder(p, ca)) return true;
+    if (p == p.parent_path()) break;
+  }
+  return false;
 }
 
 void discardGameCopy(const fs::path& copyDir) {
@@ -466,8 +477,8 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
 
 GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copyDir) {
   GameCopyResult r;
-  if (sameFolder(installDir, copyDir)) {
-    r.why = "that folder is the copy itself";
+  if (foldersOverlap(installDir, copyDir)) {
+    r.why = "the game folder and its copy overlap";
     return r;
   }
   std::vector<Item> items;

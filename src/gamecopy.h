@@ -29,5 +29,6 @@ GameCopyCheck checkGameCopy(const std::filesystem::path& copyDir);
 GameCopyResult collectGameFiles(const std::filesystem::path& installDir, const std::filesystem::path& copyDir);
 void discardGameCopy(const std::filesystem::path& copyDir);
 bool sameFolder(const std::filesystem::path& a, const std::filesystem::path& b);
+bool foldersOverlap(const std::filesystem::path& a, const std::filesystem::path& b);
 
 }

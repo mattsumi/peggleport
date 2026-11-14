@@ -302,7 +302,7 @@ void GameFolders::keepCopy(Game g) {
   }
   GameCopyResult r = collectGameFiles(install_[i], copy);
   if (!r.ok) {
-    if (have.state == GameCopyCheck::State::Intact) discardGameCopy(copy);
+    if (have.state == GameCopyCheck::State::Intact && !foldersOverlap(install_[i], copy)) discardGameCopy(copy);
     log::warn("start", std::string("A copy of ") + gameTitle(g) + " could not be kept in " + pathToUtf8(copy) + " (" + r.why + "), so it is read from " + pathToUtf8(install_[i]) + ".");
     return;
   }
