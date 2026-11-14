@@ -49,7 +49,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
       <key>CFBundleURLName</key><string>PegglePort invite</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>
       <key>CFBundleURLSchemes</key>
-      <array><string>peggleport</string></array>
+      <array><string>peggleport</string><string>discord-1571022918392225882</string></array>
     </dict>
   </array>
 </dict>

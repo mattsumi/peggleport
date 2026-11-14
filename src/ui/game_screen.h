@@ -61,6 +61,9 @@ class GameScreen : public Screen {
   ~GameScreen() override;
   const char* name() const override { return "board"; }
   bool isGame() const override { return true; }
+  void discordPresence(pp::online::Discord::Presence& presence) const override {
+    presence.state = !ready_ ? "Level unavailable" : viewer_ ? "Watching a replay" : demo_ ? "Watching Demo mode" : paused() ? "Level paused" : done_ ? "Level finished" : "Playing a level";
+  }
   bool wantsMouseHidden() const override { return false; }
   int canvasWidth() const override { return app.frameCanvasWidth(800 + (board_.W - 650)); }
   void update() override;

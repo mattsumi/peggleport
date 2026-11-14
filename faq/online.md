@@ -95,6 +95,12 @@ The bridge only listens on `127.0.0.1:7772`, accepts WebSockets at `/lobby`, and
 * Request rates are limited per address and overall, and the number of tracked addresses and live pairs is capped.
 * Native lobby traffic over TCP is not encrypted. Somebody who can read it learns the pair secret. Secure lobby connections verify the server certificate against this computer’s trusted roots and encrypt traffic as far as the HTTPS tunnel endpoint. The lobby and its bridge can still read relayed traffic.
 
+## Discord (optional)
+
+**Discord activity** in the top left of **Online** is off by default. Turn it on to share your current game or menu status with the Discord desktop app. The choice is remembered for both games. Turning it off clears the activity and closes the connection.
+
+A host waiting in a room with an open seat can share that room through Discord. Full rooms and matches have no join link. While PegglePort is running, an incoming invitation fills in the existing Online screen; press **Join** to connect. It does not interrupt a level or another room. An unanswered Discord invitation expires after five seconds. Very long lobby addresses can still use **Copy Invite** when they do not fit Discord’s limit.
+
 ## Steam (optional)
 
 If you build PegglePort yourself with the Steamworks SDK (`cmake -DPP_STEAM=ON -DSTEAMWORKS_SDK_DIR=/path/to/sdk ...`), your Steam status shows "In a PegglePort room" with a **Join Game** entry, and a click from a friend arrives as the same invite link. The SDK is not part of this project and can not be redistributed, so the downloads do not have this. For development the code uses Steam's test App ID 480 (Spacewar): put a `steam_appid.txt` containing `480` next to the program with Steam running.

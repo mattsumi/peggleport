@@ -43,6 +43,7 @@ std::string probeText(const pp::online::LobbyProbe& r, const std::string& host);
 
 struct Prefs {
   std::string lobby;
+  bool discord = false;
   int mode = 0;
   int master = 0;
   std::string masterMod;

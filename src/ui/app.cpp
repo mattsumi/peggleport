@@ -13,6 +13,8 @@
 #include <cstdio>
 
 #include "log.h"
+#include "online/invite.h"
+#include "online/online_ui.h"
 #include "render.h"
 #include "ui/dialog.h"
 #include "ui/dialogs.h"
@@ -212,6 +214,9 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
     profiles.load();
     highScores.load(userDir / "highscores.dat");
     settings.load(userDir.parent_path() / "settings.ini");
+    online::Prefs prefs;
+    prefs.load(userDir.parent_path() / "online.ini");
+    setDiscordEnabled(prefs.discord);
   }
   if (cfg.widescreen >= 0) settings.widescreen = std::clamp(cfg.widescreen, 0, kWidescreenModes - 1);
   maxStage = settings.maxStage;
@@ -225,7 +230,32 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
   homeGame = bothGames ? cfg.home : game;
 }
 
-App::~App() = default;
+App::~App() {
+  clearDiscord();
+  if (discord_) discord_->stop();
+}
+
+void App::setDiscordEnabled(bool enabled) {
+  if (enabled == discordEnabled_) return;
+  clearDiscord();
+  if (discord_) discord_->stop();
+  discord_.reset();
+  discordEnabled_ = enabled;
+  if (enabled) discord_ = std::make_unique<pp::online::Discord>("1571022918392225882");
+}
+
+void App::clearDiscord() {
+  discordInvite_.clear();
+  discordInviteUntil_ = 0;
+  if (discord_) discord_->clear();
+}
+
+std::string App::takeDiscordInvite() {
+  if (!discordEnabled_ || SDL_GetTicks() >= discordInviteUntil_) discordInvite_.clear();
+  std::string invite = std::move(discordInvite_);
+  discordInvite_.clear();
+  return invite;
+}
 
 namespace {
 
@@ -544,6 +574,9 @@ void App::saveAll() {
 }
 
 void App::shutdown() {
+  clearDiscord();
+  if (discord_) discord_->stop();
+  discord_.reset();
   if (cur_) cur_->onLeave();
   if (audio) audio->stopLoops();
   saveAll();
@@ -669,6 +702,7 @@ void App::scrollOn(Panel* l) {
 }
 
 void App::setScreen(std::unique_ptr<Screen> s, Dir offDir) {
+  clearDiscord();
   if (switchWanted_ && switchHome_) switchWanted_ = false;
   if (audio && game == Game::Nights && (dynamic_cast<LevelScreen*>(s.get()) || dynamic_cast<TrophyScreen*>(s.get()))) audio->stopSounds();
   scrollDir = 0;
@@ -927,6 +961,25 @@ void App::tick() {
   for (size_t i = 0; i < dialogs_.size();)
     if (dialogs_[i]->gone) dialogs_.erase(dialogs_.begin() + (long)i);
     else i++;
+  if (discord_) {
+    pp::online::Discord::Presence presence;
+    presence.details = titleText();
+    presence.state = cur_ && cur_->isGame() ? "Playing a level" : "In menus";
+    if (cur_) cur_->discordPresence(presence);
+    if (!discord_->update(presence)) clearDiscord();
+    discord_->pump();
+    const auto status = discord_->status();
+    if (status.state != pp::online::Discord::State::Ready || SDL_GetTicks() >= discordInviteUntil_) discordInvite_.clear();
+    if (status.state == pp::online::Discord::State::Failed) {
+      log::warn("net", "Discord activity stopped: " + std::to_string(status.errorCode) + " " + status.errorCommand + " " + status.error);
+      discord_->stop();
+    }
+    std::string invite = discord_->takeJoinRequest();
+    if (!invite.empty() && pp::online::parseInvite(invite, nullptr)) {
+      discordInvite_ = std::move(invite);
+      discordInviteUntil_ = SDL_GetTicks() + 5000;
+    }
+  }
 }
 
 void App::input(const Input& in) {

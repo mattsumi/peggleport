@@ -7,5 +7,5 @@ Exec=peggleport %U
 Terminal=false
 Categories=Game;ArcadeGame;
 Keywords=peggle;popcap;
-MimeType=x-scheme-handler/peggleport;
+MimeType=x-scheme-handler/peggleport;x-scheme-handler/discord-1571022918392225882;
 StartupWMClass=peggleport

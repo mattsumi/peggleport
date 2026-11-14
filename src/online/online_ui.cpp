@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 #include <thread>
 #include <system_error>
 
@@ -24,6 +25,7 @@
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "online/steam.h"
+#include "gamefind.h"
 
 namespace pp::ui::online {
 
@@ -49,12 +51,14 @@ void Prefs::load(const std::filesystem::path& file) {
     else if (k == "master") master = std::clamp(std::atoi(v.c_str()), 0, 10);
     else if (k == "mastermod") masterMod = v;
     else if (k == "level") level = v;
+    else if (k == "discord") discord = v == "1";
   }
   if (!savedAddress) lobby = pp::online::preferredLobby(lobby);
 }
 void Prefs::save(const std::filesystem::path& file) const {
   std::ofstream f(file);
   f << "lobbyset=1\nlobby=" << lobby << "\nmode=" << mode << "\nmaster=" << master << "\nlevel=" << level << "\n";
+  f << "discord=" << (discord ? 1 : 0) << "\n";
   if (!masterMod.empty()) f << "mastermod=" << masterMod << "\n";
 }
 
@@ -125,7 +129,7 @@ struct Job {
   ~Job() { stop = true; if (th.joinable()) th.join(); }
 };
 
-enum Ids { B_Refresh = 1, B_Join, B_Paste, B_Create, B_Back, B_Copy, B_Ready, B_Start, B_Leave, B_Go, B_Cancel, B_Mode, B_LvlPrev, B_LvlNext, B_MasPrev, B_MasNext, B_Test, B_Register, E_Lobby = 100, E_Code };
+enum Ids { B_Refresh = 1, B_Join, B_Paste, B_Create, B_Back, B_Copy, B_Ready, B_Start, B_Leave, B_Go, B_Cancel, B_Mode, B_LvlPrev, B_LvlNext, B_MasPrev, B_MasNext, B_Test, B_Register, C_Discord, E_Lobby = 100, E_Code };
 
 #if defined(__APPLE__)
 constexpr bool kUrlRegistration = false;
@@ -135,7 +139,7 @@ constexpr bool kUrlRegistration = true;
 
 class OnlineScreen : public Screen {
  public:
-  OnlineScreen(App& a, const std::string& invite) : Screen(a) {
+  OnlineScreen(App& a, const std::string& invite, bool fromDiscord = false) : Screen(a) {
     prefsFile_ = a.userDir.parent_path() / "online.ini";
     if (!a.cfg.noSave) prefs_.load(prefsFile_);
     levels_ = levelChoices(a);
@@ -213,8 +217,20 @@ class OnlineScreen : public Screen {
     pickW_ = bLvlNext_->x - (bLvlPrev_->x + bLvlPrev_->w) - 2 * kPickGap;
     bGo_ = btn(B_Go, "Open Room", kDlgX + kDlgW / 2 - 155, 390, 150);
     bCancel_ = btn(B_Cancel, "Cancel", kDlgX + kDlgW / 2 + 5, 390, 150);
+    auto discord = std::make_unique<Checkbox>();
+    discord->id = C_Discord;
+    discord->image = a.gfx.img("IMAGE_DLG_BUTTON1");
+    discord->label = "Discord activity";
+    discord->font = "PLAIN";
+    discord->checked = a.discordEnabled();
+    discord->x = 40; discord->y = 20; discord->w = 230;
+    discord->h = discord->image ? discord->image->lh() / 4 : 34;
+    discordCheck_ = add(std::move(discord));
     layout();
-    if (!invite.empty()) applyInvite(invite, false);
+    if (!invite.empty()) {
+      if (fromDiscord) applyDiscordInvite(invite);
+      else applyInvite(invite, false);
+    }
     else startList();
   }
 
@@ -239,6 +255,7 @@ class OnlineScreen : public Screen {
   const char* name() const override { return "online"; }
 
   void savePrefs() {
+    prefs_.discord = app.discordEnabled();
     if (pp::online::parseEndpoint(lobbyEdit_->value, nullptr)) prefs_.lobby = lobbyEdit_->value;
     prefs_.mode = mode_;
     const int nb = app.game == Game::Nights ? 11 : 10;
@@ -250,6 +267,58 @@ class OnlineScreen : public Screen {
       std::filesystem::create_directories(prefsFile_.parent_path(), ec);
       prefs_.save(prefsFile_);
     }
+  }
+
+  void checkboxChanged(int id, bool checked) override {
+    if (id != C_Discord) return;
+    app.setDiscordEnabled(checked);
+    if (!checked) discardDiscordInvite();
+    if (app.cfg.noSave) return;
+    auto saveFlag = [&](const std::filesystem::path& file) {
+      Prefs prefs;
+      prefs.load(file);
+      prefs.discord = checked;
+      std::error_code ec;
+      std::filesystem::create_directories(file.parent_path(), ec);
+      prefs.save(file);
+    };
+    saveFlag(prefsFile_);
+    if (app.bothGames) {
+      const auto dir = app.cfg.otherUserDir.empty() ? defaultUserDir(otherGame(app.game)) : app.cfg.otherUserDir;
+      saveFlag(dir.parent_path() / "online.ini");
+    }
+  }
+
+  void discardDiscordInvite() {
+    if (!discordInviteUntil_) return;
+    discordInviteUntil_ = 0;
+    if (codeEdit_->value == discordInviteCode_) {
+      setCode("");
+      release();
+    }
+    discordInviteCode_.clear();
+  }
+
+  void discordPresence(pp::online::Discord::Presence& presence) const override {
+    presence.state = room_ ? "Waiting in an online room" : create_ ? "Creating an online room" : "Browsing online rooms";
+    if (!room_ || !sess_ || job_ || !isHost_ || !sess_->isHost() || !sess_->welcomed() || sess_->failed() || sess_->started()) return;
+    const int capacity = sess_->info().players;
+    const auto& roster = sess_->roster();
+    int seated = 0;
+    for (const auto& seat : roster) seated += seat.connected ? 1 : 0;
+    if (capacity < 2 || capacity > 4 || seated < 1 || seated >= capacity) return;
+    const std::string invite = makeInvite(lobbyHost_, lobbyPort_, roomCode_);
+    if (invite.size() > 128) {
+      if (!discordLongInvite_) pp::log::warn("net", "This lobby address is too long for a Discord invite. Copy Invite is still available.");
+      discordLongInvite_ = true;
+      return;
+    }
+    if (!pp::online::parseInvite(invite, nullptr)) return;
+    presence.partyId = invite;
+    presence.joinSecret = invite;
+    presence.partySize = seated;
+    presence.partyMax = capacity;
+    presence.joinable = true;
   }
 
   void say(const std::string& s, int kind = 0) { status_ = s; statusKind_ = kind; held_ = false; }
@@ -289,13 +358,23 @@ class OnlineScreen : public Screen {
 
   std::string playerName() const { return app.curProfile && !app.curProfile->name.empty() ? app.curProfile->name : "Player"; }
 
+  void applyDiscordInvite(const std::string& text) {
+    applyInvite(text, false);
+    nonDiscordInvite_ = false;
+    discordInviteCode_ = codeEdit_->value;
+    discordInviteUntil_ = SDL_GetTicks() + 5000;
+  }
+
   void applyInvite(const std::string& text, bool pasted) {
+    discordInviteUntil_ = 0;
+    discordInviteCode_.clear();
     Invite iv;
     if (!extractInvite(text, &iv)) {
       hold(pasted ? "There is no invite link on the clipboard. Copy the whole link (it starts with peggleport://) and press Paste Invite again."
                   : "That invite link is not complete. Ask your friend to send it again.", 1);
       return;
     }
+    nonDiscordInvite_ = true;
     lobbyEdit_->value = pp::online::endpointAddress(iv.host, iv.port);
     lobbyEdit_->caret = (int)lobbyEdit_->value.size();
     setCode(iv.code);
@@ -418,6 +497,10 @@ class OnlineScreen : public Screen {
   }
 
   void startHost() {
+    app.clearDiscord();
+    discardDiscordInvite();
+    nonDiscordInvite_ = false;
+    discordLongInvite_ = false;
     if (levels_.empty()) { hold("No levels were found in the game files.", 1); return; }
     std::string host, err;
     int port;
@@ -463,11 +546,16 @@ class OnlineScreen : public Screen {
   }
 
   void startJoin(const std::string& code) {
+    app.clearDiscord();
+    discordInviteUntil_ = 0;
+    discordInviteCode_.clear();
+    discordLongInvite_ = false;
     if (code.size() != 5) { say("A room code has 5 letters or digits. Type it, or click a room in the list.", 1); return; }
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
     if (host.empty()) { say("Enter a valid lobby address: wss://host/lobby or host:port.", 1); return; }
+    nonDiscordInvite_ = false;
     isHost_ = false;
     sess_ = std::make_unique<Session>();
     sess_->setName(playerName());
@@ -488,6 +576,7 @@ class OnlineScreen : public Screen {
   }
 
   void enterRoom() {
+    app.clearDiscord();
     say("");
     seated_ = 0;
     room_ = true;
@@ -498,6 +587,8 @@ class OnlineScreen : public Screen {
   }
 
   void leaveRoom(const std::string& msg, int kind = 0) {
+    app.clearDiscord();
+    discardDiscordInvite();
     pp::online::steam::clearPresence();
     if (sess_) sess_->leave();
     sess_.reset();
@@ -561,6 +652,7 @@ class OnlineScreen : public Screen {
         }
         break;
       case B_Start:
+        app.clearDiscord();
         if (sess_) sess_->hostStart();
         break;
       case B_Leave: leaveRoom("You left the room."); break;
@@ -589,6 +681,14 @@ class OnlineScreen : public Screen {
 
   void update() override {
     Panel::update();
+    discordCheck_->checked = app.discordEnabled();
+    if (discordInviteUntil_ && (!app.discordEnabled() || SDL_GetTicks() >= discordInviteUntil_)) discardDiscordInvite();
+    if (!nonDiscordInvite_ && !room_ && !create_ && !job_ && !app.anyDialog() && !app.moving()) {
+      std::string invite = app.takeDiscordInvite();
+      if (!invite.empty()) {
+        applyDiscordInvite(invite);
+      }
+    }
     pp::online::steam::pump();
     std::string joinLink;
     if (!room_ && !create_ && !job_ && pp::online::steam::takeJoinRequest(&joinLink)) applyInvite(joinLink, false);
@@ -619,6 +719,7 @@ class OnlineScreen : public Screen {
     sess_->poll();
     int seated = 0;
     for (const auto& seat : sess_->roster()) seated += seat.connected ? 1 : 0;
+    if (seated != seated_) app.clearDiscord();
     if (!status_.empty() && (seated > seated_ || app.updateCount() - noticeAt_ >= kNoticeTicks)) say("");
     seated_ = seated;
     if (!sess_->notice.empty()) {
@@ -649,6 +750,7 @@ class OnlineScreen : public Screen {
       guestChecked_ = true;
     }
     if (sess_->started()) {
+      app.clearDiscord();
       MatchLaunch L;
       L.info = isHost_ ? hostInfo_ : sess_->info();
       L.lb = lb_;
@@ -668,10 +770,21 @@ class OnlineScreen : public Screen {
   }
 
   bool input(const Input& in) override {
+    if (!room_ && !create_ && (focusW == lobbyEdit_ || focusW == codeEdit_) &&
+        ((in.type == Input::Text && !in.text.empty()) ||
+         (in.type == Input::KeyDown && (in.key == SDLK_BACKSPACE || in.key == SDLK_DELETE ||
+          (in.key == SDLK_V && (in.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI))))))) {
+      nonDiscordInvite_ = true;
+      discordInviteUntil_ = 0;
+      discordInviteCode_.clear();
+    }
     bool used = Panel::input(in);
     if (!used && in.type == Input::MouseDown && in.button == 1 && !room_ && !create_ && !job_) {
       int i = rowAt(in.x, in.y);
       if (i >= 0) {
+        nonDiscordInvite_ = true;
+        discordInviteUntil_ = 0;
+        discordInviteCode_.clear();
         setCode(rooms_[i].code);
         release();
         if (in.clicks >= 2) onButton(B_Join);
@@ -799,6 +912,11 @@ class OnlineScreen : public Screen {
   }
 
  private:
+  Checkbox* discordCheck_ = nullptr;
+  bool nonDiscordInvite_ = false;
+  uint64_t discordInviteUntil_ = 0;
+  std::string discordInviteCode_;
+  mutable bool discordLongInvite_ = false;
   Prefs prefs_;
   std::filesystem::path prefsFile_;
   std::vector<LevelChoice> levels_;
@@ -847,7 +965,14 @@ void tickMainMenu(App& app) {
   pp::online::steam::pump();
   std::string joinLink;
   if (pp::online::steam::takeJoinRequest(&joinLink)) g_pendingInvite = joinLink;
-  if (g_pendingInvite.empty() || app.moving() || app.anyDialog()) return;
+  if (app.moving() || app.anyDialog()) return;
+  if (g_pendingInvite.empty()) {
+    std::string discordInvite = app.takeDiscordInvite();
+    if (discordInvite.empty()) return;
+    auto screen = std::make_unique<OnlineScreen>(app, discordInvite, true);
+    app.setScreen(std::move(screen), App::Left);
+    return;
+  }
   std::string inv = std::move(g_pendingInvite);
   g_pendingInvite.clear();
   app.setScreen(std::make_unique<OnlineScreen>(app, inv), App::Left);

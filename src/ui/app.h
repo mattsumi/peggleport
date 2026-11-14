@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "audio.h"
+#include "online/discord.h"
 #include "profile.h"
 #include "ui/gfx.h"
 #include "ui/fireworks.h"
@@ -91,6 +92,7 @@ class Screen : public Panel {
   virtual int canvasHeight() const { return 600; }
   virtual void lostFocus() {}
   virtual void onLeave() {}
+  virtual void discordPresence(pp::online::Discord::Presence& presence) const {}
 };
 
 class App : public WidgetHost {
@@ -113,6 +115,10 @@ class App : public WidgetHost {
   ~App();
 
   void tick();
+  bool discordEnabled() const { return discordEnabled_; }
+  void setDiscordEnabled(bool enabled);
+  void clearDiscord();
+  std::string takeDiscordInvite();
   WidescreenMode widescreenMode() const;
   int boardWidthForNewBoard() const;
   int frameCanvasWidth(int boardCanvas) const;
@@ -340,6 +346,10 @@ class App : public WidgetHost {
   std::vector<std::unique_ptr<Dialog>> deadDialogs_;
   std::unique_ptr<LogView> logView_;
   int updates_ = 0;
+  bool discordEnabled_ = false;
+  std::unique_ptr<pp::online::Discord> discord_;
+  std::string discordInvite_;
+  uint64_t discordInviteUntil_ = 0;
   bool quit_ = false;
   bool switchWanted_ = false;
   bool switchHome_ = false;

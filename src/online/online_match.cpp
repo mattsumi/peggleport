@@ -33,6 +33,9 @@ class OnlineGameScreen : public Screen {
 
   const char* name() const override { return "onlinematch"; }
   bool isGame() const override { return true; }
+  void discordPresence(pp::online::Discord::Presence& presence) const override {
+    presence.state = !ready_ || net_->failed() ? "Online match ended" : state_ == Playing ? "Playing online" : state_ == Over ? "Online match finished" : "Online match paused";
+  }
   int boardExtra() const { return ready_ ? match_.boards[0].W - 650 : 0; }
   int canvasWidth() const override { return app.frameCanvasWidth(800 + boardExtra()); }
   int boardLeft() const { return 75 + (canvasWidth() - 800 - boardExtra()) / 2; }
