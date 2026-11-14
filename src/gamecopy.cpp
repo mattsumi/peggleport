@@ -378,6 +378,23 @@ bool pakStartsRight(const fs::path& pak) {
   return magic == kPakMagic && version == 0;
 }
 
+bool fileMatches(const fs::path& path, std::uint64_t size, std::uint32_t crc) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+  std::vector<char> buf(kChunk);
+  std::uint64_t got = 0;
+  std::uint32_t actual = 0;
+  while (in) {
+    in.read(buf.data(), (std::streamsize)buf.size());
+    const std::streamsize n = in.gcount();
+    if (n <= 0) break;
+    got += (std::uint64_t)n;
+    if (got > size) return false;
+    actual = crcUpdate(actual, reinterpret_cast<const unsigned char*>(buf.data()), (std::size_t)n);
+  }
+  return !in.bad() && got == size && actual == crc;
+}
+
 std::vector<std::string> splitLines(const std::string& text) {
   std::vector<std::string> lines;
   std::size_t at = 0;
@@ -462,6 +479,7 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
   struct Entry {
     std::string name;
     std::uint64_t size = 0;
+    std::uint32_t crc = 0;
   };
   std::vector<Entry> entries;
   std::uint64_t total = 0;
@@ -473,8 +491,7 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
       const std::size_t t1 = line.find('\t', 5);
       const std::size_t t2 = t1 == std::string::npos ? t1 : line.find('\t', t1 + 1);
       Entry e;
-      std::uint32_t crc = 0;
-      if (t2 == std::string::npos || !parseNumber(line.substr(5, t1 - 5), e.size) || !parseHex(line.substr(t1 + 1, t2 - t1 - 1), crc)) return damaged("the manifest has a line it cannot read");
+      if (t2 == std::string::npos || !parseNumber(line.substr(5, t1 - 5), e.size) || !parseHex(line.substr(t1 + 1, t2 - t1 - 1), e.crc)) return damaged("the manifest has a line it cannot read");
       e.name = line.substr(t2 + 1);
       if (!safeName(e.name)) return damaged("the manifest has a name it cannot use");
       total += e.size;
@@ -496,6 +513,7 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
     const std::uintmax_t size = fs::file_size(file, ec);
     if (ec) return damaged(e.name + " is missing");
     if ((std::uint64_t)size != e.size) return damaged(e.name + " has " + std::to_string((std::uint64_t)size) + " bytes, not " + std::to_string(e.size));
+    if (!fileMatches(file, e.size, e.crc)) return damaged(e.name + " is damaged or cannot be read");
     if (e.name == "main.pak") pak = true;
   }
   if (!pak) return damaged("main.pak is not in the manifest");
