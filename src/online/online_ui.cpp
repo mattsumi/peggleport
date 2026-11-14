@@ -15,10 +15,12 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <system_error>
 
 #include "log.h"
 #include "online/content_hash.h"
 #include "online/direct.h"
+#include "online/endpoint.h"
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "online/steam.h"
@@ -34,40 +36,33 @@ void setPendingInvite(const std::string& url) { g_pendingInvite = url; }
 
 void Prefs::load(const std::filesystem::path& file) {
   std::ifstream f(file);
+  bool savedAddress = false;
   std::string l;
   while (std::getline(f, l)) {
     auto eq = l.find('=');
     if (eq == std::string::npos) continue;
     std::string k = l.substr(0, eq), v = l.substr(eq + 1);
     if (!v.empty() && v.back() == '\r') v.pop_back();
-    if (k == "lobby") lobby = v;
+    if (k == "lobbyset") savedAddress = v == "1";
+    else if (k == "lobby") lobby = v;
     else if (k == "mode") mode = std::clamp(std::atoi(v.c_str()), 0, 2);
     else if (k == "master") master = std::clamp(std::atoi(v.c_str()), 0, 10);
     else if (k == "mastermod") masterMod = v;
     else if (k == "level") level = v;
   }
+  if (!savedAddress) lobby = pp::online::preferredLobby(lobby);
 }
 void Prefs::save(const std::filesystem::path& file) const {
   std::ofstream f(file);
-  f << "lobby=" << lobby << "\nmode=" << mode << "\nmaster=" << master << "\nlevel=" << level << "\n";
+  f << "lobbyset=1\nlobby=" << lobby << "\nmode=" << mode << "\nmaster=" << master << "\nlevel=" << level << "\n";
   if (!masterMod.empty()) f << "mastermod=" << masterMod << "\n";
 }
 
 static void splitHostPort(const std::string& in, std::string* host, int* port) {
-  std::string s = in;
-  while (!s.empty() && s.back() == ' ') s.pop_back();
-  while (!s.empty() && s.front() == ' ') s.erase(s.begin());
-  *port = 7770;
-  if (!s.empty() && s[0] == '[') {
-    auto rb = s.find(']');
-    *host = s.substr(1, rb == std::string::npos ? std::string::npos : rb - 1);
-    if (rb != std::string::npos && rb + 2 < s.size() && s[rb + 1] == ':') *port = std::atoi(s.c_str() + rb + 2);
-  } else if (std::count(s.begin(), s.end(), ':') == 1) {
-    auto c = s.find(':');
-    *host = s.substr(0, c);
-    int p = std::atoi(s.c_str() + c + 1);
-    if (p > 0 && p < 65536) *port = p;
-  } else *host = s;
+  pp::online::LobbyEndpoint endpoint;
+  if (!pp::online::parseEndpoint(in, &endpoint)) { host->clear(); *port = 0; return; }
+  *host = endpoint.secure ? endpoint.address() : endpoint.host;
+  *port = endpoint.port;
 }
 
 namespace {
@@ -122,12 +117,12 @@ class ArrowButton : public Button {
 
 struct Job {
   std::thread th;
-  std::atomic<bool> done{false};
+  std::atomic<bool> done{false}, stop{false};
   bool ok = false;
   std::string err;
   std::vector<std::string> lines;
   std::string text;
-  ~Job() { if (th.joinable()) th.join(); }
+  ~Job() { stop = true; if (th.joinable()) th.join(); }
 };
 
 enum Ids { B_Refresh = 1, B_Join, B_Paste, B_Create, B_Back, B_Copy, B_Ready, B_Start, B_Leave, B_Go, B_Cancel, B_Mode, B_LvlPrev, B_LvlNext, B_MasPrev, B_MasNext, B_Test, B_Register, E_Lobby = 100, E_Code };
@@ -169,8 +164,8 @@ class OnlineScreen : public Screen {
       return add(std::move(e));
     };
     const float joinW = std::max(94.0f, capsWidth(a.gfx.img("IMAGE_DLG_BUTTON3")));
-    lobbyEdit_ = edit(E_Lobby, 150, 82, 390, 64, 14, 360);
-    lobbyEdit_->value = prefs_.lobby.empty() ? "localhost:7770" : prefs_.lobby;
+    lobbyEdit_ = edit(E_Lobby, 150, 82, 390, 1024, 14, 360);
+    lobbyEdit_->value = prefs_.lobby.empty() ? pp::online::publicLobby : prefs_.lobby;
     lobbyEdit_->caret = (int)lobbyEdit_->value.size();
     lobbyEdit_->onEnter = [this] { if (!job_) { held_ = false; startList(); } };
     codeEdit_ = edit(E_Code, 556, 176, 204 - joinW, 5, 10, 204 - joinW - 20);
@@ -224,7 +219,19 @@ class OnlineScreen : public Screen {
   }
 
   ~OnlineScreen() override {
-    job_.reset();
+    if (job_) {
+      job_->stop = true;
+      auto pending = std::make_shared<std::pair<std::unique_ptr<Job>, std::unique_ptr<Session>>>(std::move(job_), std::move(sess_));
+      try {
+        std::thread([pending] {
+          pending->first.reset();
+          if (pending->second) pending->second->leave();
+        }).detach();
+      } catch (const std::system_error&) {
+        pending->first.reset();
+        pp::log::warn("net", "could not finish closing the lobby connection in the background");
+      }
+    }
     savePrefs();
     if (sess_) sess_->leave();
   }
@@ -232,7 +239,7 @@ class OnlineScreen : public Screen {
   const char* name() const override { return "online"; }
 
   void savePrefs() {
-    prefs_.lobby = lobbyEdit_->value;
+    if (pp::online::parseEndpoint(lobbyEdit_->value, nullptr)) prefs_.lobby = lobbyEdit_->value;
     prefs_.mode = mode_;
     const int nb = app.game == Game::Nights ? 11 : 10;
     prefs_.master = std::min(master_, nb - 1);
@@ -267,7 +274,7 @@ class OnlineScreen : public Screen {
   }
 
   std::string addrShown(const std::string& host, int port) {
-    const std::string a = (host.find(':') != std::string::npos ? "[" + host + "]" : host) + ":" + std::to_string(port);
+    const std::string a = pp::online::endpointAddress(host, port);
     return fitText(app.gfx, "PLAIN", cleanText(a, 300), kAddrWidth);
   }
 
@@ -289,7 +296,7 @@ class OnlineScreen : public Screen {
                   : "That invite link is not complete. Ask your friend to send it again.", 1);
       return;
     }
-    lobbyEdit_->value = iv.host.find(':') != std::string::npos ? "[" + iv.host + "]:" + std::to_string(iv.port) : iv.host + ":" + std::to_string(iv.port);
+    lobbyEdit_->value = pp::online::endpointAddress(iv.host, iv.port);
     lobbyEdit_->caret = (int)lobbyEdit_->value.size();
     setCode(iv.code);
     hold("Invite for room " + iv.code + " on " + addrShown(iv.host, iv.port) + ". Press Join to connect.", 2, true);
@@ -301,13 +308,13 @@ class OnlineScreen : public Screen {
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
-    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
+    if (host.empty()) { say("Enter a valid lobby address: wss://host/lobby or host:port.", 1); return; }
     job_ = std::make_unique<Job>();
     jobKind_ = List;
     jobAddr_ = addrShown(host, port);
     Job* j = job_.get();
     j->th = std::thread([j, host, port] {
-      j->ok = Session::listRooms(host, port, &j->lines, &j->err);
+      j->ok = Session::listRooms(host, port, &j->lines, &j->err, &j->stop);
       j->done = true;
     });
     if (!held_) say("Contacting " + jobAddr_ + " ...");
@@ -318,12 +325,18 @@ class OnlineScreen : public Screen {
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
-    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
+    if (host.empty()) { say("Enter a valid lobby address: wss://host/lobby or host:port.", 1); return; }
     job_ = std::make_unique<Job>();
     jobKind_ = Probe;
     jobAddr_ = addrShown(host, port);
     Job* j = job_.get();
     j->th = std::thread([j, host, port] {
+      if (host.rfind("wss://", 0) == 0) {
+        j->ok = Session::listRooms(host, port, &j->lines, &j->err, &j->stop);
+        j->text = j->ok ? "Secure lobby connection is working. Matches use the relay." : troubleText(j->err, Where::List, false, host, "");
+        j->done = true;
+        return;
+      }
       bool reachable = false;
       pp::online::LobbyProbe seen;
       pp::online::probeLobbyUdp(host, port, &reachable, &seen);
@@ -409,7 +422,7 @@ class OnlineScreen : public Screen {
     std::string host, err;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
-    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
+    if (host.empty()) { say("Enter a valid lobby address: wss://host/lobby or host:port.", 1); return; }
     LevelBundle lb;
     if (!loadLevel(levels_[levelIdx_].file, &lb, &err)) {
       pp::log::error("net", "cannot load the level " + levelLogName(app, levels_[levelIdx_].file) + " for a room: " + err);
@@ -441,7 +454,7 @@ class OnlineScreen : public Screen {
     Session* sp = sess_.get();
     std::string roomName = playerName() + "'s " + (mi.party ? "party" : "duel");
     j->th = std::thread([j, sp, host, port, roomName, mi] {
-      j->ok = sp->hostViaLobby(host, port, roomName, mi, &j->err);
+      j->ok = sp->hostViaLobby(host, port, roomName, mi, &j->err, &j->stop);
       j->done = true;
     });
     savePrefs();
@@ -454,7 +467,7 @@ class OnlineScreen : public Screen {
     std::string host;
     int port;
     splitHostPort(lobbyEdit_->value, &host, &port);
-    if (host.empty()) { say("Enter the lobby server address first.", 1); return; }
+    if (host.empty()) { say("Enter a valid lobby address: wss://host/lobby or host:port.", 1); return; }
     isHost_ = false;
     sess_ = std::make_unique<Session>();
     sess_->setName(playerName());
@@ -467,7 +480,7 @@ class OnlineScreen : public Screen {
     Job* j = job_.get();
     Session* sp = sess_.get();
     j->th = std::thread([j, sp, host, port, code] {
-      j->ok = sp->joinViaLobby(host, port, code, &j->err);
+      j->ok = sp->joinViaLobby(host, port, code, &j->err, &j->stop);
       j->done = true;
     });
     savePrefs();
@@ -570,7 +583,7 @@ class OnlineScreen : public Screen {
       SDL_free(t);
       Invite iv;
       if (extractInvite(text, &iv)) applyInvite(text, true);
-      else if (focusW) focusW->text(text.substr(0, 64));
+      else if (focusW) focusW->text(text.substr(0, 1024));
     }
   }
 

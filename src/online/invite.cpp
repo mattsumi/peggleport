@@ -1,4 +1,5 @@
 #include "online/invite.h"
+#include "online/endpoint.h"
 
 #include <algorithm>
 #include <cctype>
@@ -40,16 +41,21 @@ static std::string pctDecode(const std::string& s) {
   return o;
 }
 
-static bool hostOk(const std::string& h) {
-  if (h.empty() || h.size() > 253) return false;
-  for (unsigned char c : h)
-    if (!(std::isalnum(c) || c == '.' || c == '-' || c == '_' || c == ':')) return false;
-  return true;
+static std::string pctEncode(const std::string& s) {
+  static const char* hex = "0123456789ABCDEF";
+  std::string out;
+  for (unsigned char c : s) {
+    if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~') out.push_back((char)c);
+    else { out.push_back('%'); out.push_back(hex[c >> 4]); out.push_back(hex[c & 15]); }
+  }
+  return out;
 }
 
 bool isInviteLike(const std::string& s) { return lower(s).rfind("peggleport://", 0) == 0; }
 
 bool parseInvite(const std::string& url0, Invite* out) {
+  if (url0.size() > 4096) return false;
+  for (unsigned char c : url0) if (c < 32 || c == 127) return false;
   size_t b = url0.find_first_not_of(" \t\r\n\"'<");
   size_t e = url0.find_last_not_of(" \t\r\n\"'>");
   if (b == std::string::npos) return false;
@@ -70,8 +76,8 @@ bool parseInvite(const std::string& url0, Invite* out) {
     size_t eq = kv.find('=');
     if (eq != std::string::npos) {
       std::string k = lower(kv.substr(0, eq)), v = pctDecode(kv.substr(eq + 1));
-      if (k == "lobby") lobby = v;
-      else if (k == "code") code = v;
+      if (k == "lobby") { if (!lobby.empty()) return false; lobby = v; }
+      else if (k == "code") { if (!code.empty()) return false; code = v; }
     }
     if (amp == std::string::npos) break;
     p = amp + 1;
@@ -80,40 +86,21 @@ bool parseInvite(const std::string& url0, Invite* out) {
   if (code.size() != 5) return false;
   for (char c : code)
     if (!std::strchr(kAlphabet, c)) return false;
-  std::string host;
-  int port = 7770;
-  if (lobby.empty()) return false;
-  if (lobby[0] == '[') {
-    size_t rb = lobby.find(']');
-    if (rb == std::string::npos) return false;
-    host = lobby.substr(1, rb - 1);
-    if (rb + 1 < lobby.size()) {
-      if (lobby[rb + 1] != ':') return false;
-      port = std::atoi(lobby.c_str() + rb + 2);
-      if (lobby.size() == rb + 2) return false;
-    }
-  } else if (std::count(lobby.begin(), lobby.end(), ':') == 1) {
-    size_t c = lobby.find(':');
-    host = lobby.substr(0, c);
-    if (c + 1 >= lobby.size()) return false;
-    for (size_t i = c + 1; i < lobby.size(); i++)
-      if (!std::isdigit((unsigned char)lobby[i])) return false;
-    port = std::atoi(lobby.c_str() + c + 1);
-  } else {
-    host = lobby;
-  }
-  if (!hostOk(host) || port < 1 || port > 65535) return false;
+  LobbyEndpoint ep;
+  if (!parseEndpoint(lobby, &ep)) return false;
   if (out) {
-    out->host = host;
-    out->port = port;
+    out->host = ep.secure ? ep.address() : ep.host;
+    out->port = ep.port;
     out->code = code;
   }
   return true;
 }
 
 std::string makeInvite(const std::string& host, int port, const std::string& code) {
-  std::string h = host.find(':') != std::string::npos ? "[" + host + "]" : host;
-  return "peggleport://join?lobby=" + h + ":" + std::to_string(port) + "&code=" + code;
+  const std::string address = endpointAddress(host, port);
+  if (address.empty()) return {};
+  const bool escaped = address.rfind("wss://", 0) == 0 || address.find('%') != std::string::npos;
+  return "peggleport://join?lobby=" + (escaped ? pctEncode(address) : address) + "&code=" + code;
 }
 
 bool findInviteArg(const std::vector<std::string>& args, Invite* out) {

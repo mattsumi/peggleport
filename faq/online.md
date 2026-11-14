@@ -7,7 +7,7 @@ All of it is done from the game. The only thing that needs a command line is the
 ## Playing
 
 1. On the main menu press **Online** (bottom right).
-2. Type the address of a lobby server (`host` or `host:port`, the default port is 7770). The game remembers it. The open rooms show up in the list.
+2. The public lobby address is filled in: `wss://peggleport-lobby.konekurosawa.org/lobby`. It uses an encrypted WebSocket connection on port 443. Press **Refresh** to see the open rooms. You can also enter a custom native server as `host`, `host:port` or `[IPv6]:port` (native port 7770 by default). The game remembers your choice.
 3. **To join**: click a room (a double click joins it), or type its 5-character code, or press **Paste Invite** with an invite link on your clipboard.
    **To host**: press **Create Room**, choose Duel or Peg Party with 3 or 4 players, the level and your Master, then **Open Room**. Masters added by mods are listed after the original ones.
 4. In the waiting room everybody presses **Ready** and the host presses **Start Match**. **Copy Invite** puts a link on your clipboard that your friends can open.
@@ -20,7 +20,7 @@ Everybody needs the same game data. A guest whose level files or active gameplay
 
 ## Invite links
 
-An invite link looks like `peggleport://join?lobby=HOST:PORT&code=XXXXX`. When you open one, PegglePort starts (or comes to the front) with the Online screen filled in. Nothing connects until you press **Join**, so a link from a stranger cannot make your game talk to some server on its own.
+An invite link includes the lobby address and room code. Native links such as `peggleport://join?lobby=HOST:PORT&code=XXXXX` still work, including IPv6 addresses in brackets. Secure links carry the whole `wss://` address with its punctuation escaped. Use **Copy Invite** and **Paste Invite** to keep it intact. Opening a link fills in the existing Online screen and refreshes that lobby’s room list. Press **Join** to enter the room.
 
 To make links open the game:
 
@@ -29,16 +29,18 @@ To make links open the game:
 
 ## Direct links and the relay
 
-Players first talk through the lobby, which always works and needs no router settings. At the same time their computers try to open a direct UDP connection with each other, which has less delay and spares the server. If that fails for any reason, you stay on the relay and the match is not interrupted. The waiting room tells you why a direct link did not happen, and the log (F10) keeps the full reason.
+The public secure lobby carries the entire match through its relay. You do not need extra networking software or router settings. **Test connection** checks the secure lobby’s room-list response.
 
-**Test connection** on the Online screen checks that the lobby answers over UDP and tells you what kind of router you are behind. Routers that give every destination a different port ("symmetric") can not do direct links, and those players stay on the relay.
+On native custom servers, players first talk through the TCP lobby. Their computers also try to open a direct UDP connection with each other, which has less delay and spares the server. If that fails for any reason, you stay on the relay and the match is not interrupted. The waiting room tells you why a direct link did not happen, and the log (F10) keeps the full reason.
+
+**Test connection** for a native custom server checks that the lobby answers over UDP and tells you what kind of router you are behind. Routers that give every destination a different port ("symmetric") can not do direct links, and those players stay on the relay.
 
 ## Running a lobby server
 
 `pp_lobbyd` is in the download. It does not need the game files. Use the same current version of PegglePort and pp_lobbyd on every computer; older versions cannot join these matches.
 
 ```
-pp_lobbyd [port] [--no-udp] [--aux-offset N]
+pp_lobbyd [port] [--no-udp] [--aux-offset N] [--proxy-local]
 ```
 
 The port defaults to 7770. It uses:
@@ -47,7 +49,7 @@ The port defaults to 7770. It uses:
 * **UDP on the same port number**: lets players find each other for direct links.
 * **UDP on port+1**: the router type check. Optional.
 
-If UDP is blocked, rooms still work through the relay.
+If UDP is blocked, rooms still work through the relay. For a LAN server, enter its local address, such as `192.168.1.20:7770`. For a server on the same computer, enter `127.0.0.1:7770`.
 
 **On a Linux server with systemd** (as a normal user):
 
@@ -68,13 +70,30 @@ The service file uses port 7770. Edit `ExecStart` to change it. `journalctl --us
 2. Forward TCP 7770, UDP 7770 and UDP 7771 on your router to the server.
 3. From another network, enter the server's address on the Online screen and press **Test connection**.
 
+### Secure relay bridge
+
+For an HTTP tunnel, I use the bridge in `server/lobby_bridge.py` with Python 3.9 or newer and the pinned package in `server/requirements.txt`:
+
+```sh
+python3 -m venv lobby-env
+lobby-env/bin/python -m pip install -r server/requirements.txt
+pp_lobbyd 7770 --proxy-local
+lobby-env/bin/python server/lobby_bridge.py
+```
+
+The bridge only listens on `127.0.0.1:7772`, accepts WebSockets at `/lobby`, and forwards to the fixed TCP backend `127.0.0.1:7770`. Put the HTTPS tunnel in front of that loopback HTTP origin. Keep the origin port private. The tunnel must supply the real `CF-Connecting-IP` header; missing, duplicate or invalid source addresses are refused. Do not rewrite that header or enable a setting that replaces IPv6 visitor addresses with synthetic IPv4 addresses. Connections through the bridge use the relay without UDP setup.
+
+`--proxy-local` is off by default. Enable it only on the backend used by the local bridge. It trusts a single initial PROXY-v1 header from actual loopback peers, so other local programs share that trust. The resolved source address keeps the native connection and room limits, including the existing IPv6 prefix buckets. Native remote connections cannot supply this header.
+
+`GET /health` reports only that the bridge is ready. Its response explicitly says the backend was not checked. A successful WebSocket room list checks the backend too.
+
 ### Notes on safety
 
 * Every UDP request is at least 64 bytes and every answer is shorter than its request, so the server cannot be used to amplify traffic.
 * A player's address is only recorded after a cookie tied to the source address proves it, so nobody can plant a fake address for another player.
 * Direct links need a secret that the lobby hands over TCP to exactly those two players. Packets are authenticated with it, and packets from anybody else are dropped.
 * Request rates are limited per address and overall, and the number of tracked addresses and live pairs is capped.
-* The lobby traffic over TCP is not encrypted. Somebody who can read it learns the pair secret. The lobby is a convenience relay, not a private channel.
+* Native lobby traffic over TCP is not encrypted. Somebody who can read it learns the pair secret. Secure lobby connections verify the server certificate against this computer’s trusted roots and encrypt traffic as far as the HTTPS tunnel endpoint. The lobby and its bridge can still read relayed traffic.
 
 ## Steam (optional)
 

@@ -56,6 +56,9 @@ std::string troubleText(const std::string& raw, Where where, bool host, const st
   if (starts(raw, "cannot resolve ")) return "Could not find a server called \"" + shown(raw.substr(15), 40) + "\". Check the lobby address.";
   if (starts(raw, "no usable address for ")) return "Could not find a server called \"" + shown(raw.substr(22), 40) + "\". Check the lobby address.";
   if (starts(raw, "cannot connect to ")) return "Could not reach a lobby at " + lobby + ". Check the address, or the server may be offline.";
+  if (raw == "invalid lobby address") return "Enter a valid lobby address: wss://host/lobby or host:port.";
+  if (starts(raw, "TLS certificate check failed:")) return "The secure lobby certificate could not be verified. Check this computer's date and trusted certificates. Press F10 for details.";
+  if (starts(raw, "TLS") || starts(raw, "WebSocket:")) return "The secure connection to the lobby could not be opened. Check the address, or try again later. Press F10 for details.";
   if (raw == "lobby connection failed") return "The connection to the lobby broke. Try again.";
   if (raw == "no room list") return lobby + " did not answer like a lobby server. Check the address and the port.";
   if (raw == "lobby heartbeat unavailable") return "This lobby server needs an update before you can play a match. Use the matching version of pp_lobbyd.";
