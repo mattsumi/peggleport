@@ -92,6 +92,31 @@ bool safeName(const std::string& n) {
   return true;
 }
 
+bool pathHasNoLinks(const fs::path& path) {
+  std::error_code ec;
+  const fs::path absolute = fs::absolute(path, ec);
+  if (ec) return false;
+  fs::path p;
+  for (const auto& part : absolute) {
+    p /= part;
+    const auto st = fs::symlink_status(p, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory) return false;
+    if (fs::is_symlink(st)) return false;
+  }
+  return true;
+}
+
+bool copyHasNoLinks(const fs::path& copyDir) {
+  if (!pathHasNoLinks(copyDir)) return false;
+  std::error_code ec;
+  if (!fs::exists(copyDir, ec)) return !ec;
+  for (fs::recursive_directory_iterator walk(copyDir, ec), end; !ec && walk != end; walk.increment(ec)) {
+    if (fs::is_symlink(walk->symlink_status(ec))) return false;
+    if (ec) return false;
+  }
+  return !ec;
+}
+
 bool parseNumber(const std::string& s, std::uint64_t& out) {
   if (s.empty() || s.size() > 19) return false;
   std::uint64_t v = 0;
@@ -399,12 +424,18 @@ bool foldersOverlap(const fs::path& a, const fs::path& b) {
 }
 
 void discardGameCopy(const fs::path& copyDir) {
+  if (!pathHasNoLinks(copyDir)) return;
   std::error_code ec;
   fs::remove(copyDir / kManifestName, ec);
 }
 
 GameCopyCheck checkGameCopy(const fs::path& copyDir) {
   GameCopyCheck c;
+  if (!copyHasNoLinks(copyDir)) {
+    c.state = GameCopyCheck::State::Damaged;
+    c.why = "the copy contains a link or cannot be read";
+    return c;
+  }
   std::error_code ec;
   const fs::path manifest = copyDir / kManifestName;
   if (!fs::is_regular_file(manifest, ec)) {
@@ -481,10 +512,20 @@ GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copy
     r.why = "the game folder and its copy overlap";
     return r;
   }
+  if (!copyHasNoLinks(copyDir)) {
+    r.why = "the copy contains a link or cannot be read";
+    return r;
+  }
   std::vector<Item> items;
   if (!listGameFiles(installDir, items, r.why)) return r;
   std::uint64_t total = 0;
-  for (auto& item : items) total += item.size;
+  for (auto& item : items) {
+    if (foldersOverlap(item.path, copyDir)) {
+      r.why = "a game file and its copy overlap";
+      return r;
+    }
+    total += item.size;
+  }
   std::error_code ec;
   fs::create_directories(copyDir, ec);
   if (ec || !fs::is_directory(copyDir, ec)) {
