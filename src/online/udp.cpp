@@ -187,15 +187,20 @@ static uint64_t splitmix(uint64_t& x) {
 LossyPort::LossyPort(std::unique_ptr<DatagramPort> inner, LinkSim sim) : inner_(std::move(inner)), sim_(sim), rng_(0x1234567ull * (sim.seed + 1)) {}
 
 void LossyPort::attach(Tally* t) {
+  if (tally_) {
+    tally_->live.erase(this);
+    tally_->dropped += dropped;
+    tally_->duplicated += duplicated;
+    tally_->reordered += reordered;
+  }
   tally_ = t;
   if (t) t->live.insert(this);
 }
-LossyPort::~LossyPort() {
-  if (!tally_) return;
-  tally_->live.erase(this);
-  tally_->dropped += dropped;
-  tally_->duplicated += duplicated;
-  tally_->reordered += reordered;
+LossyPort::~LossyPort() { attach(nullptr); }
+
+void LossyPort::releaseObservers() {
+  attach(nullptr);
+  inner_->releaseObservers();
 }
 
 double LossyPort::rnd() { return (double)(splitmix(rng_) >> 11) / 9007199254740992.0; }

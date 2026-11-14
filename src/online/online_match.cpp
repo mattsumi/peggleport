@@ -155,7 +155,8 @@ class OnlineGameScreen : public Screen {
   }
 
   void fail() {
-    if (!message_.empty()) return;
+    if (reason_ == net_->error) return;
+    reason_ = net_->error;
     bool known = true;
     message_ = troubleText(net_->error, Where::Match, net_->isHost(), std::string(), std::string(), &known);
     if (!known) pp::log::warn("net", "no plain message for this answer: " + cleanText(net_->error, 240));
@@ -168,12 +169,12 @@ class OnlineGameScreen : public Screen {
     for (auto& s : net_->takeShots())
       if (s.player != local_) match_.submit(s);
     uint32_t seed;
-    if (net_->takeRematch(&seed) && !peerGone_) {
+    if (net_->takeRematch(&seed) && !peerGone_ && !net_->failed()) {
       info_.seed = seed;
       startMatch(seed);
       return;
     }
-    if (net_->failed() && state_ != Lost) {
+    if (net_->failed()) {
       fail();
       if (state_ == Over) peerGone_ = true;
       else state_ = Lost;
@@ -289,7 +290,7 @@ class OnlineGameScreen : public Screen {
   int local_ = 0;
   bool ready_ = false, wantFire_ = false, menu_ = false, rematchAsked_ = false, peerGone_ = false;
   float mx_ = 325, my_ = 300, wheelNudge_ = 0;
-  std::string message_, statusKey_;
+  std::string message_, reason_, statusKey_;
   int turnNoted_ = -1;
   Card card_;
   float cardY_ = 170, cardH_ = 250;

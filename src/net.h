@@ -82,6 +82,7 @@ class Session {
   Peer* lobbyCtl_ = nullptr;
   std::string lobbyHost_, roomCode_, lobbyToken_;
   int lobbyPort_ = 0;
+  uint64_t lobbyPing_ = 0, lobbyReplyAt_ = 0;
   intptr_t listen_ = -1;
   int port_ = 0;
   bool host_ = false, welcomed_ = false, started_ = false, desync_ = false;
@@ -94,7 +95,7 @@ class Session {
   std::string rosterSig_;
   std::set<int> rematchVotes_;
   std::deque<uint32_t> rematchSeeds_;
-  bool left_ = false;
+  bool left_ = false, terminalReceived_ = false;
   std::map<std::pair<int, int>, uint64_t> mine_;
   std::map<std::pair<int, int>, std::vector<uint64_t>> theirs_;
 
@@ -102,7 +103,8 @@ class Session {
   void send(Peer& p, uint8_t type, const std::vector<uint8_t>& body);
   void broadcast(uint8_t type, const std::vector<uint8_t>& body, const Peer* except = nullptr);
   void compare(std::pair<int, int> key);
-  void flush(Peer& p);
+  static void flush(Peer& p);
+  void failMatch(const std::string& reason);
   void refreshRoster();
   void tryRematch();
   void resetForRematch(uint32_t seed);

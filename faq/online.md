@@ -14,7 +14,7 @@ All of it is done from the game. The only thing that needs a command line is the
 5. Playing: aim with the mouse and click (or press Space or Enter) on your turn. Esc opens the leave menu. In a Peg Party the two boxes at the top list everybody with their scores, yours first and marked YOU. The log (F10) says who you are, whether you are on a direct link (`Direct UDP link (23 ms)`) or relayed through the lobby, how many shots the host has verified, whose turn it is in a Duel, and rollbacks.
 6. When the match ends, **Rematch** needs everybody to ask (the host picks a new seed), or choose **Leave**.
 
-A disconnect or a mismatch puts a clear message on the screen instead of silently carrying on.
+A disconnect or a mismatch puts a clear message on the screen instead of silently carrying on. Losing the lobby ends the match for everybody, even with a working direct link. The message names the player or host whose connection was lost when that is known; an unknown network or server failure is not blamed on a player. A player who is no longer reachable may only see a connection-loss message.
 
 Everybody needs the same game data. A guest whose level files or active gameplay mods differ is turned away in the waiting room with a message that says so. A guest who does not have the mod that adds the Master you picked is told which Master is missing.
 
@@ -35,7 +35,7 @@ Players first talk through the lobby, which always works and needs no router set
 
 ## Running a lobby server
 
-`pp_lobbyd` is in the download. It does not need the game files.
+`pp_lobbyd` is in the download. It does not need the game files. Use the same current version of PegglePort and pp_lobbyd on every computer; older versions cannot join these matches.
 
 ```
 pp_lobbyd [port] [--no-udp] [--aux-offset N]

@@ -58,7 +58,11 @@ std::string troubleText(const std::string& raw, Where where, bool host, const st
   if (starts(raw, "cannot connect to ")) return "Could not reach a lobby at " + lobby + ". Check the address, or the server may be offline.";
   if (raw == "lobby connection failed") return "The connection to the lobby broke. Try again.";
   if (raw == "no room list") return lobby + " did not answer like a lobby server. Check the address and the port.";
-  if (raw == "lobby connection lost") return where == Where::Match ? "The connection to the lobby was lost." : "The connection to the lobby was lost, so your room is closed. Create it again.";
+  if (raw == "lobby heartbeat unavailable") return "This lobby server needs an update before you can play a match. Use the matching version of pp_lobbyd.";
+  if (starts(raw, "lobby connection lost: ")) return "The match ended because the host (" + shown(raw.substr(23), 24) + ") lost connection to the lobby. The cause is unknown.";
+  if (starts(raw, "lobby player connection lost: ")) return "The match ended because the lobby connection for " + shown(raw.substr(30), 24) + " was lost. The cause is unknown.";
+  if (raw == "lobby relay connection lost") return "The match ended because the lobby connection was lost. The cause is unknown.";
+  if (raw == "lobby connection lost") return where == Where::Match ? "The match ended because the connection to the lobby was lost. The cause is unknown." : host ? "The connection to the lobby was lost, so your room is closed. Create it again." : "The connection to the lobby was lost. Rejoin the room to try again.";
   if (starts(raw, "lobby refused the room: ")) return lobbyAnswer(raw.substr(24), Where::Open, code, known);
   if (raw == "protocol version mismatch") return "The host uses a different version of PegglePort. You both need the same version to play together.";
   if (raw == "match is full") return roomName(code) + " is full or already playing. Pick another room, or create your own.";

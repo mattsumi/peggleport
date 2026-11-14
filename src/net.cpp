@@ -10,6 +10,8 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <thread>
+#include <system_error>
 
 #include <cstring>
 
@@ -20,8 +22,8 @@
 namespace pp {
 
 namespace {
-enum : uint8_t { HELLO = 1, WELCOME, READY, START, SHOT, HASH, DESYNC, ERR, SWITCH, BYE, REMATCH_REQ, REMATCH, ROSTER };
-constexpr uint32_t PROTOCOL = 0x50500001;
+enum : uint8_t { HELLO = 1, WELCOME, READY, START, SHOT, HASH, DESYNC, ERR, SWITCH, BYE, REMATCH_REQ, REMATCH, ROSTER, LOBBY_LOST };
+constexpr uint32_t PROTOCOL = 0x50500002;
 
 struct W {
   std::vector<uint8_t> b;
@@ -77,7 +79,14 @@ struct Session::Peer {
   std::string name;
   std::unique_ptr<online::DirectLink> link;
   std::vector<uint8_t> udpOut, uin;
-  bool sentSwitch = false, gotSwitch = false, tcpClosed = false, bye = false;
+  bool sentSwitch = false, gotSwitch = false, tcpClosed = false, bye = false, writeClosed = false;
+  uint64_t tcpLostAt = 0;
+  ~Peer() { if (s != BAD_SOCK) closeSock(s); }
+  void loseTcp() {
+    if (tcpClosed) return;
+    tcpClosed = true;
+    tcpLostAt = online::nowMs();
+  }
 };
 
 static std::string cleanName(const std::string& s) {
@@ -92,11 +101,9 @@ Session::Session() { netStartup(); }
 Session::~Session() {
   leave();
   if (lobbyCtl_) {
-    if (lobbyCtl_->s != BAD_SOCK) closeSock(lobbyCtl_->s);
     delete lobbyCtl_;
   }
   for (auto p : peers_) {
-    if (p->s != BAD_SOCK) closeSock(p->s);
     delete p;
   }
   if (listen_ != -1) closeSock((sock_t)listen_);
@@ -246,7 +253,7 @@ bool Session::hostViaLobby(const std::string& lh, int lp, const std::string& roo
   std::snprintf(hash, sizeof hash, "%016llx", (unsigned long long)mi.contentHash);
   std::string name = roomName;
   for (auto& c : name) if (c == ' ') c = '_';
-  std::string req = "HOST " + (name.empty() ? std::string("room") : name) + " " + std::to_string(mi.players) + " " + (mi.party ? "1" : "0") + " " + (mi.level.empty() ? "?" : mi.level) + " " + hash + "\n";
+  std::string req = "HOST " + (name.empty() ? std::string("room") : name) + " " + std::to_string(mi.players) + " " + (mi.party ? "1" : "0") + " " + (mi.level.empty() ? "?" : mi.level) + " " + hash + " H\n";
   std::string buf, ln;
   if (!sendAllBlocking(s, req) || !readLineBlocking(s, buf, ln, 5000) || ln.rfind("OK ", 0) != 0) {
     if (err) *err = "lobby refused the room: " + ln;
@@ -256,11 +263,18 @@ bool Session::hostViaLobby(const std::string& lh, int lp, const std::string& roo
   }
   {
     std::istringstream is(ln.substr(3));
-    is >> roomCode_ >> lobbyToken_;
+    std::string capability;
+    is >> roomCode_ >> lobbyToken_ >> capability;
+    if (capability != "H") {
+      if (err) *err = "lobby heartbeat unavailable";
+      closeSock(s);
+      return false;
+    }
   }
   lobbyCtl_ = new Peer;
   lobbyCtl_->s = s;
   lobbyCtl_->in.assign(buf.begin(), buf.end());
+  lobbyReplyAt_ = online::nowMs();
   if (mi_.players <= 1) started_ = true;
   pp::log::info("net", "room " + roomCode_ + " is open on the lobby, waiting for " + std::to_string(std::max(0, mi_.players - 1)) + " player(s)");
   return true;
@@ -271,6 +285,18 @@ bool Session::joinViaLobby(const std::string& lh, int lp, const std::string& cod
   lobbyHost_ = lh;
   lobbyPort_ = lp;
   pp::log::info("net", "joining room " + code + " on the lobby " + lh + ":" + std::to_string(lp));
+  sock_t control = connectTo(lh, lp, err);
+  if (control == BAD_SOCK) return false;
+  std::string buf, line;
+  if (!sendAllBlocking(control, "WATCH H\n") || !readLineBlocking(control, buf, line, 3000) || line != "OK H") {
+    if (err) *err = "lobby heartbeat unavailable";
+    closeSock(control);
+    return false;
+  }
+  lobbyCtl_ = new Peer;
+  lobbyCtl_->s = control;
+  lobbyCtl_->in.assign(buf.begin(), buf.end());
+  lobbyReplyAt_ = online::nowMs();
   sock_t s = connectTo(lh, lp, err);
   if (s == BAD_SOCK) return false;
   if (!sendAllBlocking(s, "JOIN " + code + (udpEnabled ? " U" : "") + "\n")) {
@@ -332,6 +358,7 @@ void Session::broadcast(uint8_t type, const std::vector<uint8_t>& body, const Pe
 }
 
 void Session::poll() {
+  if (left_) return;
   if (host_ && listen_ != -1) {
     for (;;) {
       sock_t c = accept((sock_t)listen_, nullptr, nullptr);
@@ -350,19 +377,14 @@ void Session::poll() {
       pp::log::info("net", "a player connected");
     }
   }
-  if (lobbyCtl_ && !lobbyCtl_->dead) {
+  if (lobbyCtl_ && !lobbyCtl_->dead && !left_) {
     char tmp[512];
     for (;;) {
       auto n = recv(lobbyCtl_->s, tmp, sizeof tmp, 0);
       if (n > 0) lobbyCtl_->in.insert(lobbyCtl_->in.end(), tmp, tmp + n);
       else {
         if (n == 0 || !wouldBlock()) {
-          lobbyCtl_->dead = true;
-          bool onDirectLinks = started_ && connectedPeers() > 0;
-          for (auto p : peers_)
-            if (!p->dead && !(p->link && (p->sentSwitch || p->gotSwitch))) onDirectLinks = false;
-          if (!onDirectLinks) error = "lobby connection lost";
-          pp::log::warn("net", "lobby connection lost");
+          lobbyCtl_->loseTcp();
         }
         break;
       }
@@ -372,6 +394,12 @@ void Session::poll() {
       if (nl == lobbyCtl_->in.end()) break;
       std::string l(lobbyCtl_->in.begin(), nl);
       lobbyCtl_->in.erase(lobbyCtl_->in.begin(), nl + 1);
+      if (lobbyPing_ && l == "PONG " + std::to_string(lobbyPing_)) {
+        lobbyReplyAt_ = online::nowMs();
+        lobbyPing_ = 0;
+        continue;
+      }
+      if (lobbyCtl_->tcpClosed || failed() || !host_) continue;
       if (l.rfind("INCOMING ", 0) != 0) continue;
       std::string e2;
       sock_t as = connectTo(lobbyHost_, lobbyPort_, &e2);
@@ -386,9 +414,24 @@ void Session::poll() {
       p->awaitOk = true;
       peers_.push_back(p);
     }
+    const uint64_t now = online::nowMs();
+    if (!failed() && !lobbyCtl_->tcpClosed && !lobbyPing_ && now - lobbyReplyAt_ >= 1000) {
+      lobbyPing_ = now;
+      const std::string ping = "PING " + std::to_string(lobbyPing_) + "\n";
+      lobbyCtl_->out.insert(lobbyCtl_->out.end(), ping.begin(), ping.end());
+      flush(*lobbyCtl_);
+    }
+    if (lobbyCtl_->tcpClosed || (lobbyPing_ && now - lobbyPing_ >= 5000)) {
+      lobbyCtl_->dead = true;
+      failMatch(started_ ? host_ ? "lobby connection lost: " + (cleanName(name_).empty() ? std::string("Host") : cleanName(name_)) : "lobby relay connection lost" : "lobby connection lost");
+      pp::log::warn("net", "lobby control connection lost or timed out");
+    }
   }
   for (auto p : peers_) {
-    if (p->dead) continue;
+    if (p->dead) {
+      if (p->link) p->link->poll();
+      continue;
+    }
     std::string linkLost;
     if (p->link) {
       p->link->poll();
@@ -408,17 +451,25 @@ void Session::poll() {
         if (n > 0) p->in.insert(p->in.end(), buf, buf + n);
         else {
           if (n == 0 || !wouldBlock()) {
-            p->tcpClosed = true;
-            if (!p->link || !(p->sentSwitch || p->gotSwitch)) p->dead = true;
+            p->loseTcp();
           }
           break;
         }
       }
     }
-    if (p->tcpClosed && p->link && !p->dead && p->link->lastRecvAgeMs() > 3000) p->dead = true;
-    if (p->awaitOk && !p->in.empty()) {
+    if (p->awaitOk) {
       auto nl = std::find(p->in.begin(), p->in.end(), (uint8_t)'\n');
-      if (nl == p->in.end()) { if (!p->dead) continue; }
+      if (nl == p->in.end()) {
+        if (!p->tcpClosed) continue;
+        p->dead = true;
+        p->bye = true;
+        if (host_) pp::log::info("net", "the lobby closed the connection for an incoming player without an answer");
+        else if (error.empty()) {
+          error = "lobby: connection closed";
+          pp::log::error("net", "the lobby closed the connection without an answer");
+        }
+        continue;
+      }
       else {
         std::string l(p->in.begin(), nl);
         p->in.erase(p->in.begin(), nl + 1);
@@ -444,15 +495,6 @@ void Session::poll() {
         }
         if (!host_) send(*p, HELLO, helloBody());
       }
-    } else if (p->awaitOk) {
-      if (p->dead && host_ && !p->bye) {
-        p->bye = true;
-        pp::log::info("net", "the lobby closed the connection for an incoming player without an answer");
-      } else if (p->dead && !host_ && error.empty()) {
-        error = "lobby: connection closed";
-        pp::log::error("net", "the lobby closed the connection without an answer");
-      }
-      continue;
     }
     for (;;) {
       std::vector<uint8_t>& buf = p->gotSwitch ? p->uin : p->in;
@@ -470,9 +512,13 @@ void Session::poll() {
       handle(*p, type, body);
       if (p->dead) break;
     }
+    if (p->tcpClosed && (!p->link || !(p->sentSwitch || p->gotSwitch))) p->dead = true;
+    if (started_ && !lobbyHost_.empty() && p->tcpClosed && p->tcpLostAt && online::nowMs() - p->tcpLostAt >= 300 && !p->bye) {
+      failMatch(host_ ? "lobby player connection lost: " + who(*p) : "lobby relay connection lost");
+    }
     if (!linkLost.empty() && !p->dead) {
       p->dead = true;
-      if (error.empty()) error = linkLost;
+      failMatch(linkLost);
       pp::log::warn("net", linkLost);
     }
     if (p->dead && !p->bye) {
@@ -480,13 +526,25 @@ void Session::poll() {
         if (notice.empty()) notice = who(*p) + " left the room";
         pp::log::info("net", who(*p) + " left the room");
       } else {
-        std::string lost = host_ ? who(*p) + " lost connection" : "lost connection to the host";
-        if (error.empty()) error = lost;
+        std::string lost = !host_ && !lobbyHost_.empty() && p->tcpClosed ? "lobby relay connection lost" : who(*p) + " lost connection";
+        failMatch(lost);
         pp::log::warn("net", lost);
       }
     }
   }
   if (host_) refreshRoster();
+}
+
+void Session::failMatch(const std::string& reason) {
+  if (!error.empty()) return;
+  error = reason;
+  if (host_ && started_) {
+    broadcast(ERR, W().str(reason).b);
+    for (auto p : peers_) if (!p->dead) flush(*p);
+  } else if (started_ && !lobbyHost_.empty() && (reason == "lobby relay connection lost" || reason == "lobby connection lost")) {
+    broadcast(LOBBY_LOST, {});
+    for (auto p : peers_) if (!p->dead) flush(*p);
+  }
 }
 
 void Session::flush(Peer& p) {
@@ -499,14 +557,14 @@ void Session::flush(Peer& p) {
     auto n = ::send(p.s, (const char*)p.out.data(), (socklen_arg)p.out.size(), MSG_NOSIGNAL);
     if (n > 0) p.out.erase(p.out.begin(), p.out.begin() + n);
     else {
-      if (n < 0 && !wouldBlock()) { p.tcpClosed = true; if (!p.link || !(p.sentSwitch || p.gotSwitch)) p.dead = true; }
+      if (n == 0 || !wouldBlock()) p.loseTcp();
       break;
     }
   }
 }
 
 std::string Session::who(const Peer& p) const {
-  if (!host_) return "the host";
+  if (!host_) return !roster_.empty() && !cleanName(roster_[0].name).empty() ? "the host " + cleanName(roster_[0].name) : "the host";
   if (!p.name.empty()) return p.name;
   return p.player >= 0 ? "player " + std::to_string(p.player + 1) : std::string("a player");
 }
@@ -560,14 +618,63 @@ void Session::leave() {
   if (left_) return;
   left_ = true;
   pp::log::info("net", "left the session");
+  if (lobbyCtl_ && lobbyCtl_->s != BAD_SOCK) {
+    closeSock(lobbyCtl_->s);
+    lobbyCtl_->s = BAD_SOCK;
+    lobbyCtl_->dead = true;
+  }
   for (auto p : peers_) {
-    if (p->dead) continue;
+    if (p->dead || failed()) continue;
     send(*p, BYE, {});
     flush(*p);
   }
+  if (peers_.empty()) return;
+  auto ending = std::make_shared<std::vector<std::unique_ptr<Peer>>>();
   for (auto p : peers_) {
-    if (p->link) p->link->close();
-    if (p->s != BAD_SOCK && !p->tcpClosed) { closeSock(p->s); p->s = BAD_SOCK; p->tcpClosed = true; }
+    if (p->link) p->link->releaseObservers();
+    ending->emplace_back(p);
+  }
+  peers_.clear();
+  const uint64_t deadline = online::nowMs() + 2500;
+  try {
+    std::thread([ending, deadline] {
+      do {
+        for (auto it = ending->begin(); it != ending->end();) {
+          Peer& p = **it;
+          flush(p);
+          bool done = p.tcpClosed && (!p.link || !(p.sentSwitch || p.gotSwitch));
+          if (p.link && (p.sentSwitch || p.gotSwitch)) {
+            std::vector<uint8_t> received;
+            p.link->read(&received);
+            const auto* stream = p.link->stream();
+            done = p.link->streamDead() || (p.out.empty() && p.udpOut.empty() && stream && stream->queued() == 0 && stream->unacked() == 0);
+          } else if (!p.tcpClosed) {
+            if (p.out.empty() && !p.writeClosed) {
+#ifdef _WIN32
+              shutdown(p.s, SD_SEND);
+#else
+              shutdown(p.s, SHUT_WR);
+#endif
+              p.writeClosed = true;
+            }
+            char received[4096];
+            for (int i = 0; i < 32; i++) {
+              auto n = recv(p.s, received, sizeof received, 0);
+              if (n > 0) continue;
+              if (n == 0 || !wouldBlock()) p.loseTcp();
+              break;
+            }
+            done = p.tcpClosed;
+          }
+          if (done) it = ending->erase(it);
+          else ++it;
+        }
+        if (ending->empty() || online::nowMs() >= deadline) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      } while (true);
+    }).detach();
+  } catch (const std::system_error&) {
+    pp::log::warn("net", "could not finish sending the final match message");
   }
 }
 
@@ -588,7 +695,7 @@ void Session::hostStart() {
 
 void Session::refreshRoster() {
   std::vector<Seat> r(mi_.players);
-  r[0] = {name_.empty() ? "Host" : name_, true, true};
+  r[0] = {cleanName(name_).empty() ? "Host" : cleanName(name_), true, true};
   for (auto q : peers_)
     if (!q->dead && q->player > 0 && q->player < (int)r.size()) r[q->player] = {q->name.empty() ? "Player " + std::to_string(q->player + 1) : q->name, true, q->ready};
   std::string sig;
@@ -647,11 +754,15 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
     std::string m = who(p) + (started_ ? " left the match" : host_ ? " left the room" : " closed the room");
     pp::log::info("net", m);
     if (host_ && !started_) notice = m;
-    else if (error.empty()) error = m;
+    else if (host_) failMatch(m);
+    else if (!terminalReceived_) { error = m; terminalReceived_ = true; }
     return;
   }
   if (host_) {
     switch (type) {
+      case LOBBY_LOST:
+        if (started_ && p.player > 0 && body.empty()) failMatch("lobby player connection lost: " + who(p));
+        return;
       case HELLO: {
         if (r.u32() != PROTOCOL) {
           pp::log::warn("net", "refused a player: protocol version mismatch");
@@ -788,10 +899,15 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
       desyncMsg = r.str();
       pp::log::error("net", "the host reports: " + desyncMsg);
       return;
-    case ERR:
-      error = r.str();
-      pp::log::error("net", "the host refused or ended the connection: " + error);
+    case ERR: {
+      std::string reason = r.str();
+      if (r.ok && !terminalReceived_) {
+        error = reason;
+        terminalReceived_ = true;
+        pp::log::error("net", "the host refused or ended the connection: " + error);
+      }
       return;
+    }
   }
 }
 
@@ -800,6 +916,7 @@ void Session::sendReady(uint64_t h) {
 }
 
 void Session::sendShot(const ShotCmd& c0) {
+  if (failed() || left_) return;
   ShotCmd c = c0;
   if (host_) {
     c.seq = seq_++;

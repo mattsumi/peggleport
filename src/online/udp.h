@@ -33,6 +33,7 @@ class DatagramPort {
   virtual bool sendTo(const Endpoint& to, const uint8_t* d, size_t n) = 0;
   virtual int recvFrom(Endpoint* from, uint8_t* buf, size_t cap) = 0;
   virtual int localPort() const = 0;
+  virtual void releaseObservers() {}
 };
 std::unique_ptr<DatagramPort> openUdpPort(int bindPort, std::string* err);
 
@@ -53,6 +54,7 @@ class LossyPort : public DatagramPort {
     std::set<const LossyPort*> live;
   };
   void attach(Tally* t);
+  void releaseObservers() override;
   ~LossyPort() override;
 
  private:

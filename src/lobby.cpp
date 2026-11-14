@@ -23,7 +23,7 @@ struct LobbyServer::Conn {
   sock_t s = BAD_SOCK;
   std::string in;
   std::string out;
-  enum Role { Unknown, HostCtl, Waiting, Pipe } role = Unknown;
+  enum Role { Unknown, HostCtl, WatchCtl, Waiting, Pipe } role = Unknown;
   Conn* peer = nullptr;
   std::string code, ip;
   bool dead = false, closeAfter = false, countedInRoom = false, wantUdp = false;
@@ -149,8 +149,8 @@ void LobbyServer::line(Conn& c, const std::string& l) {
   is >> cmd;
   if (cmd == "HOST" && c.role == Conn::Unknown) {
     Room r;
-    std::string name, party, players, level, hash;
-    is >> name >> players >> party >> level >> hash;
+    std::string name, party, players, level, hash, capability;
+    is >> name >> players >> party >> level >> hash >> capability;
     r.name = clean(name, 32);
     r.level = clean(level, 32);
     r.hash = clean(hash, 16);
@@ -167,8 +167,24 @@ void LobbyServer::line(Conn& c, const std::string& l) {
     r.hostIp = c.ip;
     c.role = Conn::HostCtl;
     c.code = r.code;
-    reply(c, "OK " + r.code + " " + r.token + "\n");
+    reply(c, "OK " + r.code + " " + r.token + (capability == "H" ? " H\n" : "\n"));
     rooms_[r.code] = r;
+  } else if (cmd == "WATCH" && c.role == Conn::Unknown) {
+    std::string capability;
+    is >> capability;
+    if (capability != "H") { reply(c, "ERR unknown command\n", true); return; }
+    c.role = Conn::WatchCtl;
+    reply(c, "OK H\n");
+  } else if (cmd == "PING" && (c.role == Conn::HostCtl || c.role == Conn::WatchCtl)) {
+    std::string nonce;
+    is >> nonce;
+    if (nonce.empty() || nonce.size() > 20 || nonce.find_first_not_of("0123456789") != std::string::npos) reply(c, "ERR bad PING\n", true);
+    else {
+      reply(c, "PONG " + nonce + "\n");
+      if (c.role == Conn::HostCtl)
+        for (auto& pipe : conns_)
+          if (!pipe->dead && pipe->role == Conn::Pipe && pipe->code == c.code) pipe->lastActivity = Clock::now();
+    }
   } else if (cmd == "LIST" && c.role == Conn::Unknown) {
     std::string o;
     for (auto& [code, r] : rooms_)
@@ -329,7 +345,7 @@ void LobbyServer::poll() {
     bool expired = false;
     if (c.role == Conn::Unknown || c.role == Conn::Waiting) expired = since(c.created) > limits.handshakeMs;
     else if (c.role == Conn::Pipe) expired = since(c.lastActivity) > limits.pipeIdleMs && c.peer && since(c.peer->lastActivity) > limits.pipeIdleMs;
-    else if (c.role == Conn::HostCtl) expired = since(c.lastActivity) > limits.hostIdleMs;
+    else if (c.role == Conn::HostCtl || c.role == Conn::WatchCtl) expired = since(c.lastActivity) > limits.hostIdleMs;
     if (expired) { c.closeAfter = true; drop(c); }
   }
   for (auto& cp : conns_) {

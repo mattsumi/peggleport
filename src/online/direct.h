@@ -38,6 +38,7 @@ class DirectLink {
   const std::string& deadReason() const;
   uint64_t lastRecvAgeMs() const;
   void close();
+  void releaseObservers() { if (port_) port_->releaseObservers(); p_.wrap = {}; }
   Endpoint publicEndpoint() const { return obsMain_; }
   Endpoint peerEndpoint() const { return peer_; }
   bool symmetricNat() const { return symmetric_; }
