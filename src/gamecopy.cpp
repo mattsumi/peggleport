@@ -514,10 +514,12 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
     if (ec) return damaged(e.name + " is missing");
     if ((std::uint64_t)size != e.size) return damaged(e.name + " has " + std::to_string((std::uint64_t)size) + " bytes, not " + std::to_string(e.size));
     if (!fileMatches(file, e.size, e.crc)) return damaged(e.name + " is damaged or cannot be read");
-    if (e.name == "main.pak") pak = true;
+    if (lower(e.name) == "main.pak") {
+      if (!pakStartsRight(file)) return damaged(e.name + " does not start like a game file");
+      pak = true;
+    }
   }
   if (!pak) return damaged("main.pak is not in the manifest");
-  if (!pakStartsRight(copyDir / "main.pak")) return damaged("main.pak does not start like a game file");
   c.state = GameCopyCheck::State::Intact;
   c.files = entries.size();
   c.bytes = total;
@@ -562,11 +564,11 @@ GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copy
     return r;
   }
   std::set<std::string> keep;
+  for (auto& item : items) keep.insert(item.rel);
+  pruneCopy(copyDir, keep);
   for (auto& item : items) {
     if (!copyOne(item, copyDir, r.why)) return r;
-    keep.insert(item.rel);
   }
-  pruneCopy(copyDir, keep);
   if (!writeManifest(copyDir, installDir, items, total, r.why)) return r;
   r.ok = true;
   r.files = items.size();
