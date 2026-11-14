@@ -24,6 +24,7 @@ class LobbyServer {
   };
   Limits limits;
   bool enableUdp = true;
+  bool proxyLocal = false;
   int udpAuxOffset = 1;
   std::string udpError;
 
@@ -61,6 +62,7 @@ class LobbyServer {
   std::map<uint32_t, Conn*> pending_;
   size_t refused_ = 0;
 
+  bool resolveSource(Conn& c, const std::string& header);
   void line(Conn& c, const std::string& l);
   void reply(Conn& c, const std::string& s, bool closeAfter = false);
   std::string newCode();
