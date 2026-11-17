@@ -148,13 +148,16 @@ Yes, inside the game. Open **Options, then Level Editor**, or press **F9** on th
 ## Online play
 
 **How do I play with a friend?**
-Open **Online** on the main menu. Everybody enters the same lobby server address, one player creates a room and the others join it from the list, with the 5-character code, or by pasting an invite link. See [faq/online.md](faq/online.md), which also explains how to run a lobby server yourself.
+Open **Online** on the main menu. The public lobby is already filled in. One player creates a room and the others join it from the list, with the 5-character code, or by pasting an invite link. See [faq/online.md](faq/online.md), which also explains how to run a lobby server yourself.
 
 **Is there a public lobby server?**
-You need the address of a lobby server somebody runs. `pp_lobbyd` in the download is the server, and the guide shows how to start it.
+Yes. Its address is filled in when you open **Online**: `wss://peggleport-lobby.konekurosawa.org/lobby`. You can also enter the address of a server somebody else runs, or run your own. `pp_lobbyd` in the download is the server, and the guide shows how to start it.
 
 **What does "Test connection" do?**
-It checks that the lobby answers over UDP and what kind of router you sit behind. UDP is what allows a direct link between players; if it does not work, the game uses the slower relay through the lobby automatically.
+On the public lobby it checks that the room list answers. On a custom server it checks that the lobby answers over UDP and what kind of router you sit behind. UDP is what allows a direct link between players; if it does not work, the game uses the slower relay through the lobby automatically.
+
+**Do I need Steam or Discord to play online?**
+No. Both are optional. **Discord activity** on the Online screen is off until you turn it on, and Steam is only used by builds made with the Steamworks SDK when Steam is running. The guide in [faq/online.md](faq/online.md) explains what each one adds.
 
 ## Problems
 
