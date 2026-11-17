@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -87,6 +88,8 @@ class Session {
   Peer* lobbyCtl_ = nullptr;
   std::string lobbyHost_, roomCode_, lobbyToken_;
   int lobbyPort_ = 0;
+  bool steamRoomRequested_ = false;
+  uint64_t steamRoomRetryAt_ = 0, steamRoomRetryDelay_ = 1000;
   uint64_t lobbyPing_ = 0, lobbyReplyAt_ = 0;
   intptr_t listen_ = -1;
   int port_ = 0;
@@ -102,7 +105,8 @@ class Session {
   std::deque<uint32_t> rematchSeeds_;
   bool left_ = false, terminalReceived_ = false;
   std::map<std::pair<int, int>, uint64_t> mine_;
-  std::map<std::pair<int, int>, std::vector<uint64_t>> theirs_;
+  std::map<std::pair<int, int>, std::map<int, std::pair<uint64_t, bool>>> theirs_;
+  std::array<int, 4> hashIndex_{};
 
   void handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body);
   void send(Peer& p, uint8_t type, const std::vector<uint8_t>& body);

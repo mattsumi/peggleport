@@ -93,6 +93,7 @@ The bridge only listens on `127.0.0.1:7772`, accepts WebSockets at `/lobby`, and
 * A player's address is only recorded after a cookie tied to the source address proves it, so nobody can plant a fake address for another player.
 * Direct links need a secret that the lobby hands over TCP to exactly those two players. Packets are authenticated with it, and packets from anybody else are dropped.
 * Request rates are limited per address and overall, and the number of tracked addresses and live pairs is capped.
+* Hash checks accept reports only from assigned players. Each player can report once per board and shot, in order. Up to 4,096 outstanding local checks and 4,096 outstanding remote check keys are retained, with at most one report per remote seat at each key. Completed checks are released and rematches reset the counters. This bounds a stalled or flooding peer without limiting the total shots in a match. Invalid or excessive reports end the session with the affected player’s name.
 * Native lobby traffic over TCP is not encrypted. Somebody who can read it learns the pair secret. Secure lobby connections verify the server certificate against this computer’s trusted roots and encrypt traffic as far as the HTTPS tunnel endpoint. The lobby and its bridge can still read relayed traffic.
 
 ## Discord (optional)
@@ -103,4 +104,10 @@ A host waiting in a room with an open seat can share that room through Discord. 
 
 ## Steam (optional)
 
-If you build PegglePort yourself with the Steamworks SDK (`cmake -DPP_STEAM=ON -DSTEAMWORKS_SDK_DIR=/path/to/sdk ...`), your Steam status shows "In a PegglePort room" with a **Join Game** entry, and a click from a friend arrives as the same invite link. The SDK is not part of this project and can not be redistributed, so the downloads do not have this. For development the code uses Steam's test App ID 480 (Spacewar): put a `steam_appid.txt` containing `480` next to the program with Steam running.
+I keep Steam optional. Builds made with the Steamworks SDK (`cmake -DPP_STEAM=ON -DSTEAMWORKS_SDK_DIR=/path/to/sdk ...`) can use Steam presence, friend invitations, lobbies and peer networking when Steam is available. Without Steam, singleplayer and the usual online connections still work. PegglePort does not start Steam.
+
+An open host room can share its existing invitation through Steam. Full rooms and matches have no join link. Incoming friend invitations and lobby requests fill in the existing Online screen; press **Join** to connect. They do not interrupt a level or another room, replace a destination you selected, or override a Discord invitation already on screen. A Steam request waiting behind a level, room or dialog expires after five seconds.
+
+Compatible players can use Steam for their match connection after confirming their identities through the room connection and joining the same PegglePort lobby. If this cannot be set up, the usual direct or lobby connection remains available. The public lobby connection must stay healthy throughout the match, including when match traffic uses Steam.
+
+Development uses App ID 480 (Spacewar). A `steam_appid.txt` containing `480` belongs next to the program for that setup. Steam may identify it as Spacewar; I do not rely on custom Steam presence translations for this ID. The SDK stays separate from this project. Steam-enabled builds need the appropriate Steam API runtime from the SDK's `redistributable_bin` directory under Valve's licence.

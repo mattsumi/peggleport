@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <sstream>
 #include <cstdio>
 #include <cstdint>
@@ -18,13 +19,16 @@
 #include "log.h"
 #include "masters.h"
 #include "online/endpoint.h"
+#include "online/invite.h"
+#include "online/steam.h"
 #include "online/websocket.h"
 #include "sockcompat.h"
 
 namespace pp {
 
 namespace {
-enum : uint8_t { HELLO = 1, WELCOME, READY, START, SHOT, HASH, DESYNC, ERR, SWITCH, BYE, REMATCH_REQ, REMATCH, ROSTER, LOBBY_LOST };
+enum : uint8_t { HELLO = 1, WELCOME, READY, START, SHOT, HASH, DESYNC, ERR, SWITCH, BYE, REMATCH_REQ, REMATCH, ROSTER, LOBBY_LOST, STEAM_OFFER, STEAM_CHOICE };
+constexpr size_t maxPendingHashes = 4096;
 constexpr uint32_t PROTOCOL = 0x50500002;
 
 struct W {
@@ -81,6 +85,13 @@ struct Session::Peer {
   bool ready = false, dead = false, retiring = false, awaitOk = false;
   std::string name;
   std::unique_ptr<online::DirectLink> link;
+  std::unique_ptr<online::steam::Link> steam;
+  uint64_t steamPeer = 0, steamSince = 0;
+  int steamSeat = -1;
+  std::vector<uint8_t> pendingHello;
+  std::array<int, 4> hashIndex{};
+  std::array<uint64_t, 4> hashValue{};
+  bool steamOffer = false, steamDecided = false, steamSelected = false;
   std::vector<uint8_t> udpOut, uin;
   bool sentSwitch = false, gotSwitch = false, tcpClosed = false, bye = false, writeClosed = false;
   uint64_t tcpLostAt = 0;
@@ -258,7 +269,12 @@ bool Session::join(const std::string& h, int port, std::string* err) {
   return true;
 }
 
-std::vector<uint8_t> Session::helloBody() const { return W().u32(PROTOCOL).str(name_).b; }
+std::vector<uint8_t> Session::helloBody() const {
+  W body;
+  body.u32(PROTOCOL).str(name_);
+  if (online::steam::identity() && !lobbyHost_.empty()) body.u32(0x50505301).u64(online::steam::identity());
+  return body.b;
+}
 
 template<class P>
 static bool readLineBlocking(P& peer, std::string& buf, std::string& line, int timeoutMs, const std::atomic<bool>* stop = nullptr) {
@@ -331,6 +347,7 @@ bool Session::joinViaLobby(const std::string& lh, int lp, const std::string& cod
     return false;
   }
   host_ = false;
+  roomCode_ = code;
   lobbyHost_ = lh;
   lobbyPort_ = lp;
   pp::log::info("net", "joining room " + code + " on the lobby " + lh);
@@ -400,6 +417,14 @@ void Session::broadcast(uint8_t type, const std::vector<uint8_t>& body, const Pe
 
 void Session::poll() {
   if (left_) return;
+  if (host_ && welcomed_ && !started_ && !failed() && !lobbyHost_.empty() && online::steam::identity()) {
+    const auto state = online::steam::roomState(this);
+    if (state == online::steam::RoomState::Failed && online::nowMs() >= steamRoomRetryAt_) {
+      steamRoomRequested_ = online::steam::hostRoom(this, online::makeInvite(lobbyHost_, lobbyPort_, roomCode_), mi_.players);
+      steamRoomRetryAt_ = online::nowMs() + steamRoomRetryDelay_;
+      steamRoomRetryDelay_ = std::min<uint64_t>(steamRoomRetryDelay_ * 2, 10000);
+    }
+  }
   for (auto it = attaches_.begin(); it != attaches_.end();) {
     Attach& attach = **it;
     if (!attach.done) { ++it; continue; }
@@ -484,12 +509,51 @@ void Session::poll() {
   for (auto p : peers_) {
     if (p->dead) {
       if (p->link) p->link->poll();
+      if (p->steam) p->steam->poll();
       continue;
     }
     std::string linkLost;
-    if (p->link) {
+    const uint64_t now = online::nowMs();
+    if (host_ && p->steamPeer && !p->steamDecided && !p->sentSwitch && !p->gotSwitch) {
+      if (!p->steamOffer && online::steam::roomId(this)) {
+        std::string key;
+        try { key = online::randomHex(16); } catch (const std::exception&) {}
+        if (!key.empty()) {
+          p->steam = online::steam::Link::open(this, p->steamPeer, key, true);
+          if (p->steam) {
+            p->steamOffer = true;
+            send(*p, STEAM_OFFER, W().u32(1).u64(online::steam::identity()).u64(online::steam::roomId(this))
+                .u8((uint8_t)p->steamSeat).u8((uint8_t)mi_.players).str(key).str(online::makeInvite(lobbyHost_, lobbyPort_, roomCode_)).b);
+          }
+        }
+      }
+      if ((p->steam && p->steam->up()) || now - p->steamSince >= (p->steamOffer ? 6000u : 2000u)) {
+        p->steamSelected = p->steam && p->steam->up();
+        p->steamDecided = true;
+        send(*p, STEAM_CHOICE, W().u8(p->steamSelected ? 1 : 0).b);
+        if (!p->steamSelected) p->steam.reset();
+        if (!p->pendingHello.empty()) {
+          const auto hello = std::move(p->pendingHello);
+          p->pendingHello.clear();
+          handle(*p, HELLO, hello);
+        }
+      }
+    }
+    if (p->steam) {
+      p->steam->poll();
+      if (p->steamSelected && p->steam->up() && !p->sentSwitch) {
+        send(*p, SWITCH, {1});
+        p->sentSwitch = true;
+        p->link.reset();
+      }
+      if ((p->sentSwitch || p->gotSwitch) && p->steamSelected && p->steam->streamDead()) linkLost = who(*p) + " lost the Steam link";
+      if (p->steamSelected) p->steam->read(&p->uin);
+    }
+    const bool waitSteam = !p->steamDecided && p->steamSince && now - p->steamSince < (p->steamOffer ? 8000u : 6000u);
+    if (!host_ && p->steamOffer && !p->steamDecided && !waitSteam) linkLost = "the Steam link to " + who(*p) + " could not be completed";
+    if (p->link && !p->steamSelected) {
       p->link->poll();
-      if (p->link->up() && !p->sentSwitch && !p->awaitOk) {
+      if (p->link->up() && !p->sentSwitch && !p->awaitOk && !waitSteam) {
         send(*p, SWITCH, {});
         p->sentSwitch = true;
       }
@@ -549,7 +613,10 @@ void Session::poll() {
           is >> key >> aux;
           startDirect(*p, key, aux);
         }
-        if (!host_) send(*p, HELLO, helloBody());
+        if (!host_) {
+          send(*p, HELLO, helloBody());
+          if (online::steam::identity()) p->steamSince = online::nowMs();
+        }
       }
     }
     for (;;) {
@@ -568,7 +635,7 @@ void Session::poll() {
       handle(*p, type, body);
       if (p->dead) break;
     }
-    if (p->tcpClosed && (!p->link || !(p->sentSwitch || p->gotSwitch)) && (!started_ || lobbyHost_.empty() || online::nowMs() - p->tcpLostAt >= 300)) p->dead = true;
+    if (p->tcpClosed && ((!p->link && !p->steam) || !(p->sentSwitch || p->gotSwitch)) && (!started_ || lobbyHost_.empty() || online::nowMs() - p->tcpLostAt >= 300)) p->dead = true;
     if (started_ && !lobbyHost_.empty() && p->tcpClosed && p->tcpLostAt && online::nowMs() - p->tcpLostAt >= 300 && !p->bye) {
       failMatch(host_ ? "lobby player connection lost: " + who(*p) : "lobby relay connection lost");
     }
@@ -587,11 +654,25 @@ void Session::poll() {
         pp::log::warn("net", lost);
       }
     }
+    if (host_ && p->dead && p->player > 0) {
+      for (auto it = theirs_.begin(); it != theirs_.end();) {
+        it->second.erase(p->player);
+        if (it->second.empty()) it = theirs_.erase(it);
+        else ++it;
+      }
+    }
   }
   if (host_) refreshRoster();
+  if (steamRoomRequested_) {
+    int seated = 0;
+    for (const auto& seat : roster_) seated += seat.connected ? 1 : 0;
+    online::steam::updateRoom(this, seated, started_ || failed());
+    if (failed()) online::steam::clearPresence();
+  }
+  for (auto* p : peers_) if (p->dead && p->steam) { flush(*p); online::steam::Link::retire(std::move(p->steam)); }
   std::vector<std::unique_ptr<Peer>> ending;
   for (auto it = peers_.begin(); it != peers_.end();) {
-    if ((*it)->retiring) {
+    if ((*it)->dead) {
       ending.emplace_back(*it);
       it = peers_.erase(it);
     } else ++it;
@@ -612,7 +693,11 @@ void Session::failMatch(const std::string& reason) {
 }
 
 void Session::flush(Peer& p) {
-  if (p.link && !p.udpOut.empty()) {
+  if (p.steamSelected && p.steam) {
+    if (!p.udpOut.empty()) { p.steam->write(p.udpOut); p.udpOut.clear(); }
+    p.steam->poll();
+  }
+  if (!p.steamSelected && p.link && !p.udpOut.empty()) {
     p.link->write(p.udpOut);
     p.udpOut.clear();
   }
@@ -659,6 +744,12 @@ bool Session::direct() const {
 }
 
 std::string Session::linkNote() const {
+  int steam = 0, active = 0;
+  for (const auto* peer : peers_) if (!peer->dead) {
+    ++active;
+    if (peer->steamSelected && peer->sentSwitch && peer->gotSwitch) ++steam;
+  }
+  if (steam) return steam == active ? "Steam peer connection" : "Steam and other peer connections";
   for (auto p : peers_) {
     if (p->dead) continue;
     if (p->sentSwitch && p->gotSwitch) {
@@ -699,11 +790,18 @@ void Session::leave() {
   for (auto p : peers_) ending.emplace_back(p);
   peers_.clear();
   drain(std::move(ending), std::move(attaches_));
+  if (steamRoomRequested_) online::steam::leaveRoom(this);
 }
 
 void Session::drain(std::vector<std::unique_ptr<Peer>> peers, std::vector<std::unique_ptr<Attach>> attaches) {
   if (peers.empty() && attaches.empty()) return;
-  for (auto& p : peers) if (p->link) p->link->releaseObservers();
+  for (auto& p : peers) {
+    if (p->steam) {
+      flush(*p);
+      online::steam::Link::retire(std::move(p->steam));
+    }
+    if (p->link) p->link->releaseObservers();
+  }
   auto ending = std::make_shared<std::vector<std::unique_ptr<Peer>>>(std::move(peers));
   auto attaching = std::make_shared<std::vector<std::unique_ptr<Attach>>>(std::move(attaches));
   const uint64_t deadline = online::nowMs() + 2500;
@@ -788,6 +886,8 @@ void Session::resetForRematch(uint32_t seed) {
   rematchVotes_.clear();
   mine_.clear();
   theirs_.clear();
+  hashIndex_.fill(0);
+  for (auto* p : peers_) { p->hashIndex.fill(0); p->hashValue.fill(0); }
   desync_ = false;
   desyncMsg.clear();
   hashesCompared = 0;
@@ -822,7 +922,49 @@ bool Session::takeRematch(uint32_t* seed) {
 
 void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
   R r{body};
-  if (type == SWITCH) { p.gotSwitch = true; return; }
+  if (type == SWITCH) {
+    if (!body.empty() && (body.size() != 1 || body[0] != 1 || !p.steamSelected || !p.steam)) {
+      p.dead = true;
+      failMatch("incompatible connection switch");
+      return;
+    }
+    if (body.empty() && p.steamSelected) { p.dead = true; failMatch("incompatible connection switch"); return; }
+    if (host_ && !p.steamDecided && !p.pendingHello.empty()) {
+      p.steamDecided = true;
+      p.steam.reset();
+      const auto hello = std::move(p.pendingHello);
+      p.pendingHello.clear();
+      handle(p, HELLO, hello);
+    }
+    p.gotSwitch = true;
+    return;
+  }
+  if (!host_ && type == STEAM_OFFER) {
+    if (p.steamOffer || p.sentSwitch || p.gotSwitch || !online::steam::identity()) return;
+    const uint32_t version = r.u32();
+    const uint64_t host = r.u64(), lobby = r.u64();
+    const int seat = r.u8(), capacity = r.u8();
+    const std::string key = r.str(), invite = r.str();
+    online::SipKey parsed;
+    if (!r.ok || r.p != body.size() || version != 1 || capacity < 2 || capacity > 4 || seat < 1 || seat >= capacity || (welcomed_ && (seat != local_ || capacity != mi_.players)) || !online::parseHexKey(key, &parsed) ||
+        invite != online::makeInvite(lobbyHost_, lobbyPort_, roomCode_)) return;
+    if (!online::steam::joinRoom(this, lobby, host, invite, capacity)) return;
+    steamRoomRequested_ = true;
+    p.steam = online::steam::Link::open(this, host, key, false);
+    if (!p.steam) { online::steam::leaveRoom(this); return; }
+    p.steamOffer = true;
+    p.steamSeat = seat;
+    p.steamSince = online::nowMs();
+    return;
+  }
+  if (!host_ && type == STEAM_CHOICE) {
+    if (p.sentSwitch || p.gotSwitch || p.steamDecided || body.size() != 1 || body[0] > 1) return;
+    if (body[0] && !p.steam) { p.dead = true; failMatch("incompatible Steam connection"); return; }
+    p.steamDecided = true;
+    p.steamSelected = body[0] != 0;
+    if (!p.steamSelected) p.steam.reset();
+    return;
+  }
   if (type == BYE) {
     p.bye = true;
     p.dead = true;
@@ -846,17 +988,34 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
           p.dead = p.retiring = true;
           return;
         }
+        if (p.player >= 0 || !p.pendingHello.empty()) return;
         if (r.p < body.size()) p.name = cleanName(r.str());
+        if (!p.steamDecided && r.ok && body.size() - r.p == 12 && r.u32() == 0x50505301 && online::steam::identity() && !lobbyHost_.empty()) {
+          const uint64_t id = r.u64();
+          bool duplicate = id == online::steam::identity();
+          for (const auto* peer : peers_) if (peer != &p && !peer->dead && peer->steamPeer == id) duplicate = true;
+          if (id && !duplicate) { p.steamPeer = id; p.steamSince = online::nowMs(); }
+        }
         bool taken[4] = {true, false, false, false};
-        for (auto q : peers_)
-          if (q->player > 0 && !q->dead) taken[q->player] = true;
-        for (int i = 1; i < mi_.players; i++)
+        for (auto q : peers_) {
+          if (q == &p || q->dead) continue;
+          const int seat = q->player > 0 ? q->player : q->steamSeat;
+          if (seat > 0 && seat < 4) taken[seat] = true;
+        }
+        if (p.steamSeat > 0 && p.steamSeat < mi_.players && !taken[p.steamSeat]) p.player = p.steamSeat;
+        else for (int i = 1; i < mi_.players; i++)
           if (!taken[i]) { p.player = i; break; }
         if (p.player < 0) {
           pp::log::info("net", "refused a player: the match is full");
           send(p, ERR, W().str("match is full").b);
           flush(p);
           p.dead = p.retiring = true;
+          return;
+        }
+        if (p.steamPeer && !p.steamDecided && !p.sentSwitch && !p.gotSwitch) {
+          p.steamSeat = p.player;
+          p.player = -1;
+          p.pendingHello = body;
           return;
         }
         W welcome;
@@ -876,6 +1035,7 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
       }
       case READY: {
         uint64_t h = r.u64();
+        if (p.player < 1 || !r.ok) return;
         if (h != mi_.contentHash) {
           pp::log::warn("net", "refused " + who(p) + ": the level or mod files differ from yours");
           send(p, ERR, W().str("content mismatch: your level/mod files differ from the host's").b);
@@ -906,12 +1066,33 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
         return;
       }
       case HASH: {
-        int b = r.u8();
-        int idx = (int)r.u32();
-        uint64_t h = r.u64();
-        if (!r.ok) return;
-        theirs_[{b, idx}].push_back(h);
-        compare({b, idx});
+        if (p.player < 1 || p.player >= mi_.players || !p.pendingHello.empty()) {
+          p.bye = true;
+          send(p, ERR, W().str("hash report before admission").b);
+          flush(p);
+          p.dead = p.retiring = true;
+          return;
+        }
+        const int b = r.u8();
+        const int idx = (int)r.u32();
+        const uint64_t h = r.u64();
+        auto reject = [&] {
+          failMatch("invalid or excessive hash reports: " + who(p));
+          send(p, ERR, W().str(error).b);
+          flush(p);
+          p.dead = p.retiring = true;
+        };
+        if (!r.ok || r.p != body.size() || b >= (mi_.party ? mi_.players : 1) || idx < 1) { reject(); return; }
+        if (idx <= p.hashIndex[b]) {
+          if (idx == p.hashIndex[b] && h != p.hashValue[b]) reject();
+          return;
+        }
+        const auto key = std::make_pair(b, idx);
+        if (!theirs_.count(key) && theirs_.size() >= maxPendingHashes) { reject(); return; }
+        p.hashIndex[b] = idx;
+        p.hashValue[b] = h;
+        theirs_[key].emplace(p.player, std::make_pair(h, false));
+        compare(key);
         return;
       }
     }
@@ -930,6 +1111,7 @@ void Session::handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body) {
       mi_.level = r.str();
       for (int i = 0; i < 4; i++) mi_.master[i] = r.u8();
       welcomed_ = r.ok;
+      if (p.steamOffer && local_ != p.steamSeat) { failMatch("incompatible Steam seat"); return; }
       mi_.missingMaster.clear();
       if (welcomed_ && r.p < body.size()) {
         const int nk = r.u8();
@@ -1009,8 +1191,21 @@ std::vector<ShotCmd> Session::takeShots() {
 
 void Session::reportHash(int board, int idx, uint64_t h) {
   if (host_) {
-    mine_[{board, idx}] = h;
-    compare({board, idx});
+    if (board < 0 || board >= (mi_.party ? mi_.players : 1) || idx <= hashIndex_[board]) return;
+    const auto key = std::make_pair(board, idx);
+    if (!mine_.count(key) && mine_.size() >= maxPendingHashes) {
+      const auto waiting = theirs_.find(mine_.begin()->first);
+      for (const auto* p : peers_) {
+        if (!p->dead && p->player > 0 && (waiting == theirs_.end() || !waiting->second.count(p->player))) {
+          failMatch("missing hash reports: " + who(*p));
+          break;
+        }
+      }
+      return;
+    }
+    hashIndex_[board] = idx;
+    mine_[key] = h;
+    compare(key);
   } else if (!peers_.empty()) {
     send(*peers_[0], HASH, W().u8((uint8_t)board).u32((uint32_t)idx).u64(h).b);
   }
@@ -1020,16 +1215,21 @@ void Session::compare(std::pair<int, int> key) {
   auto m = mine_.find(key);
   auto t = theirs_.find(key);
   if (m == mine_.end() || t == theirs_.end()) return;
-  for (uint64_t h : t->second) {
+  for (auto& [player, report] : t->second) {
+    if (report.second) continue;
+    report.second = true;
     hashesCompared++;
-    if (h != m->second && !desync_) {
+    if (report.first != m->second && !desync_) {
       desync_ = true;
       desyncMsg = "desync on board " + std::to_string(key.first) + " after shot " + std::to_string(key.second);
       pp::log::error("net", desyncMsg + ": the players' games no longer match");
       broadcast(DESYNC, W().str(desyncMsg).b);
     }
   }
-  t->second.clear();
+  if (t->second.size() == (size_t)(mi_.players - 1)) {
+    theirs_.erase(t);
+    mine_.erase(m);
+  }
 }
 
 }

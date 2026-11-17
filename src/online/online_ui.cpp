@@ -580,7 +580,6 @@ class OnlineScreen : public Screen {
     say("");
     seated_ = 0;
     room_ = true;
-    if (isHost_) pp::online::steam::setPresence("In a PegglePort room", makeInvite(lobbyHost_, lobbyPort_, sess_->roomCode()));
     guestChecked_ = readySent_ = false;
     if (isHost_) roomCode_ = sess_->roomCode();
     layout();
@@ -689,9 +688,9 @@ class OnlineScreen : public Screen {
         applyDiscordInvite(invite);
       }
     }
-    pp::online::steam::pump();
     std::string joinLink;
-    if (!room_ && !create_ && !job_ && pp::online::steam::takeJoinRequest(&joinLink)) applyInvite(joinLink, false);
+    if (nonDiscordInvite_ || discordInviteUntil_) pp::online::steam::discardJoinRequest();
+    else if (!nonDiscordInvite_ && !discordInviteUntil_ && !room_ && !create_ && !job_ && !app.anyDialog() && !app.moving() && pp::online::steam::takeJoinRequest(&joinLink)) applyInvite(joinLink, false);
     std::string up;
     for (char c : codeEdit_->value) up.push_back((char)std::toupper((unsigned char)c));
     if (up != codeEdit_->value) codeEdit_->value = up;
@@ -961,21 +960,20 @@ bool handleMenuButton(App& app, int id) {
 }
 
 void tickMainMenu(App& app) {
-  pp::online::steam::ensureInit();
-  pp::online::steam::pump();
-  std::string joinLink;
-  if (pp::online::steam::takeJoinRequest(&joinLink)) g_pendingInvite = joinLink;
   if (app.moving() || app.anyDialog()) return;
-  if (g_pendingInvite.empty()) {
-    std::string discordInvite = app.takeDiscordInvite();
-    if (discordInvite.empty()) return;
-    auto screen = std::make_unique<OnlineScreen>(app, discordInvite, true);
-    app.setScreen(std::move(screen), App::Left);
+  if (!g_pendingInvite.empty()) {
+    std::string invite = std::move(g_pendingInvite);
+    g_pendingInvite.clear();
+    app.setScreen(std::make_unique<OnlineScreen>(app, invite), App::Left);
     return;
   }
-  std::string inv = std::move(g_pendingInvite);
-  g_pendingInvite.clear();
-  app.setScreen(std::make_unique<OnlineScreen>(app, inv), App::Left);
+  std::string discordInvite = app.takeDiscordInvite();
+  if (!discordInvite.empty()) {
+    app.setScreen(std::make_unique<OnlineScreen>(app, discordInvite, true), App::Left);
+    return;
+  }
+  std::string invite;
+  if (pp::online::steam::takeJoinRequest(&invite)) app.setScreen(std::make_unique<OnlineScreen>(app, invite), App::Left);
 }
 
 }

@@ -77,6 +77,9 @@ std::string troubleText(const std::string& raw, Where where, bool host, const st
   if (ends(raw, " left the match", &who)) return person(who) + " left the match.";
   if (ends(raw, " left the room", &who)) return person(who) + " left the room.";
   if (ends(raw, " closed the room", &who)) return person(who) + " closed the room.";
+  if (ends(raw, " lost the Steam link", &who)) return "The Steam connection to " + shown(who, 32) + " was lost.";
+  if (starts(raw, "the Steam link to ") && ends(raw.substr(18), " could not be completed", &who)) return "The Steam connection to " + shown(who, 32) + " could not be set up. Try again.";
+  if (raw == "incompatible connection switch" || raw == "incompatible Steam connection" || raw == "incompatible Steam seat") return "The other player uses an incompatible connection. Rejoin the room to try again.";
   if (ends(raw, " lost connection", &who)) return person(who) + " lost the connection.";
   if (const size_t at = raw.find(" lost the direct link ("); at != std::string::npos && at > 0) return "The connection to " + shown(raw.substr(0, at), 32) + " was lost.";
   if (starts(raw, "the direct link to ") && ends(raw.substr(19), " could not be completed", &who)) return "The connection to " + shown(who, 32) + " could not be set up. Try again.";

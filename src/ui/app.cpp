@@ -14,6 +14,7 @@
 
 #include "log.h"
 #include "online/invite.h"
+#include "online/steam.h"
 #include "online/online_ui.h"
 #include "render.h"
 #include "ui/dialog.h"
@@ -231,6 +232,7 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
 }
 
 App::~App() {
+  pp::online::steam::shutdown();
   clearDiscord();
   if (discord_) discord_->stop();
 }
@@ -578,6 +580,7 @@ void App::shutdown() {
   if (discord_) discord_->stop();
   discord_.reset();
   if (cur_) cur_->onLeave();
+  pp::online::steam::shutdown();
   if (audio) audio->stopLoops();
   saveAll();
 }
@@ -961,6 +964,8 @@ void App::tick() {
   for (size_t i = 0; i < dialogs_.size();)
     if (dialogs_[i]->gone) dialogs_.erase(dialogs_.begin() + (long)i);
     else i++;
+  pp::online::steam::ensureInit();
+  pp::online::steam::pump();
   if (discord_) {
     pp::online::Discord::Presence presence;
     presence.details = titleText();
