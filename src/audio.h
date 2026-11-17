@@ -30,15 +30,23 @@ class Audio {
   void reloadAssets(const VfsChange& change);
   const Sample* sample(const std::string& id);
   void play(const std::string& id, float semitones = 0, float volume = 1.0f, int throttle = 0, bool force = false);
-  void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f);
+  void playMusic(const std::string& path, bool loop = true, int startOrder = 0, float gain = 1.0f, float level = 1.0f, float rise = 0.0f);
   void playLevelMusic(bool nights);
+  void playLoop(const std::string& id);
   void stopSample(const std::string& id);
+  void stopLoops();
+  void stopSounds();
+  void playAfter(int delay, const std::string& id) { playLater(delay, id, 0, 1, 1); }
+  void dropQueued() { pending_.clear(); lbumpAt_.clear(); stopLoops(); }
+  void setBoardLeaving(bool on) { leaving_ = on; }
   void fadeMusic(int frames);
   void stopMusic();
   void fadeOutMusic();
   void setVolumes(float sfx, float music) { sfxVol_ = sfx; musicVol_ = music; }
   void setFeverVolume(float v) { feverVol_ = v; }
+  void setFocusMuted(bool on);
   void onEvents(const std::vector<Event>& ev, const Board& b);
+  void addBallSound(const Board& b);
   void tick();
   void tickMusic();
   void playFx(const std::vector<FxSound>& s);
@@ -55,8 +63,12 @@ class Audio {
     const Sample* s = nullptr;
     double pos = 0, step = 1;
     float vol = 1;
+    bool loop = false;
+    bool fading = false;
+    float inst = 1;
   };
   struct Music;
+  static void fadeStep(Voice& v);
   const Vfs& vfs_;
   std::map<std::string, std::pair<std::string, float>> manifest_;
   std::map<std::string, std::unique_ptr<Sample>> cache_;
@@ -74,13 +86,21 @@ class Audio {
   std::vector<int> playlist_;
   size_t playIdx_ = 0;
   int prevPhase_ = -1;
-  int fireLoopEnd_ = 0;
-  int chainLoopEnd_ = 0;
+  bool fireLoop_ = false;
+  bool chainLoop_ = false;
+  bool leaving_ = false;
+  bool focusMuted_ = false;
+  int chainLoopAt_ = 0;
   bool prevSlow_ = false;
+  bool prevHeld_ = false;
   int lvlBase_ = -1, intensity_ = 0, pendOrder_ = -1, pendRow_ = 0;
   std::vector<std::unique_ptr<Music>> fading_;
   bool sighDone_ = false;
-  void playLater(int delay, const std::string& id, float semis = 0, float vol = 1, int throttle = 0) { pending_.push_back({updates_ + delay, id, semis, vol, throttle}); }
+  std::map<int, int> lbumpAt_;
+  void playLater(int delay, const std::string& id, float semis = 0, float vol = 1, int throttle = 0) {
+    if (delay <= 1) play(id, semis, vol, throttle);
+    else pending_.push_back({updates_ + delay - 1, id, semis, vol, throttle});
+  }
   int updates_ = 0;
   static void callback(void* user, SDL_AudioStream* s, int additional, int total);
 };

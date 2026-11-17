@@ -888,9 +888,9 @@ static void addEmitter(std::vector<PropDef>& v) {
   v.push_back(PB("orient_rot_to_vel", "Face direction", false, "Look"));
   v.push_back(PB("random_start", "Random start", false, "Look"));
   v.push_back(PVF("alpha", "Opacity", 1, 0, 1, 0.05, false, "Look"));
-  v.push_back(PVF("color.r", "Red", 1, 0, 1, 0.05, true, "Look"));
-  v.push_back(PVF("color.g", "Green", 1, 0, 1, 0.05, true, "Look"));
-  v.push_back(PVF("color.b", "Blue", 1, 0, 1, 0.05, true, "Look"));
+  v.push_back(PVF("color.r", "Red", 1, 0, 100, 0.05, true, "Look"));
+  v.push_back(PVF("color.g", "Green", 1, 0, 100, 0.05, true, "Look"));
+  v.push_back(PVF("color.b", "Blue", 1, 0, 100, 0.05, true, "Look"));
   v.push_back(PVF("scale.value", "Size", 1, 0, 50, 0.1, true, "Look"));
   v.push_back(PVF("scale.velocity", "Size change", 0, -50, 50, 0.1, true, "Look"));
   v.push_back(PF("scale.rand", "Size random", 0, 0, 50, 0.1, true, "Look"));
@@ -908,7 +908,7 @@ static void addEmitter(std::vector<PropDef>& v) {
   v.push_back(PS("trigger_obj", "Trigger object id", "Rate"));
   v.push_back(PVF("velocity.x", "Speed X", 0, -1000, 1000, 0.1, true, "Motion"));
   v.push_back(PVF("velocity.y", "Speed Y", 0, -1000, 1000, 0.1, true, "Motion"));
-  v.push_back(PF("velocity.x_rand", "Speed X random", 0, 0, 1000, 0.1, true, "Motion"));
+  v.push_back(PF("velocity.x_rand", "Speed X random", 0, -1000, 1000, 0.1, true, "Motion"));
   v.push_back(PF("velocity.y_rand", "Speed Y random", 0, 0, 1000, 0.1, true, "Motion"));
   v.push_back(PF("velocity.acc_x", "Acceleration X", 0, -100, 100, 0.01, true, "Motion"));
   v.push_back(PF("velocity.gravity", "Gravity", 0, -100, 100, 0.01, true, "Motion"));
@@ -919,7 +919,7 @@ static void addEmitter(std::vector<PropDef>& v) {
   v.push_back(PF("polar.rot_vel_rand", "Spin random", 0, 0, 100, 0.01, true, "Motion"));
   v.push_back(PVF("rotation.value", "Rotation", 0, -100, 100, 0.05, true, "Motion"));
   v.push_back(PVF("rotation.velocity", "Rotation speed", 0, -100, 100, 0.05, true, "Motion"));
-  v.push_back(PF("rotation.rand", "Rotation random", 0, 0, 100, 0.05, true, "Motion"));
+  v.push_back(PF("rotation.rand", "Rotation random", 0, 0, 1000, 0.05, true, "Motion"));
 }
 static void addPeg(std::vector<PropDef>& v) {
   v.push_back(PB("is_peg", "Is a peg", false, "Peg"));
@@ -1009,7 +1009,7 @@ const std::vector<PropDef>& moverProps() {
   v.push_back(PF("post_delay_phase", "Post delay phase", 0, -10, 10, 0.05, false, "Mover"));
   v.push_back(PF("max_angle", "Max angle (rad)", 0, -7, 7, 0.05, false, "Mover"));
   v.push_back(PF("move_rotation", "Path rot (rad)", 0, -7, 7, 0.05, false, "Mover"));
-  v.push_back(PF("rotation", "Rotation (rad)", 0, -7, 7, 0.05, false, "Mover"));
+  v.push_back(PF("rotation", "Rotation (rad)", 0, -100, 100, 0.05, false, "Mover"));
   v.push_back(PF("sub_x", "Follow start X", 0, -2000, 3000, 1, true, "Follow"));
   v.push_back(PF("sub_y", "Follow start Y", 0, -2000, 3000, 1, true, "Follow"));
   return v;
@@ -1171,6 +1171,77 @@ bool setNum(Level& L, Node& n, const PropDef& d, double v) {
   if (!std::strcmp(k, "brick_right_angle") && !t->has("brick_left_angle")) putNum(*t, "brick_left_angle", Prim::F32, 0);
   if (n.type == 6 && !std::strncmp(k, "brick_", 6)) syncBrickCache(n);
   return true;
+}
+static double heldNumber(double v, const PropDef& d) {
+  if (std::isnan(v)) return d.def;
+  return std::clamp(v, d.lo, d.kind == PK::Enum ? d.lo + 99 : d.hi);
+}
+static void holdValue(Val& x, const PropDef& d) {
+  if (x.k != VK::Num) return;
+  if (x.p == Prim::F32) {
+    double cur = (double)x.f();
+    double h = heldNumber(cur, d);
+    if (h != cur) {
+      float f = (float)h;
+      std::memcpy(&x.bits, &f, 4);
+    }
+  } else {
+    double cur = (double)x.i();
+    double h = heldNumber(cur, d);
+    if (h != cur) x.bits = (uint32_t)(int64_t)h;
+  }
+}
+static bool keptAsGiven(const char* k) {
+  for (const char* e : {"rotation", "color.r", "color.g", "color.b", "rotation.rand", "velocity.x_rand"})
+    if (!std::strcmp(k, e)) return true;
+  return false;
+}
+static void holdProps(Node& n, const std::vector<PropDef>& props) {
+  for (const PropDef& d : props) {
+    if (d.kind != PK::Float && d.kind != PK::Int && d.kind != PK::Enum) continue;
+    const char* k = d.key;
+    if (keptAsGiven(k)) continue;
+    if (!std::strcmp(k, "pos.x") || !std::strcmp(k, "pos.y")) {
+      auto it = n.fields.find(k[4] == 'x' ? "x" : "y");
+      if (it != n.fields.end()) holdValue(it->second, d);
+      continue;
+    }
+    if (!std::strcmp(k, "move_type_abs")) {
+      auto it = n.fields.find("move_type");
+      if (it != n.fields.end() && it->second.k == VK::Num) {
+        int64_t t = it->second.i();
+        if (t > 99 || t < -99) it->second.bits = (uint32_t)(int64_t)(t < 0 ? -99 : 99);
+      }
+      continue;
+    }
+    Node* t = addr(n, k);
+    if (!t) continue;
+    auto it = t->fields.find(k);
+    if (it == t->fields.end()) continue;
+    if (d.vf) {
+      const Val& f = it->second;
+      if (f.k != VK::Child || !f.n || !f.n->i("tag")) continue;
+      auto vit = f.n->fields.find("value");
+      if (vit != f.n->fields.end()) holdValue(vit->second, d);
+      continue;
+    }
+    holdValue(it->second, d);
+  }
+}
+void holdToPanelRanges(Level& L) {
+  std::set<const Node*> seen;
+  std::function<void(Node&)> visit = [&](Node& n) {
+    if (!seen.insert(&n).second) return;
+    if (isObjectType(n.type)) holdProps(n, propsFor(n));
+    for (auto& kv : n.fields) {
+      Val& v = kv.second;
+      if ((v.k != VK::Ptr && v.k != VK::Child) || !v.n) continue;
+      if (kv.first == "mover" || kv.first == "sub") holdProps(*v.n, moverProps());
+      visit(*v.n);
+    }
+  };
+  for (auto& e : L.entries)
+    if (e.k == VK::Ptr && e.n) visit(*e.n);
 }
 bool setStr(Node& n, const PropDef& d, const std::string& s) {
   if (n.type == 9 && (!std::strcmp(d.key, "emitter_image") || !std::strcmp(d.key, "trigger_obj"))) {

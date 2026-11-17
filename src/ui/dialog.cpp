@@ -16,6 +16,8 @@ Dialog::Dialog(App& a, int id, bool mod, const std::string& hdr, const std::stri
   auto mk = [&](int bid, const std::string& label) {
     auto* b = addButton(bid, Button::Kind::Patch, "IMAGE_DLG_BUTTON3", label);
     b->textOffY = 5;
+    b->labelStyle = a.game == Game::Nights ? 0 : 9;
+    b->labelFullGradient = a.game != Game::Nights;
     return b;
   };
   if (bm == BUTTONS_YES_NO) {
@@ -39,7 +41,7 @@ float Dialog::preferredHeight(float width) {
   float hgt = insT + insB;
   bool needSpace = false;
   if (!header.empty()) {
-    hgt += g.fontHeight(headerFont);
+    hgt += g.fontHeight(headerFont) - g.fontAscentPadding(headerFont);
     needSpace = true;
   }
   if (!lines.empty()) {
@@ -53,7 +55,7 @@ float Dialog::preferredHeight(float width) {
     needSpace = true;
   }
   if (yesBtn) {
-    if (needSpace) hgt += 8;
+    if (needSpace) hgt += 10;
     hgt += buttonH + 8;
   }
   return hgt;
@@ -61,7 +63,7 @@ float Dialog::preferredHeight(float width) {
 
 void Dialog::layoutButtons() {
   if (yesBtn && noBtn) {
-    float bw = (w - insL - insR - 8) / 2;
+    float bw = std::trunc((w - insL - insR - 8) / 2);
     yesBtn->x = insL;
     yesBtn->y = h - insB - buttonH;
     yesBtn->w = bw;
@@ -134,9 +136,9 @@ void Dialog::drawLayer(Gfx& g) {
   else g.fill(0, 0, w, h, 0x203050, 0.95f);
   float curY = insT;
   if (!header.empty()) {
-    float asc = g.fontAscent(headerFont);
+    float asc = g.fontAscent(headerFont) - g.fontAscentPadding(headerFont);
     g.drawString(headerFont, w / 2, curY + asc, header, headerColor, 1, Align::Center);
-    curY += g.fontHeight(headerFont) + spaceAfterHeader;
+    curY += g.fontHeight(headerFont) - g.fontAscentPadding(headerFont) + spaceAfterHeader;
   }
   if (!lines.empty()) {
     Align al = textAlign < 0 ? Align::Left : textAlign > 0 ? Align::Right : Align::Center;
@@ -203,9 +205,9 @@ bool Dialog::input(const Input& in) {
     if (in.key == SDLK_TAB && !scrollActive) { cycleFocus((in.mod & SDL_KMOD_SHIFT) ? -1 : 1); return true; }
     if (!scrollActive && focusKey(in.key)) return true;
     keyDown(in.key, in.mod);
-    if (in.key == SDLK_ESCAPE && noBtn) { onButton(ID_NO); return true; }
+    if (in.key == SDLK_ESCAPE && noBtn) { onButton(escapeButton); return true; }
     if (in.key == SDLK_ESCAPE && buttonMode == BUTTONS_FOOTER) { onButton(ID_FOOTER); return true; }
-    if ((in.key == SDLK_RETURN || in.key == SDLK_KP_ENTER) && yesBtn && buttonMode != BUTTONS_NONE && !focusW) { onButton(ID_YES); return true; }
+    if ((in.key == SDLK_RETURN || in.key == SDLK_KP_ENTER) && yesBtn && buttonMode != BUTTONS_NONE && !focusW) { onButton(returnButton); return true; }
   }
   return Panel::input(in);
 }

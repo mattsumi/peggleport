@@ -129,6 +129,14 @@ void SlotMachineDialog::skip() {
     for (int i = 0; i < 20000 && wheel.speed > 0; i++) wheel.updatePointer(ding);
     for (int i = 0; i < 40; i++) wheel.bright[i] = 0;
   }
+  if (wheel.phase > 0) playPrize();
+}
+
+void SlotMachineDialog::playPrize() {
+  if (prizeDone) return;
+  prizeDone = true;
+  static const char* const kPrize[4] = {"TING", "FREEBALL", "AAH", "EXTRABALL"};
+  if (app.audio && result >= 0 && result < 4) app.audio->play(kPrize[result], 0, 1, 1);
 }
 
 bool SlotMachineDialog::input(const Input& in) {
@@ -159,8 +167,9 @@ void SlotMachineDialog::update() {
     }
   } else {
     bool ding = false;
-    wheel.updatePointer(ding);
+    const bool stopped = wheel.updatePointer(ding);
     if (ding) app.playSample("DING");
+    if (stopped) playPrize();
   }
 }
 

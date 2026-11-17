@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iterator>
 
+#include "gamepaths.h"
 #include "image.h"
 #include "log.h"
 
@@ -28,6 +29,8 @@ Gfx::~Gfx() {
   for (auto& [_, t] : cache_)
     if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : boxCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  for (auto& [_, t] : dimCache_)
     if (t.t) SDL_DestroyTexture(t.t);
 }
 
@@ -153,6 +156,13 @@ void Gfx::applyClip() {
   if (clipStack_.empty()) SDL_SetRenderClipRect(r_, nullptr);
   else SDL_SetRenderClipRect(r_, &clipStack_.back());
 }
+void Gfx::clipToCanvas() {
+  if (!r_) return;
+  const int x0 = (int)std::floor(ox_), y0 = (int)std::floor(oy_);
+  const int x1 = (int)std::ceil(ox_ + cw_ * s_), y1 = (int)std::ceil(oy_ + ch_ * s_);
+  clipStack_.push_back({x0, y0, x1 - x0, y1 - y0});
+  applyClip();
+}
 void Gfx::pushClip(float x, float y, float w, float h) {
   int x0 = (int)std::floor(ox_ + (orgX_ + x) * s_), y0 = (int)std::floor(oy_ + (orgY_ + y) * s_);
   int x1 = (int)std::ceil(ox_ + (orgX_ + x + w) * s_), y1 = (int)std::ceil(oy_ + (orgY_ + y + h) * s_);
@@ -176,17 +186,19 @@ void Gfx::popClip() {
 void Gfx::fillTex(Tex& T, const std::string& idOrPath) {
   if (T.t) SDL_DestroyTexture(T.t);
   T = Tex();
-  std::string path = idOrPath;
+  std::string path = idOrPath, mask;
   if (const ResImage* ri = man_.image(idOrPath)) {
     path = ri->path;
+    mask = ri->alphaImage.empty() ? ri->alphaGrid : ri->alphaImage;
     T.cols = ri->cols;
     T.rows = ri->rows;
   }
-  if (auto im = loadGameImage(vfs_, path)) {
+  if (auto im = loadGameImage(vfs_, path, mask)) {
     T.w = im->w;
     T.h = im->h;
     T.scale = im->scale;
     T.path = path;
+    T.mask = mask;
     if (r_) {
       T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im->w, im->h);
       if (T.t) {
@@ -215,6 +227,9 @@ Tex* Gfx::img(const std::string& idOrPath) {
 
 void Gfx::reloadAssets(const VfsChange& change) {
   if (!change.any) return;
+  for (auto& [_, t] : dimCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
+  dimCache_.clear();
   const bool manifest = change.touches("properties/resources.xml");
   if (manifest) {
     man_ = Manifest();
@@ -249,7 +264,7 @@ Tex* Gfx::imgFile(const std::string& file) {
   auto it = cache_.find(key);
   if (it != cache_.end()) return it->second.valid() ? &it->second : nullptr;
   Tex T;
-  std::ifstream f(file, std::ios::binary);
+  std::ifstream f(pathFromUtf8(file), std::ios::binary);
   std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   Image im;
   if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {
@@ -333,6 +348,37 @@ void Gfx::drawRotCel(Tex* t, float cx, float cy, int col, int row, float rad, fl
 void Gfx::drawBox(Tex* t, float x, float y, float w, float h, Mode m) {
   if (t) drawBoxSrc(t, 0, 0, t->lw(), t->lh(), x, y, w, h, m);
 }
+Tex* Gfx::duelDim(const std::string& id) {
+  auto it = dimCache_.find(id);
+  if (it != dimCache_.end()) return it->second.valid() ? &it->second : nullptr;
+  Tex& D = dimCache_[id];
+  Tex* t = img(id);
+  if (!r_ || !t || t->path.empty()) return nullptr;
+  auto im = loadGameImage(vfs_, t->path, t->mask);
+  if (!im || im->w != t->w || im->h != t->h) return nullptr;
+  std::vector<uint8_t> px(im->rgba.begin(), im->rgba.end());
+  for (size_t i = 0; i + 3 < px.size(); i += 4) {
+    const int lum = (76 * px[i] + 153 * px[i + 1] + 26 * px[i + 2]) / 255;
+    for (size_t k = 0; k < 3; k++) {
+      const int grey = (100 * px[i + k] + 155 * lum) / 255;
+      px[i + k] = (uint8_t)(grey * 155 / 255);
+    }
+  }
+  D.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, t->w, t->h);
+  if (!D.t) return nullptr;
+  SDL_UpdateTexture(D.t, nullptr, px.data(), t->w * 4);
+  SDL_SetTextureBlendMode(D.t, SDL_BLENDMODE_BLEND);
+  SDL_SetTextureScaleMode(D.t, SDL_SCALEMODE_LINEAR);
+  D.w = t->w;
+  D.h = t->h;
+  D.cols = t->cols;
+  D.rows = t->rows;
+  D.scale = t->scale;
+  D.path = t->path;
+  D.mask = t->mask;
+  return &D;
+}
+
 Tex* Gfx::boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int H) {
   if (!r_ || !t || t->path.empty()) return nullptr;
   std::array<int, 8> key{(int)(uint32_t)(uintptr_t)t, (int)(uint32_t)((uint64_t)(uintptr_t)t >> 32), (int)std::lround(sx * 4) * 4096 + (int)std::lround(sy * 4), (int)std::lround(sw * 4) * 4096 + (int)std::lround(sh * 4), W, H, 0, 0};
@@ -340,7 +386,7 @@ Tex* Gfx::boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int 
   if (it != boxCache_.end()) return it->second.valid() ? &it->second : nullptr;
   auto rit = rgbaCache_.find(t);
   if (rit == rgbaCache_.end()) {
-    auto im = loadGameImage(vfs_, t->path);
+    auto im = loadGameImage(vfs_, t->path, t->mask);
     if (!im || im->w != t->w || im->h != t->h) return nullptr;
     rit = rgbaCache_.emplace(t, std::vector<uint8_t>(im->rgba.begin(), im->rgba.end())).first;
   }
@@ -391,25 +437,25 @@ void Gfx::drawBoxSrc(Tex* t, float sx, float sy, float sw, float sh, float x, fl
       return;
     }
   }
-  drawSrc(t, sx, sy, cw, ch, x, y, m);
-  drawSrc(t, sx + cw + cmw, sy, cw, ch, x + w - cw, y, m);
-  drawSrc(t, sx, sy + ch + cmh, cw, ch, x, y + h - ch, m);
-  drawSrc(t, sx + cw + cmw, sy + ch + cmh, cw, ch, x + w - cw, y + h - ch, m);
+  drawSrc(t, sx, sy, (float)cw, (float)ch, x, y, m);
+  drawSrc(t, sx + cw + cmw, sy, (float)cw, (float)ch, x + w - cw, y, m);
+  drawSrc(t, sx, sy + ch + cmh, (float)cw, (float)ch, x, y + h - ch, m);
+  drawSrc(t, sx + cw + cmw, sy + ch + cmh, (float)cw, (float)ch, x + w - cw, y + h - ch, m);
   pushClip(x + cw, y, w - cw * 2, h);
   for (int c = 0; c < (int)((w - cw * 2 + cmw - 1) / cmw); c++) {
-    drawSrc(t, sx + cw, sy, cmw, ch, x + cw + c * cmw, y, m);
-    drawSrc(t, sx + cw, sy + ch + cmh, cmw, ch, x + cw + c * cmw, y + h - ch, m);
+    drawSrc(t, sx + cw, sy, (float)cmw, (float)ch, x + cw + c * cmw, y, m);
+    drawSrc(t, sx + cw, sy + ch + cmh, (float)cmw, (float)ch, x + cw + c * cmw, y + h - ch, m);
   }
   popClip();
   pushClip(x, y + ch, w, h - ch * 2);
   for (int rr = 0; rr < (int)((h - ch * 2 + cmh - 1) / cmh); rr++) {
-    drawSrc(t, sx, sy + ch, cw, cmh, x, y + ch + rr * cmh, m);
-    drawSrc(t, sx + cw + cmw, sy + ch, cw, cmh, x + w - cw, y + ch + rr * cmh, m);
+    drawSrc(t, sx, sy + ch, (float)cw, (float)cmh, x, y + ch + rr * cmh, m);
+    drawSrc(t, sx + cw + cmw, sy + ch, (float)cw, (float)cmh, x + w - cw, y + ch + rr * cmh, m);
   }
   popClip();
   pushClip(x + cw, y + ch, w - cw * 2, h - ch * 2);
   for (int c = 0; c < (int)((w - cw * 2 + cmw - 1) / cmw); c++)
-    for (int rr = 0; rr < (int)((h - ch * 2 + cmh - 1) / cmh); rr++) drawSrc(t, sx + cw, sy + ch, cmw, cmh, x + cw + c * cmw, y + ch + rr * cmh, m);
+    for (int rr = 0; rr < (int)((h - ch * 2 + cmh - 1) / cmh); rr++) drawSrc(t, sx + cw, sy + ch, (float)cmw, (float)cmh, x + cw + c * cmw, y + ch + rr * cmh, m);
   popClip();
 }
 
@@ -459,7 +505,7 @@ void Gfx::drawString(const std::string& font, float x, float y, const std::strin
   else if (a == Align::Right) cx = x - total;
   for (auto& r : runs) {
     uint32_t c = r.rgb < 0 ? rgb : (uint32_t)r.rgb;
-    fp_->draw(font, orgX_ + cx, orgY_ + y, r.text, c, alpha);
+    fp_->draw(font, std::floor(orgX_ + cx), std::floor(orgY_ + y), r.text, c, alpha);
     cx += fp_->width(font, r.text);
   }
 }
@@ -485,21 +531,42 @@ std::vector<std::string> Gfx::wrap(const std::string& font, float width, const s
       }
     }
   };
-  auto addWord = [&](const std::string& w) {
+  size_t run = 0;
+  auto place = [&](const std::string& w) {
+    const size_t spaces = std::max<size_t>(1, run);
     float ww = wordWidth(w), sp = fp_->width(font, " ");
-    if (curW > 0 && curW + sp + ww > width) {
+    if (curW > 0 && curW + sp * (float)spaces + ww > width) {
       flush();
     }
-    if (curW > 0 || (!cur.empty() && stripColorCodes(cur).size() > 0)) { cur += " "; curW += sp; }
+    if (curW > 0 || (!cur.empty() && stripColorCodes(cur).size() > 0)) { cur.append(spaces, ' '); curW += sp * (float)spaces; }
     cur += w;
     curW += ww;
     trackColor(w);
   };
+  auto addWord = [&](const std::string& whole) {
+    std::string w = whole;
+    while (w.size() > 1 && w.find('^') == std::string::npos && wordWidth(w) > width) {
+      size_t cut = 0, slash = 0;
+      for (size_t k = 1; k < w.size(); k++) {
+        if (((unsigned char)w[k] & 0xc0) == 0x80) continue;
+        if (fp_->width(font, w.substr(0, k)) > width) break;
+        cut = k;
+        if (w[k - 1] == '/') slash = k;
+      }
+      if (slash) cut = slash;
+      if (!cut) break;
+      place(w.substr(0, cut));
+      flush();
+      w.erase(0, cut);
+    }
+    place(w);
+  };
   while (i <= s.size()) {
     if (i == s.size() || s[i] == ' ' || s[i] == '\n') {
-      if (!word.empty()) addWord(word);
+      if (!word.empty()) { addWord(word); run = 0; }
       word.clear();
-      if (i < s.size() && s[i] == '\n') flush();
+      if (i < s.size() && s[i] == ' ') run++;
+      if (i < s.size() && s[i] == '\n') { flush(); run = 0; }
     } else {
       word.push_back(s[i]);
     }

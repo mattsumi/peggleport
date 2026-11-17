@@ -77,7 +77,7 @@ Files in a mod folder are looked up before the game's own files, using the same 
 
 * `image_scale = 2` in `mod.ini` tells the game that your art is twice the size of the original and should be drawn at the original size.
 * Levels go in `levels/` as `.dat` files. Add a `mod_levels.cfg` there to list them as extra Quick Play stages, or let the level editor write all of this for you.
-* A level can have an `.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`. The same file can also change how the ball moves with `gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed` and `ball_radius`, see [Physics](#physics), and give pegs a mod peg type with `peg` lines, see [Peg types](#peg-types).
+* A level can have an `.ini` next to it with `title`, `board_width` (650 is the classic width, a larger number makes that level's board wider), `balls`, `orange`, `background` and `master`. The same file can also change how the ball moves with `gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed` and `ball_radius`, see [Physics](#physics), and give pegs a mod peg type with `peg` lines, see [Peg types](#peg-types).
 
 ## The Lua API
 
@@ -151,8 +151,10 @@ The events these cause call your hooks again, up to 8 rounds per tick.
 
 * `register_power{name=, replaces="Flower Power" | "Fireball" | "Tula" | 9, mode="replace" | "extra", on_activate=function(player, peg) end}` hooks a built-in Master power. Whenever it would fire, `on_activate` runs first, and with mode `"replace"` the built-in effect is skipped. To try it, pick that Master in Quick Play. It only changes the powers that are already in the game. To add a whole new Master with a name, a portrait and a power of its own, use `register_master` (see "Master characters" below).
 * `ui.menu(label, fn)` adds a button to the Mods screen. `ui.message(text)` shows a line there.
-* `draw.rect(x, y, w, h, rgba[, fill])`, `draw.circle(x, y, r, rgba[, fill])`, `draw.text(x, y, s, rgba[, align, scale])`, `draw.image(path, x, y[, scale, alpha])`, `draw.screen(true)` to switch to 800x600 screen coordinates, `draw.rgb(r, g, b[, a])` and `draw.hsv(h, s, v[, a])`. Colours are `0xRRGGBBAA`.
+* `draw.rect(x, y, w, h, rgba[, fill])`, `draw.circle(x, y, r, rgba[, fill])`, `draw.text(x, y, s, rgba[, align, scale])`, `draw.image(path, x, y[, scale, alpha])`, `draw.screen(true)` to switch to 800x600 screen coordinates (the classic picture, which stands in the middle of the frame in a wide window), `draw.rgb(r, g, b[, a])` and `draw.hsv(h, s, v[, a])`. Colours are `0xRRGGBBAA`.
 * `log(text)` writes to the log. It is also what `print` does.
+
+Drawing accepts finite positions from -32,768 to 32,768 and nonnegative widths, heights and circle diameters up to 8,192 canvas units. Text and image scale must be between 0 and 16; image opacity must be between 0 and 1. After window scaling, a drawing is limited to 8,192 pixels on either side and 16,777,216 pixels in area. A frame shares a maximum of 1,024 drawing calls and 8,192 text bytes across all mods, with at most 4,096 bytes in one text call. Missing images and invalid requests also count toward the call limit. Text scale 0 uses the default scale of 1. Image paths are limited to 4,096 bytes. Image sources and masks are limited to 2,048 pixels per side, 1,048,576 pixels total (4 MiB decoded RGBA), and 8 MiB per encoded file, checked before decoding. JPEG2000 images allow at most four components or palette channels, 16 bits per component, four channel definitions, 256 tiles and tile parts, 16 quality layers and eight resolution levels, with canvas and tile sides up to 2,048 pixels and precincts and code blocks at least 16 × 16 pixels; images with region, progression-change, packed-header or extended-transform markers are skipped. Upscaling can produce at most 4,096 pixels per side and 16 MiB of RGBA pixels. Individual PNG, JPEG, GIF and TGA decoder buffers are limited to 32 MiB. The mod image cache keeps at most 256 successful images and 64 MiB of texture pixels across frames, discarding entries as needed; missing images are not cached. Drawings outside these bounds are skipped.
 
 ### Network and files
 
@@ -364,9 +366,9 @@ One mod can add up to 16 Masters and all mods together up to 48. A mod with `det
 
 ### Choosing a mod Master
 
-* In the character choice (Duel) the original Masters come first. When mods add Masters, a **Mods >** button appears under each grid. It pages through the mod Masters, ten to a page, and **< Back** returns to the originals. Mod Masters are always unlocked. Point at one to read its name, power and description.
+* In the character choice the original Masters come first. When mods add Masters, a **Mods >** button appears under the grid, in Duel under each of the two grids. It pages through the mod Masters, ten to a page, and **< Back** returns to the originals. Mod Masters are always unlocked. In Duel, point at one to read its name, power and description. In the choice for one player, click it.
 * Your pick is stored in `mod-masters.ini` in your `userdata` folder, next to your profile. The profile file itself is not touched and keeps the last original Master you picked. If the mod is removed or switched off, you play with that original Master again, and the pick comes back when the mod does. Picking an original Master clears it.
-* Where the game uses your own character, a mod Master you picked works too: Duel, and the Quick Play stages that use your character (level packs and mod levels).
+* Wherever you choose your Master, a mod Master works too: Quick Play, Duel, the Challenges that let you choose, and Adventure once you have reached the Master levels.
 * A level can name a Master in its `.ini`: `master = frost` or `master = modid:frost`. It is used for single player when the level is played.
 * The computer player can play a mod Master. When it plans a shot it treats the power as no power at all.
 
@@ -423,13 +425,13 @@ The operating system locks the helper down before your library is even loaded, s
 
 The `permissions` line of the manifest does not change any of this. A native plugin never gets the network or file access. If your plugin needs to remember something during a level, keep it with `state_set`, which is rolled back together with the board.
 
-The lock-down uses what each system offers: a sandbox profile on macOS, Landlock and a seccomp filter on Linux (Landlock needs kernel 5.13 or newer), a restricted token, low integrity level and a job object on Windows. When the helper starts it checks which limits are really in force and reports them to the game, and the game never shows more than that.
+The lock-down uses what each system offers: a sandbox profile on macOS, Landlock and a seccomp filter on Linux (Landlock needs kernel 5.13 or newer), a restricted token, the lowest integrity level and a job object on Windows. When the helper starts it checks which limits are really in force and reports them to the game, and the game never shows more than that.
 
 ### What the player sees
 
 The permission dialog for a native plugin says what the helper blocks, for example: "It runs in a restricted helper process: no network, cannot write files, cannot start programs, can only read its own folder." The Mods screen shows the same for every active plugin.
 
-If your system cannot enforce all four limits, the dialog says "This plugin could not be restricted on this system" and names what is missing. The plugin then stays off until the player also presses **Run anyway** in a second, separate question. That answer is stored in `mods.json` for the exact content hash of the plugin, so an update asks again. On Windows the helper limits file writes and new processes but cannot block the network, so Windows players are asked this second question.
+If your system cannot enforce all four limits, the dialog says "This plugin could not be restricted on this system" and names what is missing. The plugin then stays off until the player also presses **Run anyway** in a second, separate question. That answer is stored in `mods.json` for the exact content hash of the plugin, so an update asks again. On Windows the helper blocks file writes and new processes but cannot block the network or keep a plugin from reading other files, so Windows players are asked this second question.
 
 ### When a plugin misbehaves
 

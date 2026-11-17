@@ -14,7 +14,9 @@
 #include <filesystem>
 
 #include "mods/hostreg.h"
+#include "gamepaths.h"
 #include "mods/json.h"
+#include "mods/text.h"
 #include "vfs.h"
 
 namespace fs = std::filesystem;
@@ -97,6 +99,9 @@ bool parseManifest(const std::string& text, bool json, const std::string& folder
   m.version = get("version", "0");
   m.author = get("author");
   m.description = get("description");
+  m.name = gameText(m.name);
+  m.author = gameText(m.author);
+  m.description = gameText(m.description);
   m.api = std::atoi(get("api", get("api_level", std::to_string(kModApi))).c_str());
   m.scripts = scripts;
   m.native = get("native", get("plugin"));
@@ -126,8 +131,8 @@ bool parseManifest(const std::string& text, bool json, const std::string& folder
 }
 
 bool loadManifest(const fs::path& dir, Manifest& m, std::string* err) {
-  std::string folder = dir.filename().string();
-  if (folder.empty()) folder = dir.parent_path().filename().string();
+  std::string folder = pathToUtf8(dir.filename());
+  if (folder.empty()) folder = pathToUtf8(dir.parent_path().filename());
   std::string text;
   m = Manifest();
   if (readFile(dir / "mod.json", text, 1 << 20)) {
@@ -135,7 +140,7 @@ bool loadManifest(const fs::path& dir, Manifest& m, std::string* err) {
   } else if (readFile(dir / "mod.ini", text, 1 << 20)) {
     if (!parseManifest(text, false, folder, m, err)) return false;
   } else {
-    m.name = folder;
+    m.name = gameText(folder);
     m.id = sanitizeId(folder);
     m.format = "none";
   }
@@ -171,8 +176,8 @@ uint64_t hashModDir(const fs::path& dir, std::vector<std::string>* files) {
   std::error_code ec;
   for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
     if (ec) break;
-    std::string rel = it->path().lexically_relative(dir).generic_string();
-    std::string nm = it->path().filename().string();
+    std::string rel = genericUtf8(it->path().lexically_relative(dir));
+    std::string nm = pathToUtf8(it->path().filename());
     if (!nm.empty() && nm[0] == '.') { if (it->is_directory(ec)) it.disable_recursion_pending(); continue; }
     if (rel.rfind("mod-data", 0) == 0) { if (it->is_directory(ec)) it.disable_recursion_pending(); continue; }
     if (it->is_regular_file(ec)) v.emplace_back(rel, it->path());

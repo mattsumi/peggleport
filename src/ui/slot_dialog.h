@@ -23,7 +23,9 @@ class SlotMachineDialog : public Dialog {
   bool exiting = false;
   int result = 0;
   int cell = 0;
+  bool prizeDone = false;
   void skip();
+  void playPrize();
 };
 
 }

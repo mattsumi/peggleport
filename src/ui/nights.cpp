@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 
+#include "ui/character_dialog.h"
 #include "ui/screens.h"
 
 namespace pp::ui {
@@ -50,11 +51,10 @@ const DecalInfo* MainMenu::decalAt(App& app, float mx, float my, int* stageOut) 
   return nullptr;
 }
 
-static void drawLoungeScene(Gfx& g, int sunTick) {
-  const float ox = 15, oy = 11;
+static void drawLoungeScene(Gfx& g, int sunTick, float ox, float oy) {
   if (Tex* bg = g.img("IMAGE_MM_BACKGROUND")) g.draw(bg, ox, oy);
-  float flick = 0.55f + 0.12f * std::sin(sunTick * 0.05f) + 0.08f * std::sin(sunTick * 0.23f + 1.0f) + 0.05f * std::sin(sunTick * 0.61f);
-  if (Tex* fl = g.img("IMAGE_MM_FIRELIGHT")) g.draw(fl, ox + 505 - fl->lw() / 2, oy + 455 - fl->lh() / 2, Mode(std::clamp(flick, 0.0f, 1.0f)));
+  const int flick = ((sunTick / 13) * 773 + (sunTick / 16) * 1321) % 42 + 174;
+  if (Tex* fl = g.img("IMAGE_MM_FIRELIGHT")) g.draw(fl, ox + 64, oy + 224, Mode((float)flick / 255.0f, 0xffffff, true));
   static const char* kFlame[4] = {"IMAGE_MM_FLAME_01", "IMAGE_MM_FLAME_02", "IMAGE_MM_FLAME_03", "IMAGE_MM_FLAME_04"};
   int cel = (sunTick / 4) % 4;
   if (Tex* f = g.img(kFlame[cel])) g.draw(f, ox + 520 - f->lw() / 2, oy + 478 - f->lh(), Mode(0.9f));
@@ -75,7 +75,7 @@ bool MainMenu::mantelEarned(App& app, int id) {
   const PlayerInfo* p = app.curProfile;
   if (!p || id < 0 || id > 3) return false;
   if (id == 0) return p->advCompletions > 0;
-  if (id == 2) return app.trophies.numTrophies() > 0 && p->trophies.size() >= app.trophies.numTrophies();
+  if (id == 2) return app.trophies.numTrophies() > 0 && app.trophies.numHeld(p->trophies) >= app.trophies.numTrophies();
   size_t n = 0, total = 0;
   for (int i = 0; i < app.stages.numStages(); i++)
     if (const StageInfo* s = app.stages.stage(i))
@@ -172,7 +172,7 @@ void MainMenu::drawSparkles(Gfx& g) {
 }
 
 void MainMenu::drawNights(Gfx& g) {
-  drawLoungeScene(g, sunTick);
+  drawLoungeScene(g, sunTick, 0, 0);
   for (int id : {1, 3, 2, 0})
     if (mantelEarned(app, id))
       if (Tex* t = g.img(kMantel[id].image)) g.draw(t, (float)kMantel[id].sx, (float)kMantel[id].sy, Mode(fadeOf(trophyName(id))));
@@ -220,11 +220,27 @@ void MainMenu::drawNights(Gfx& g) {
 
 static const int kFrames[11][4] = {{574, 85, 54, 102}, {178, 94, 47, 89},  {77, 267, 53, 86},  {176, 254, 35, 68}, {251, 269, 49, 66}, {546, 251, 41, 83},
                                    {650, 254, 55, 88}, {90, 405, 42, 82},  {196, 396, 52, 67}, {545, 377, 61, 80}, {676, 402, 41, 81}};
-static const int kMasterFrame[11] = {2, 8, 6, 1, 0, 5, 4, 10, 7, 9, 3};
+static const int kMasterFrame[11] = {2, 9, 7, 1, 0, 3, 4, 5, 8, 6, 10};
+static const int kHiddenAt[11][2] = {{101, 310}, {575, 418}, {114, 440}, {202, 136}, {603, 133}, {192, 287}, {276, 304}, {569, 288}, {224, 428}, {679, 296}, {699, 436}};
+static const int kPortraitAt[11][2] = {{73, 264}, {544, 378}, {80, 398}, {167, 92}, {565, 81}, {165, 244}, {245, 268}, {540, 251}, {192, 386}, {631, 254}, {670, 402}};
+
+static int stageOfMaster(int master) {
+  for (int s = 0; s < 11; s++)
+    if (CharacterDialog::masterMetAt(Game::Nights, s) == master) return s;
+  return master;
+}
 
 ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x215);
-  bContinue->x = 400 - bContinue->w / 2;
+  if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
+    bContinue->image = pb;
+    bContinue->kind = Button::Kind::Embedded;
+    bContinue->labelOnEmbedded = true;
+    bContinue->w = pb->lw();
+    bContinue->h = pb->lh() / 2;
+    bContinue->textOffY = 0;
+  }
+  bContinue->x = (float)(400 - (int)bContinue->w / 2);
   const PlayerInfo* p = a.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
@@ -260,7 +276,6 @@ void ProgressScreen::update() {
     bContinue->visible = true;
     bContinue->x = -(100 + bContinue->w);
     bContinue->y = 0x215;
-    app.playSample("TEXT_WOOSH");
   }
   if (bContinue->visible) {
     float tx = 400 - bContinue->w / 2;
@@ -276,25 +291,39 @@ void ProgressScreen::update() {
   prevHovered = hovered;
 }
 
-void ProgressScreen::drawLayer(Gfx& g) {
-  if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
+void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
+  g.fill(0, 0, 800, 600, 0x000000);
   const PlayerInfo* p = app.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
   for (int i = 0; i < 11; i++) {
-    const int* f = kFrames[kMasterFrame[i]];
-    float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
-    bool shown = i < cleared;
+    const int met = stageOfMaster(i);
+    bool shown = met < cleared;
     float a = 1;
-    if (i == newest) {
+    if (met == newest) {
       shown = t > 40;
       a = std::clamp((t - 40) / 60.0f, 0.0f, 1.0f);
     }
     Tex* hid = g.img("IMAGE_TROPHY_PORTRAIT_HIDDEN_" + std::to_string(i + 1));
     Tex* pic = g.img("IMAGE_TROPHY_PORTRAIT_" + std::to_string(i + 1));
-    if (hid && (!shown || a < 1)) g.draw(hid, cx - hid->lw() / 2, cy - hid->lh() / 2);
-    if (pic && shown) g.draw(pic, cx - pic->lw() / 2, cy - pic->lh() / 2, Mode(a));
-    if (i == newest && t > 10 && t < 160) {
+    if (hid) g.draw(hid, (float)(kHiddenAt[i][0] - (int)hid->lw() / 2), (float)(kHiddenAt[i][1] - (int)hid->lh() / 2));
+    if (pic && shown) g.draw(pic, (float)kPortraitAt[i][0], (float)kPortraitAt[i][1], Mode(a));
+  }
+  if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
+  Tex* frameL = g.img("IMAGE_SCREENFRAMELEFT");
+  Tex* frameT = g.img("IMAGE_SCREENFRAMETOP");
+  Tex* frameB = g.img("IMAGE_SCREENFRAMEBOTTOM");
+  Tex* frameR = g.img("IMAGE_SCREENFRAMERIGHT");
+  if (frameL && frameT && frameB && frameR) {
+    g.draw(frameL, 0, 0);
+    g.draw(frameT, frameL->lw(), 0);
+    g.draw(frameB, frameL->lw(), frameL->lh() - frameB->lh());
+    g.draw(frameR, frameL->lw() + frameT->lw(), 0);
+  }
+  for (int i = 0; i < 11; i++) {
+    const int* f = kFrames[kMasterFrame[i]];
+    float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
+    if (stageOfMaster(i) == newest && t > 10 && t < 160) {
       float k = t < 40 ? (t - 10) / 30.0f : t < 110 ? 1.0f : std::max(0.0f, (160 - t) / 50.0f);
       if (Tex* sp = g.img("IMAGE_TROPHY_PARTICLE_WHITE_MED_ROUND")) g.drawRot(sp, cx, cy, 0, 3.0f, 3.5f, Mode(0.55f * k, 0xfff0c0, true));
       if (Tex* sk = g.img("IMAGE_TROPHY_SPARKLE"))
@@ -308,8 +337,16 @@ void ProgressScreen::drawLayer(Gfx& g) {
     if (Tex* hole = g.img("IMAGE_TROPHY_HOLE")) g.draw(hole, 400 - hole->lw() / 2, 380, Mode(0.6f, 0xffffff, true));
     if (Tex* adv = g.img("IMAGE_TROPHY_ADV")) g.draw(adv, 400 - adv->lw() / 2, 392 - adv->lh() + 10);
   }
-  if (hovered >= 0 && hovered < cleared && !(hovered == newest && t < 100)) {
-    const StageInfo* st = app.stages.stage(hovered);
+}
+
+void ProgressScreen::drawLayer(Gfx& g) {
+  drawTrophyRoom(g, app, newest, t);
+  const PlayerInfo* p = app.curProfile;
+  int cleared = p ? std::min(p->maxStage, 11) : 0;
+  if (p && p->advCompletions > 0) cleared = 11;
+  const int hoveredStage = hovered >= 0 ? stageOfMaster(hovered) : -1;
+  if (hovered >= 0 && hoveredStage < cleared && !(hoveredStage == newest && t < 100)) {
+    const StageInfo* st = app.stages.stage(hoveredStage);
     std::string txt;
     if (st)
       for (auto& d : st->story[0]) txt += d.text;
@@ -317,11 +354,13 @@ void ProgressScreen::drawLayer(Gfx& g) {
       const int* f = kFrames[kMasterFrame[hovered]];
       float bw = 220, th = g.wrappedHeight("PLAIN2", bw - 40, txt, 18), bh = th + 40;
       float bx = std::clamp(f[0] + f[2] / 2.0f - bw / 2, 8.0f, 792.0f - bw), by = std::max(8.0f, f[1] - bh - 14);
-      if (by + bh > f[1] - 4 && by < f[1] + f[3]) by = f[1] + f[3] + 14;
+      if (by + bh > f[1] - 4 && by < f[1] + f[3]) by = (float)(f[1] + f[3] + 14);
       drawSpeechBox(g, bx, by, bw, bh, 0.95f);
       g.drawWrapped("PLAIN2", {bx + 20, by + 20, bw - 40, th}, txt, 0x303030, 1.0f, Align::Center, 18);
     }
   }
+  if (bContinue->visible)
+    if (Tex* plate = g.img("IMAGE_TROPHY_EXIT_BUTTON")) g.draw(plate, bContinue->x - 32, bContinue->y - 16);
 }
 
 void ProgressScreen::finish() {
@@ -349,9 +388,11 @@ CreditsScreen::CreditsScreen(App& a) : Screen(a) {
   uint32_t color = 0xffffff;
   float offX = 0, curY = 120;
   bool any = false;
+  int held = 0, forCount = -1;
+  for (int i = 0; i < 4; i++) held += MainMenu::mantelEarned(a, i) ? 1 : 0;
   auto fontOk = [&](const std::string& f) { return a.gfx.fontHeight(f) > 0; };
   auto flush = [&]() {
-    if (any) pages.push_back(cur);
+    if (any && (forCount == -1 || forCount == held)) pages.push_back(cur);
     cur = Page();
     cur.hold = 200;
     curY = 120;
@@ -377,7 +418,7 @@ CreditsScreen::CreditsScreen(App& a) : Screen(a) {
       else if (k == "blank") curY += (float)std::atof(v.c_str()) * 4.0f;
       else if (k == "timePause") cur.hold = std::max(30, std::atoi(v.c_str()) + 120);
       else if (k == "timeStartKeyframe") cur.start = std::atoi(v.c_str());
-      else if (k == "trophyCount") cur.trophy = std::atoi(v.c_str());
+      else if (k == "trophyCount") { cur.trophy = std::atoi(v.c_str()); forCount = cur.trophy; }
       continue;
     }
     size_t at;
@@ -457,7 +498,7 @@ void IntroScreen::update() {
   if (t > 15 && typed < total && t % 2 == 0) { typed++; if (typed % 3 == 0) app.playSample("TYPING"); }
 }
 void IntroScreen::drawLayer(Gfx& g) {
-  drawLoungeScene(g, t);
+  drawLoungeScene(g, t, 15, 11);
   drawSpeechBox(g, 40, 50, 330, 120, std::min(1.0f, t / 15.0f), 1);
   std::string txt = kIntroText[pageNo - 1];
   txt = txt.substr(0, (size_t)typed);

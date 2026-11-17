@@ -11,17 +11,21 @@ class ListBox : public Widget {
  public:
   std::vector<std::string> lines;
   int select = -1, hilite = -1, top = 0;
+  uint32_t back = 0x000050;
+  bool centered = true;
   std::string font = "PLAIN";
   float itemH = 16;
+  static constexpr float topInset = 4;
   std::function<void(int idx, int clicks)> onClick;
   Gfx* gfx = nullptr;
-  int visibleItems() const { return (int)(h / itemH); }
+  int visibleItems() const { return (int)((h - topInset) / itemH); }
   void draw(Gfx& g) override;
   bool mouseDown(float lx, float ly, int button, int clicks) override;
   void mouseMove(float lx, float ly) override;
   void mouseLeave() override { over = false; hilite = -1; }
   void wheel(float d);
-  int indexAt(float ly) const { int i = top + (int)(ly / itemH); return i >= 0 && i < (int)lines.size() ? i : -1; }
+  void reveal();
+  int indexAt(float ly) const { if (ly < topInset) return -1; int i = top + (int)((ly - topInset) / itemH); return i >= 0 && i < (int)lines.size() ? i : -1; }
 };
 
 class UserDialog : public Dialog {
@@ -53,7 +57,11 @@ class NewUserDialog : public Dialog {
   void drawLayer(Gfx& g) override;
   void update() override;
   std::string name() const { return edit->value; }
-  void setName(const std::string& n) { edit->value = n; edit->caret = (int)n.size(); }
+  void setName(const std::string& n) {
+    edit->value = n;
+    edit->caret = (int)n.size();
+    edit->selectAll = !n.empty();
+  }
   void onButton(int id) override;
   void finish(bool accepted);
   void doApproved();
@@ -72,8 +80,11 @@ class OptionsDialog : public Dialog {
   Button* gamesBtn = nullptr;
   Button* visuals = nullptr;
   Button* widescreen;
+  Button* homeBtn = nullptr;
+  Button* demoBtn = nullptr;
   float extraH = 0;
   void updateWidescreenLabel();
+  void updateHomeLabel();
   void layout();
   void drawLayer(Gfx& g) override;
   float preferredHeight(float width) override;

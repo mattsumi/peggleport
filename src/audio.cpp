@@ -23,6 +23,8 @@
 #include <libopenmpt/libopenmpt.h>
 #endif
 
+#include <ogg/ogg.h>
+#include <vorbis/codec.h>
 #include <vorbis/vorbisfile.h>
 
 namespace pp {
@@ -49,6 +51,83 @@ int oggSeek(void* h, ogg_int64_t off, int whence) {
 }
 long oggTell(void* h) { return (long)((OggMem*)h)->pos; }
 
+bool decodeOggPackets(const std::vector<uint8_t>& bytes, Sample& out) {
+  ogg_sync_state oy;
+  ogg_stream_state os;
+  vorbis_info vi;
+  vorbis_comment vc;
+  vorbis_dsp_state vd;
+  vorbis_block vb;
+  ogg_sync_init(&oy);
+  vorbis_info_init(&vi);
+  vorbis_comment_init(&vc);
+  bool haveStream = false, haveDsp = false, ok = true;
+  int serial = 0, headers = 0, ch = 1;
+  size_t off = 0;
+  out.pcm.clear();
+  while (ok && off < bytes.size()) {
+    const size_t take = std::min<size_t>(4096, bytes.size() - off);
+    char* buf = ogg_sync_buffer(&oy, (long)take);
+    std::memcpy(buf, bytes.data() + off, take);
+    off += take;
+    ogg_sync_wrote(&oy, (long)take);
+    ogg_page og;
+    int pr;
+    while (ok && (pr = ogg_sync_pageout(&oy, &og)) != 0) {
+      if (pr < 0) continue;
+      if (!haveStream) {
+        serial = ogg_page_serialno(&og);
+        ogg_stream_init(&os, serial);
+        haveStream = true;
+      } else if (ogg_page_serialno(&og) != serial) {
+        continue;
+      }
+      ogg_stream_pagein(&os, &og);
+      ogg_packet op;
+      int r;
+      while (ok && (r = ogg_stream_packetout(&os, &op)) != 0) {
+        if (r < 0) continue;
+        if (headers < 3) {
+          if (vorbis_synthesis_headerin(&vi, &vc, &op) < 0) {
+            ok = false;
+            break;
+          }
+          if (++headers == 3) {
+            if (vi.channels < 1 || vorbis_synthesis_init(&vd, &vi) != 0) {
+              ok = false;
+              break;
+            }
+            vorbis_block_init(&vd, &vb);
+            haveDsp = true;
+            ch = vi.channels;
+            out.rate = (int)vi.rate;
+          }
+          continue;
+        }
+        if (vorbis_synthesis(&vb, &op) == 0) vorbis_synthesis_blockin(&vd, &vb);
+        float** pcm = nullptr;
+        int n;
+        while ((n = vorbis_synthesis_pcmout(&vd, &pcm)) > 0) {
+          for (int i = 0; i < n; i++) {
+            out.pcm.push_back(pcm[0][i]);
+            out.pcm.push_back(ch > 1 ? pcm[1][i] : pcm[0][i]);
+          }
+          vorbis_synthesis_read(&vd, n);
+        }
+      }
+    }
+  }
+  if (haveDsp) {
+    vorbis_block_clear(&vb);
+    vorbis_dsp_clear(&vd);
+  }
+  if (haveStream) ogg_stream_clear(&os);
+  vorbis_comment_clear(&vc);
+  vorbis_info_clear(&vi);
+  ogg_sync_clear(&oy);
+  return ok && !out.pcm.empty();
+}
+
 bool decodeOgg(const std::vector<uint8_t>& bytes, Sample& out) {
   OggMem mem{bytes.data(), bytes.size(), 0};
   ov_callbacks cb{oggRead, oggSeek, nullptr, oggTell};
@@ -69,7 +148,9 @@ bool decodeOgg(const std::vector<uint8_t>& bytes, Sample& out) {
       out.pcm.push_back(ch > 1 ? pcm[1][i] : pcm[0][i]);
     }
   }
+  const ogg_int64_t expected = ov_pcm_total(&vf, -1);
   ov_clear(&vf);
+  if (expected > 0 && (ogg_int64_t)(out.pcm.size() / 2) < expected) return decodeOggPackets(bytes, out);
   return !out.pcm.empty();
 }
 }
@@ -93,6 +174,9 @@ struct Audio::Music {
   double pos = 0;
   bool loop = true, isOgg = false;
   float gain = 1.0f;
+  float level = 1.0f;
+  float top = 1.0f;
+  float rise = 0.0f;
   bool fixed = false;
   float fade = 1.0f;
   std::string path;
@@ -178,7 +262,21 @@ void Audio::play(const std::string& id, float semitones, float volume, int throt
   Voice v;
   v.s = s;
   v.step = freq / 44100.0;
-  v.vol = volumeCurve(std::clamp(s->baseVolume * volume, 0.0f, 1.0f)) * sfxVol_;
+  v.vol = std::clamp(s->baseVolume * volume, 0.0f, 1.0f);
+  voices_.push_back(v);
+}
+
+void Audio::playLoop(const std::string& id) {
+  const Sample* s = sample(id);
+  if (!s || s->pcm.size() < 4) return;
+  std::lock_guard<std::mutex> lk(mu_);
+  voices_.erase(std::remove_if(voices_.begin(), voices_.end(), [](const Voice& v) { return v.pos >= (double)v.s->pcm.size() / 2; }), voices_.end());
+  if (voices_.size() >= 32) return;
+  Voice v;
+  v.s = s;
+  v.step = std::clamp((double)s->rate, 100.0, 100000.0) / 44100.0;
+  v.vol = std::clamp(s->baseVolume, 0.0f, 1.0f);
+  v.loop = true;
   voices_.push_back(v);
 }
 
@@ -187,11 +285,60 @@ void Audio::stopSample(const std::string& id) {
   if (!s) return;
   std::lock_guard<std::mutex> lk(mu_);
   for (auto& v : voices_)
-    if (v.s == s) v.pos = (double)s->pcm.size() / 2;
+    if (v.s == s) {
+      if (!v.loop) {
+        v.pos = (double)s->pcm.size() / 2;
+      } else if (!v.fading) {
+        v.fading = true;
+        fadeStep(v);
+      }
+    }
+}
+
+void Audio::fadeStep(Voice& v) {
+  v.inst -= 0.05f;
+  if (v.inst > 0) {
+    v.vol = std::clamp(v.s->baseVolume * v.inst, 0.0f, 1.0f);
+    return;
+  }
+  v.fading = false;
+  v.loop = false;
+  v.pos = (double)v.s->pcm.size() / 2;
+}
+
+void Audio::stopLoops() {
+  std::lock_guard<std::mutex> lk(mu_);
+  for (auto& v : voices_)
+    if (v.loop) {
+      v.loop = false;
+      v.pos = (double)v.s->pcm.size() / 2;
+    }
+  fireLoop_ = false;
+  chainLoop_ = false;
+}
+
+void Audio::setFocusMuted(bool on) {
+  std::lock_guard<std::mutex> lk(mu_);
+  focusMuted_ = on;
+}
+
+void Audio::stopSounds() {
+  std::lock_guard<std::mutex> lk(mu_);
+  for (auto& v : voices_) {
+    v.loop = false;
+    v.pos = (double)v.s->pcm.size() / 2;
+  }
+  fireLoop_ = false;
+  chainLoop_ = false;
 }
 
 void Audio::playFx(const std::vector<FxSound>& s) {
   for (const auto& f : s) play(f.id, f.semis, f.vol, f.throttle);
+}
+
+void Audio::addBallSound(const Board& b) {
+  const int wait = 64 - 4 * b.ballsLeft[b.cur];
+  if (wait >= 0) playLater(wait, "ADD_BALL");
 }
 
 void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
@@ -226,14 +373,20 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::CoinFlip: play(e.a ? "FREEBALL" : "COINSPIN_NO"); break;
       case Event::LevelDone:
         play((b.cfg.duel && b.players > 1) ? "LEVELDONE" : e.a ? "LEVELWON" : "LEVELLOST", 0, 1, 1);
-        if (e.a && !(b.cfg.duel && b.players > 1)) {
+        if (b.result.cleared) {
           playLater(130, "TING", 0, 1, 1);
           playLater(160, "APPLAUSE", 0, 1, 1);
         }
         break;
-      case Event::ExtraBall: play(e.a == 0 ? "EXTRABALL" : e.a == 1 ? "EXTRABALL2" : "EXTRABALL3"); playLater(20, "ADD_BALL"); break;
-      case Event::FreeBall: if (e.a != 2) { play("FREEBALL"); playLater(20, "ADD_BALL"); } break;
+      case Event::ExtraBall: play(e.a == 0 ? "EXTRABALL" : e.a == 1 ? "EXTRABALL2" : "EXTRABALL3"); addBallSound(b); break;
+      case Event::FreeBall: if (e.a != 2) { play("FREEBALL"); addBallSound(b); } break;
       case Event::Bump: play(e.a ? "FIREBALLBOUNCE" : "RICHOCHET", 0, 1, 2); break;
+      case Event::LevelBump: {
+        auto it = lbumpAt_.find(e.a);
+        if (it == lbumpAt_.end() || updates_ - it->second > 35) play("SCORECOUNTER", 0, 1, 1);
+        lbumpAt_[e.a] = updates_;
+        break;
+      }
       case Event::PointBoost: play("POINTBOOST"); break;
       case Event::Fever:
         play("CYMBAL");
@@ -242,7 +395,7 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
         break;
       case Event::FeverSlot:
         if (e.b == 1) play("SCORECOUNTER", (float)b.feverBallsPaid, 1, 1);
-        else if (e.b >= 2) play(e.a > 50000 ? "FIREWORKS2" : "FIREWORKS1", 0, 1, 1);
+        else if (e.b >= 2) play(((b.cfg.duel && b.players > 1) ? e.a * 2 : e.a) > 50000 ? "FIREWORKS2" : "FIREWORKS1", 0, 1, 1);
         break;
         break;
       case Event::Power: {
@@ -269,10 +422,13 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
       case Event::SpookyRespawn: play(e.a == 0 ? "SPOOKYBALL2" : e.a == 1 ? "SPOOKYBALL3" : "SPOOKYBALL4"); break;
       case Event::Penalty: if (e.a > 0) playLater(e.a, "PENALTY", 0, 1, 1); else play("PENALTY", 0, 1, 1); break;
       case Event::FlipperMove: play(e.a ? "FLIPPERUP" : "FLIPPERDOWN"); break;
-      case Event::Zen: if (e.a == 1 || e.a == 2) play("GONG"); break;
+      case Event::Zen:
+        if (e.a == 1) play("GONG", 5.0f, 1, 5);
+        else if (e.a == 2) play("GONG", 0, 1, 1);
+        break;
       case Event::Hint: play("COINSPIN_NO"); break;
       case Event::StyleShot: if (e.a != 18) play("SKILLSHOT", 0, 1, 1); break;
-      case Event::ChainStart: play("LIGHTNING_START"); break;
+      case Event::ChainStart: play("LIGHTNING_START"); chainLoopAt_ = updates_ + 40; break;
       case Event::ChainStrike: play("POWERUP_LIGHTNING_HIT", 0, 1, 1); break;
       case Event::ChainBolt:
         if (e.b >= 0) playLater(e.c & 0xff, "PEGSPARK", (float)((e.c >> 16) - 12), 1, 1);
@@ -282,38 +438,38 @@ void Audio::onEvents(const std::vector<Event>& ev, const Board& b) {
     }
   }
   int ph = (int)b.phase;
+  if (b.fireHeld && !prevHeld_ && ph == (int)Phase::Aim) play("CANNONCOCK", 0, 1, 1);
+  prevHeld_ = b.fireHeld;
   if (prevPhase_ >= 0 && ph != prevPhase_) {
-    if (ph == (int)Phase::Aim) play("CANNONCOCK");
-    else if (prevPhase_ == (int)Phase::Aim && ph == (int)Phase::Shot) play(!b.balls.empty() && b.balls[0].fire ? "FIREBALLSHOT" : "CANNONSHOT");
+    if (prevPhase_ == (int)Phase::Aim && ph == (int)Phase::Shot) play(!b.balls.empty() && b.balls[0].fire ? "FIREBALLSHOT" : "CANNONSHOT");
   }
   prevPhase_ = ph;
-  {
-    bool fireAlive = false;
+  if (!leaving_) {
+    bool fireAlive = b.phase == Phase::Aim && b.pturn[b.cur][Board::P_FIREBALL] > 0;
     for (const auto& bl : b.balls) fireAlive = fireAlive || (bl.fire && bl.alive);
-    if (fireAlive && updates_ >= fireLoopEnd_) {
-      play("FIREBALLLOOP", 0, 1, 0, true);
-      const Sample* fs = sample("FIREBALLLOOP");
-      fireLoopEnd_ = updates_ + (fs && fs->rate > 0 ? (int)((double)fs->pcm.size() / 2 / fs->rate * 100.0) : 100);
-    } else if (!fireAlive && fireLoopEnd_ > 0) {
+    if (fireAlive && !fireLoop_) {
+      playLoop("FIREBALLLOOP");
+      fireLoop_ = true;
+    } else if (!fireAlive && fireLoop_) {
       stopSample("FIREBALLLOOP");
-      fireLoopEnd_ = 0;
+      fireLoop_ = false;
     }
   }
-  {
-    bool chainAlive = false;
+  if (!leaving_) {
+    bool chainAlive = b.phase == Phase::Aim && b.cfg.nights && b.pturn[b.cur][Board::P_CHAIN] > 0;
     for (const auto& bl : b.balls) chainAlive = chainAlive || (bl.chain && bl.alive);
-    if (chainAlive && updates_ >= chainLoopEnd_) {
-      play("LIGHTNING_LOOP", 0, 1, 0, true);
-      const Sample* ls = sample("LIGHTNING_LOOP");
-      chainLoopEnd_ = updates_ + (ls && ls->rate > 0 ? (int)((double)ls->pcm.size() / 2 / ls->rate * 100.0) : 100);
-    } else if (!chainAlive && chainLoopEnd_ > 0) {
+    chainAlive = chainAlive && updates_ >= chainLoopAt_;
+    if (chainAlive && !chainLoop_) {
+      playLoop("LIGHTNING_LOOP");
+      chainLoop_ = true;
+    } else if (!chainAlive && chainLoop_) {
       stopSample("LIGHTNING_LOOP");
-      chainLoopEnd_ = 0;
+      chainLoop_ = false;
     }
   }
   if (b.slowOn && !prevSlow_) {
     fadeMusic(75);
-    playLater(30, "SLOWMO", 0, 1, 30);
+    play("SLOWMO", 0, 1, 30);
   }
   prevSlow_ = b.slowOn;
   if (b.slowOn && b.slowC3 && b.slowSpeed >= 900 && b.slowSpeed < 920 && !sighDone_) { play("SIGH", 0, 1, 1); sighDone_ = true; }
@@ -331,12 +487,18 @@ void Audio::tick() {
       i++;
     }
   }
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& v : voices_)
+      if (v.fading) fadeStep(v);
+  }
   if (duckHold_ > 0 && --duckHold_ == 0) duckRate_ = 0.01f;
   duck_ = std::clamp(duck_ + duckRate_, 0.4f, 1.0f);
 }
 
 void Audio::tickMusic() {
   std::lock_guard<std::mutex> lk(mu_);
+  if (music_ && music_->level < music_->top) music_->level = std::min(music_->top, music_->level + music_->rise);
   for (auto& f : fading_) f->fade -= 0.01f;
   fading_.erase(std::remove_if(fading_.begin(), fading_.end(), [](const std::unique_ptr<Music>& f) { return f->fade <= 0.0f; }), fading_.end());
 #ifdef PP_HAVE_OPENMPT
@@ -388,16 +550,22 @@ void Audio::playLevelMusic(bool nights) {
   }
 }
 
-void Audio::playMusic(const std::string& path, bool loop, int startOrder, float gain) {
+void Audio::playMusic(const std::string& path, bool loop, int startOrder, float gain, float level, float rise) {
   auto h = vfs_.read(path);
   if (!h) {
     vfsLogMiss("music", path);
     return;
   }
   { std::lock_guard<std::mutex> lk(mu_); lvlBase_ = -1; }
+  duck_ = 1.0f;
+  duckRate_ = 0.01f;
+  duckHold_ = 0;
   auto m = std::make_unique<Music>();
   m->loop = loop;
   m->gain = gain;
+  m->level = rise > 0.0f ? 0.0f : level;
+  m->top = level;
+  m->rise = rise;
   m->fixed = gain != 1.0f;
   std::string low = path;
   for (auto& c : low) c = (char)std::tolower((unsigned char)c);
@@ -417,6 +585,9 @@ void Audio::playMusic(const std::string& path, bool loop, int startOrder, float 
       return;
     }
     openmpt_module_set_repeat_count(m->mod, loop ? -1 : 0);
+    const bool beats = low == "music/pegglebeats.mo3";
+    openmpt_module_set_render_param(m->mod, OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL, beats ? 87 : 716);
+    openmpt_module_set_render_param(m->mod, OPENMPT_MODULE_RENDER_INTERPOLATIONFILTER_LENGTH, 2);
     if (startOrder > 0) openmpt_module_set_position_order_row(m->mod, startOrder, 0);
 #else
     pp::log::writeOnce(pp::log::Level::Warn, "game", "music " + path + " is skipped: this build cannot play tracker music");
@@ -466,13 +637,17 @@ void Audio::render(float* out, int frames) {
   for (auto& v : voices_) {
     const auto& pcm = v.s->pcm;
     double n = (double)pcm.size() / 2;
-    for (int i = 0; i < frames && v.pos < n - 1; i++) {
+    const float g = volumeCurve(v.vol * sfxVol_);
+    for (int i = 0; i < frames && (v.loop || v.pos < n - 1); i++) {
       size_t k = (size_t)v.pos;
+      size_t k1 = k + 1 < (size_t)n ? k + 1 : 0;
       float f = (float)(v.pos - (double)k);
-      out[i * 2] += (pcm[k * 2] * (1 - f) + pcm[k * 2 + 2] * f) * v.vol;
-      out[i * 2 + 1] += (pcm[k * 2 + 1] * (1 - f) + pcm[k * 2 + 3] * f) * v.vol;
+      out[i * 2] += (pcm[k * 2] * (1 - f) + pcm[k1 * 2] * f) * g;
+      out[i * 2 + 1] += (pcm[k * 2 + 1] * (1 - f) + pcm[k1 * 2 + 1] * f) * g;
       v.pos += v.step;
+      if (v.loop && v.pos >= n) v.pos -= n;
     }
+    if (!v.loop && v.pos >= n - 1) v.pos = n;
   }
   auto mixMusic = [&](Music& m, float mg) {
     if (m.isOgg) {
@@ -483,8 +658,9 @@ void Audio::render(float* out, int frames) {
           m.pos = 0;
         }
         size_t k = (size_t)m.pos;
-        out[i * 2] += m.ogg.pcm[k * 2] * mg;
-        out[i * 2 + 1] += m.ogg.pcm[k * 2 + 1] * mg;
+        float f = (float)(m.pos - (double)k);
+        out[i * 2] += (m.ogg.pcm[k * 2] * (1 - f) + m.ogg.pcm[k * 2 + 2] * f) * mg;
+        out[i * 2 + 1] += (m.ogg.pcm[k * 2 + 1] * (1 - f) + m.ogg.pcm[k * 2 + 3] * f) * mg;
         m.pos += step;
       }
     }
@@ -508,9 +684,9 @@ void Audio::render(float* out, int frames) {
     }
 #endif
   };
-  if (music_) mixMusic(*music_, music_->fixed ? feverVol_ : musicVol_ * duck_);
-  for (auto& f : fading_) mixMusic(*f, musicVol_ * duck_ * f->fade);
-  for (int i = 0; i < frames * 2; i++) out[i] = std::clamp(out[i], -1.0f, 1.0f);
+  if (music_) mixMusic(*music_, music_->fixed ? feverVol_ : musicVol_ * duck_ * music_->level);
+  for (auto& f : fading_) mixMusic(*f, musicVol_ * duck_ * f->fade * f->level);
+  for (int i = 0; i < frames * 2; i++) out[i] = focusMuted_ ? 0.0f : std::clamp(out[i], -1.0f, 1.0f);
 }
 
 void Audio::callback(void* user, SDL_AudioStream* s, int additional, int) {

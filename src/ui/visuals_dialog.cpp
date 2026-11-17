@@ -27,8 +27,7 @@ VisualsDialog::VisualsDialog(App& a) : Dialog(a, D_Visuals, true, "ENHANCED VISU
   smooth = mkCheck(1, "Smooth Scaling", v.smooth, "Better filtering of the art in very large or very small windows.");
   bloom = mkCheck(2, "Bloom Glow", v.bloom, "Soft glow around lit pegs, fireworks and rainbows.");
   sparks = mkCheck(3, "Peg Sparks", v.sparks, "Little sparks fly off every peg that is hit.");
-  uwhud = mkCheck(4, "Ultra-Wide HUD", v.ultraWideHud, "Stretch the HUD frame to the screen corners in wide windows.");
-  sepWide = mkCheck(5, "Separate Wide Scores", a.settings.separateWideScores, "Keep high scores of wide boards apart from the classic board.");
+  uwhud = mkCheck(4, "Ultra-Wide HUD", v.ultraWideHud, "Stretch the frame over the whole window, whatever its shape.");
   auto s = std::make_unique<Slider>();
   s->id = 6;
   s->label = "Bloom Strength";
@@ -40,7 +39,7 @@ VisualsDialog::VisualsDialog(App& a) : Dialog(a, D_Visuals, true, "ENHANCED VISU
   extraH = rows.size() * kRowH + 38 + 12;
 }
 
-float VisualsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + extraH; }
+float VisualsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH; }
 
 void VisualsDialog::layout() {
   float y = contentTop(app.gfx) - 8;
@@ -71,7 +70,6 @@ void VisualsDialog::checkboxChanged(int id, bool on) {
     case 2: v.bloom = on; bloomStr->enabled = on; break;
     case 3: v.sparks = on; break;
     case 4: v.ultraWideHud = on; break;
-    case 5: app.settings.separateWideScores = on; break;
   }
 }
 

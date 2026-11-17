@@ -19,7 +19,7 @@ struct Tex {
   SDL_Texture* t = nullptr;
   int w = 0, h = 0, cols = 1, rows = 1;
   float scale = 1;
-  std::string path;
+  std::string path, mask;
   bool valid() const { return w > 0; }
   float lw() const { return w / scale; }
   float lh() const { return h / scale; }
@@ -73,11 +73,13 @@ class Gfx {
   float originX() const { return orgX_; }
   float originY() const { return orgY_; }
   void pushClip(float x, float y, float w, float h);
+  void clipToCanvas();
   void popClip();
 
   Tex* img(const std::string& idOrPath);
   void reloadAssets(const VfsChange& change);
   Tex* imgFile(const std::string& file);
+  Tex* duelDim(const std::string& id);
   void preload(const std::string& id) { img(id); }
   void draw(Tex* t, float x, float y, Mode m = {});
   void drawCel(Tex* t, float x, float y, int col, int row, Mode m = {});
@@ -97,6 +99,7 @@ class Gfx {
   float textWidth(const std::string& font, const std::string& s);
   float fontHeight(const std::string& font) { return fp_->height(font); }
   float fontAscent(const std::string& font) { return fp_->ascent(font); }
+  float fontAscentPadding(const std::string& font) { return fp_->ascentPadding(font); }
   float fontLineSpacing(const std::string& font) { return fp_->lineSpacing(font); }
   void drawString(const std::string& font, float x, float y, const std::string& s, uint32_t rgb = 0xffffff, float alpha = 1.0f, Align a = Align::Left);
   float drawWrapped(const std::string& font, Rect box, const std::string& s, uint32_t rgb = 0xffffff, float alpha = 1.0f, Align a = Align::Left, float lineSpacing = -1);
@@ -115,6 +118,7 @@ class Gfx {
   Manifest man_;
   bool haveMan_ = false;
   std::map<std::string, Tex> cache_;
+  std::map<std::string, Tex> dimCache_;
   std::map<std::array<int, 8>, Tex> boxCache_;
   std::map<const Tex*, std::vector<uint8_t>> rgbaCache_;
   Tex* boxTexture(Tex* t, float sx, float sy, float sw, float sh, int W, int H);

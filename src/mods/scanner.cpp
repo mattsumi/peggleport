@@ -1,4 +1,6 @@
 #include "mods/scanner.h"
+#include "gamepaths.h"
+#include "vfs.h"
 
 #include <algorithm>
 #include <cctype>
@@ -101,7 +103,7 @@ void findUrls(const std::string& file, int line, std::string_view text, ScanRepo
     size_t b = p + 3;
     while (b < text.size() && !std::isspace((unsigned char)text[b]) && text[b] != '"' && text[b] != '\'' && text[b] != ')' && text[b] != '<' && text[b] != '\0' && std::isprint((unsigned char)text[b])) b++;
     std::string scheme = lowerS(std::string(text.substr(a, p - a)));
-    if (!scheme.empty() && b > p + 3 && scheme != "file" && scheme.size() <= 10) add(r, Finding::Url, file, line, "URL " + std::string(text.substr(a, std::min<size_t>(b - a, 100))));
+    if (!scheme.empty() && b > p + 3 && scheme != "file" && scheme.size() <= 10) add(r, Finding::Url, file, line, "URL " + std::string(text.substr(a, std::min<size_t>(b - a, 100))) + (b - a > 100 ? "..." : ""));
     p += 3;
   }
 }
@@ -122,7 +124,7 @@ void scanLuaSource(const std::string& file, std::string_view srcIn, ScanReport& 
       while (q < low.size() && low[q] == ' ') q++;
       if (q < low.size() && (low[q] == '.' || low[q] == '[' || low[q] == ':' || low[q] == '=' || low[q] == ',' || low[q] == ')' || low[q] == '\0')) {
         if (q < low.size() && low[q] == '=' && q + 1 < low.size() && low[q + 1] == '=') continue;
-        add(r, Finding::NetApi, file, line, "use of the `net` API: " + std::string(L.substr(p, std::min<size_t>(40, L.size() - p))));
+        add(r, Finding::NetApi, file, line, "use of the `net` API: " + std::string(L.substr(p, std::min<size_t>(40, L.size() - p))) + (L.size() - p > 40 ? "..." : ""));
         break;
       }
     }
@@ -203,11 +205,11 @@ ScanReport scanMod(const fs::path& dir, const Manifest& m) {
   std::error_code ec;
   std::set<std::string> done;
   auto scanFile = [&](const fs::path& p) {
-    std::string rel = p.lexically_relative(dir).generic_string();
+    std::string rel = genericUtf8(p.lexically_relative(dir));
     if (!done.insert(rel).second) return;
     std::string bytes;
     if (!readFile(p, bytes, 128u << 20)) return;
-    std::string ext = lowerS(p.extension().string());
+    std::string ext = lowerS(pathToUtf8(p.extension()));
     if (ext == ".lua") scanLuaSource(rel, bytes, r);
     else if (ext == ".dll" || ext == ".so" || ext == ".dylib" || ext == ".exe" || ext == ".node" || (bytes.size() > 4 && (bytes.substr(0, 2) == "MZ" || bytes.substr(0, 4) == std::string("\x7f""ELF", 4)))) scanNativeBytes(rel, bytes, r);
   };
@@ -220,14 +222,14 @@ ScanReport scanMod(const fs::path& dir, const Manifest& m) {
   }
   for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
     if (ec) break;
-    std::string nm = it->path().filename().string();
+    std::string nm = pathToUtf8(it->path().filename());
     if (!nm.empty() && nm[0] == '.') { if (it->is_directory(ec)) it.disable_recursion_pending(); continue; }
     if (!it->is_regular_file(ec)) continue;
-    std::string ext = lowerS(it->path().extension().string());
+    std::string ext = lowerS(pathToUtf8(it->path().extension()));
     if (ext == ".lua" || ext == ".dll" || ext == ".so" || ext == ".dylib" || ext == ".exe" || ext == ".node") {
-      bool declared = done.count(it->path().lexically_relative(dir).generic_string()) > 0;
+      bool declared = done.count(genericUtf8(it->path().lexically_relative(dir))) > 0;
       scanFile(it->path());
-      if (!declared && ext != ".lua") add(r, Finding::Info, it->path().lexically_relative(dir).generic_string(), 0, "native library present but not declared in the manifest (it will not be loaded)");
+      if (!declared && ext != ".lua") add(r, Finding::Info, genericUtf8(it->path().lexically_relative(dir)), 0, "native library present but not declared in the manifest (it will not be loaded)");
     }
   }
   return r;

@@ -238,19 +238,25 @@ void DirectLink::close() {
   note_ = "closed";
 }
 
-std::string probeLobbyUdp(const std::string& host, int port, bool* reachable) {
+std::string probeLobbyUdp(const std::string& host, int port, bool* reachable, LobbyProbe* detail) {
   std::string err, out;
   Endpoint main, aux;
+  LobbyProbe seen;
+  seen.port = port;
   if (reachable) *reachable = false;
+  if (detail) *detail = seen;
   if (!Endpoint::resolve(host, port, &main, &err) || !Endpoint::resolve(host, port + 1, &aux, &err)) {
     pp::log::warn("net", "UDP probe of " + host + ":" + std::to_string(port) + " failed: " + err);
     return err;
   }
+  seen.resolved = true;
+  if (detail) *detail = seen;
   auto sock = openUdpPort(0, &err);
   if (!sock) {
     pp::log::warn("net", "UDP probe of " + host + ":" + std::to_string(port) + " failed: " + err);
     return err;
   }
+  seen.opened = true;
   std::vector<uint8_t> hello(rdv::kMinRequest, 0), obs(rdv::kMinRequest, 0);
   hello[0] = obs[0] = rdv::kMagic0;
   hello[1] = obs[1] = rdv::kMagic1;
@@ -282,6 +288,10 @@ std::string probeLobbyUdp(const std::string& host, int port, bool* reachable) {
                                          : "NAT: a different public port per destination (symmetric NAT): direct connections will not work, the TCP relay is used.\n";
   else if (gotMain) out += "NAT type unknown (probe port not reachable); a direct connection is still attempted and falls back to the relay.\n";
   if (reachable) *reachable = gotMain;
+  seen.answered = gotMain;
+  seen.natKnown = gotMain && gotAux;
+  seen.samePort = seen.natKnown && seenMain.port == seenAux.port;
+  if (detail) *detail = seen;
   pp::log::write(gotMain ? pp::log::Level::Info : pp::log::Level::Warn, "net", "UDP probe of " + host + ":" + std::to_string(port) + "\n" + out);
   return out;
 }

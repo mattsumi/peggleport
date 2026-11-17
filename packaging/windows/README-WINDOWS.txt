@@ -3,7 +3,9 @@ PegglePort for Windows
 
 Unzip this folder anywhere you like and double-click peggleport.exe. There is no installer and nothing else to install.
 
-The first window asks for your Peggle Deluxe and Peggle Nights folders (the folder that holds main.pak). You need your own copy of the games.
+You need your own copy of Peggle Deluxe, Peggle Nights, or both. PegglePort finds installed copies, including Steam installs, and collects the required files into its own gamefiles folder. If it cannot find a game, a folder picker asks for the folder that holds main.pak. Once collection is complete, the original install and Steam are not needed to play.
+
+Steam-enabled builds include steam_api64.dll and steam_appid.txt. Keep them beside peggleport.exe. The development App ID is 480, so Steam may show Spacewar rather than PegglePort. This is not a separate Steam store release. Steam is optional; single-player and the public multiplayer lobby work without a Steam client. Discord activity is also optional and off by default.
 
 Windows may show "Windows protected your PC" the first time because the program is not signed. Click "More info", then "Run anyway".
 

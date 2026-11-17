@@ -1,5 +1,8 @@
 #pragma once
+#include <array>
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <deque>
 #include <map>
 #include <set>
@@ -36,9 +39,9 @@ class Session {
 
   bool host(int port, const MatchInfo& mi, std::string* err);
   bool join(const std::string& host, int port, std::string* err);
-  bool hostViaLobby(const std::string& lobbyHost, int lobbyPort, const std::string& roomName, const MatchInfo& mi, std::string* err);
-  bool joinViaLobby(const std::string& lobbyHost, int lobbyPort, const std::string& code, std::string* err);
-  static bool listRooms(const std::string& lobbyHost, int lobbyPort, std::vector<std::string>* lines, std::string* err);
+  bool hostViaLobby(const std::string& lobbyHost, int lobbyPort, const std::string& roomName, const MatchInfo& mi, std::string* err, const std::atomic<bool>* stop = nullptr);
+  bool joinViaLobby(const std::string& lobbyHost, int lobbyPort, const std::string& code, std::string* err, const std::atomic<bool>* stop = nullptr);
+  static bool listRooms(const std::string& lobbyHost, int lobbyPort, std::vector<std::string>* lines, std::string* err, const std::atomic<bool>* stop = nullptr);
   const std::string& roomCode() const { return roomCode_; }
   int boundPort() const { return port_; }
   void poll();
@@ -78,10 +81,16 @@ class Session {
 
  private:
   struct Peer;
+  struct Attach;
+  std::vector<std::unique_ptr<Attach>> attaches_;
+  static std::unique_ptr<Peer> connectLobby(const std::string& host, int port, const std::atomic<bool>* stop, std::string* err);
   std::vector<Peer*> peers_;
   Peer* lobbyCtl_ = nullptr;
   std::string lobbyHost_, roomCode_, lobbyToken_;
   int lobbyPort_ = 0;
+  bool steamRoomRequested_ = false;
+  uint64_t steamRoomRetryAt_ = 0, steamRoomRetryDelay_ = 1000;
+  uint64_t lobbyPing_ = 0, lobbyReplyAt_ = 0;
   intptr_t listen_ = -1;
   int port_ = 0;
   bool host_ = false, welcomed_ = false, started_ = false, desync_ = false;
@@ -94,15 +103,18 @@ class Session {
   std::string rosterSig_;
   std::set<int> rematchVotes_;
   std::deque<uint32_t> rematchSeeds_;
-  bool left_ = false;
+  bool left_ = false, terminalReceived_ = false;
   std::map<std::pair<int, int>, uint64_t> mine_;
-  std::map<std::pair<int, int>, std::vector<uint64_t>> theirs_;
+  std::map<std::pair<int, int>, std::map<int, std::pair<uint64_t, bool>>> theirs_;
+  std::array<int, 4> hashIndex_{};
 
   void handle(Peer& p, uint8_t type, const std::vector<uint8_t>& body);
   void send(Peer& p, uint8_t type, const std::vector<uint8_t>& body);
   void broadcast(uint8_t type, const std::vector<uint8_t>& body, const Peer* except = nullptr);
   void compare(std::pair<int, int> key);
-  void flush(Peer& p);
+  static void flush(Peer& p);
+  static void drain(std::vector<std::unique_ptr<Peer>> peers, std::vector<std::unique_ptr<Attach>> attaches);
+  void failMatch(const std::string& reason);
   void refreshRoster();
   void tryRematch();
   void resetForRematch(uint32_t seed);

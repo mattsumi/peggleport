@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <cctype>
 #include "ui/hooks.h"
+#include "ui/session.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,6 +17,7 @@
 #include "ui/dialogs.h"
 #include "ui/character_dialog.h"
 #include "ui/game_screen.h"
+#include "ui/other_game.h"
 #include "ui/screens.h"
 
 namespace pp::ui {
@@ -34,16 +36,23 @@ void App::playMusic(const std::string& which) {
     curMusic_ = which;
     audio->playMusic("music/PeggleBeats.mo3", true, std::atoi(which.c_str() + 6));
     return;
-  } else if (which == "menu") path = game == Game::Deluxe ? "music/opening.ogg" : "music/menu.ogg";
+  } else if (which == "menu") path = game == Game::Deluxe ? "music/opening.ogg" : "music/Menu_Amb_2.ogg";
   else if (which == "credits") path = "music/credits.ogg";
   else if (which == "level") {
     curMusic_ = "level";
+    if (game != Game::Deluxe) audio->stopMusic();
     audio->playLevelMusic(game != Game::Deluxe);
     return;
   } else path = which;
   if (path == curMusic_) return;
   curMusic_ = path;
-  audio->playMusic(path, true);
+  float level = 1.0f;
+  float rise = 0.0f;
+  if (path == "music/Menu_Amb_2.ogg") level = 0.6f;
+  else if (path == "music/menu.ogg") { level = 0.75f; rise = 0.01f; }
+  else if (path == "music/progress.ogg") { level = 0.3f; rise = 0.001f; }
+  if (game != Game::Deluxe) audio->stopMusic();
+  audio->playMusic(path, true, 0, 1.0f, level, rise);
 }
 
 void App::stopMusic() {
@@ -130,6 +139,7 @@ void App::finishCreateUserDialog(bool accepted) {
   if (!cfg.noSave) profiles.save();
   if (curProfile) saveProfile();
   curProfile = p;
+  keepFaeries();
   colorblind = p->colorblind;
   checkMaxStage();
   if (!d->certificate) {
@@ -207,6 +217,20 @@ void App::finishOptionsDialog(bool apply, bool scrollOffIt) {
   pauseBoard(false);
 }
 
+void App::setGames(bool both, Game home) {
+  const bool changed = both != bothGames;
+  bothGames = both;
+  homeGame = home;
+  auto* old = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
+  if (!changed || !old || old->fromGame) return;
+  auto d = std::make_unique<OptionsDialog>(*this, false);
+  d->fullscreen->checked = old->fullscreen->checked;
+  d->colorblind->checked = old->colorblind->checked;
+  old->gone = true;
+  positionDialog(d.get(), 0x1b8);
+  dialogs_.push_back(std::move(d));
+}
+
 
 void App::dialogButton(int dlg, int btn) {
   bool yes = btn == ID_YES;
@@ -221,7 +245,7 @@ void App::dialogButton(int dlg, int btn) {
       off(dlg);
       if (yes) {
         if (curProfile && curProfile->b58 < 255) { curProfile->b58++; curProfile->dirty = true; }
-        finishOptionsDialog(false, false);
+        finishOptionsDialog(true, false);
         doToMenu();
       }
       return;
@@ -235,8 +259,12 @@ void App::dialogButton(int dlg, int btn) {
     case D_RestartLevel:
       off(dlg);
       if (yes) {
-        finishOptionsDialog(false, true);
-        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
+        finishOptionsDialog(true, true);
+        if (gameMode == GameMode::QuickPlay || gameMode == GameMode::Duel) {
+          if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->dropSession();
+          showLevelScreen(false);
+        } else if (gameMode == GameMode::Challenge) restartChallenge();
+        else if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->restartLevel();
       }
       return;
     case D_NewChallenge:
@@ -256,18 +284,40 @@ void App::dialogButton(int dlg, int btn) {
           std::filesystem::remove(profiles.savedGamePath(*curProfile, GameMode::Adventure), ec);
         }
         if (auto* as = dynamic_cast<AdventureScreen*>(cur_.get())) as->startGame();
+        else if (game == Game::Nights) {
+          sessionsOf(*this).drop(GameMode::Adventure);
+          sessionsOf(*this).startAsUsual();
+        }
+      } else if (!yes) {
+        sessionsOf(*this).backOut();
       }
       return;
+    case D_WhichAdventure: {
+      off(dlg);
+      if (btn != ID_YES && btn != ID_NO) return;
+      const Game wanted = yes ? Game::Deluxe : Game::Nights;
+      if (wanted != game) {
+        StartTarget target;
+        target.place = StartPlace::Adventure;
+        requestGameSwitch(wanted, target);
+      } else if (auto* mm = dynamic_cast<MainMenu*>(cur_.get())) {
+        mm->startAdventure();
+      }
+      return;
+    }
     case D_CreateUser: finishCreateUserDialog(yes); return;
     case D_NameError: case D_NameErrorRename: finishNameErrorDialog(dlg); return;
     case D_ToMenu: off(dlg); return;
     case D_Tip: off(dlg); return;
     case D_Character:
-      if (auto* cd = dynamic_cast<CharacterDialog*>(getDialog(dlg))) cd->accept();
+      if (auto* cd = dynamic_cast<CharacterDialog*>(getDialog(dlg))) {
+        cd->accept();
+        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->masterChosen(cd->picked[0] || cd->picked[1]);
+      }
       off(dlg);
       return;
     case D_Options: finishOptionsDialog(yes, true); return;
-    case D_Replay1: case D_Replay2: case D_SaveAll: case D_DeleteReplay: case D_ReplayError: replayDialogButton(dlg, btn); return;
+    case D_Replay1: case D_Replay2: case D_SaveAll: case D_DeleteReplay: case D_ReplayError: case D_SaveReplay: case D_OverwriteReplay: replayDialogButton(dlg, btn); return;
     case D_RenameUser: finishRenameUserDialog(yes); return;
     case D_UserList: finishUserDialog(yes); return;
     case D_ImportProfile: importDialogButton(dlg, btn); return;
@@ -275,13 +325,64 @@ void App::dialogButton(int dlg, int btn) {
   }
 }
 
-void App::doConfirmMainMenuDialog() {
-  doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
+void App::alignQuestionWithMenu(Dialog* d) {
+  auto* o = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
+  if (!o || !o->fromGame) return;
+  o->layout();
+  d->scrollTarget = o->y + o->mainMenu->y + o->mainMenu->h - d->h;
 }
-void App::doConfirmRestartLevelDialog(int kind) {
-  Dialog* d = doDialog(D_RestartLevel, true, kind == 1 ? "Restart Challenge?" : "Restart Level?",
-                       kind == 1 ? "Are you sure you want to restart this challenge? Your progress on it will be lost." : "Are you sure you want to restart this level? Your progress on this level will be lost.", "", BUTTONS_YES_NO);
-  d->setYesNo(kind == 1 ? "Restart Challenge" : "Restart Level", "NO");
+
+void App::doAdventureQuestion() {
+  Dialog* d = doDialog(D_WhichAdventure, true, "Adventure", "Which adventure do you\nwant to play?", "", BUTTONS_YES_NO);
+  d->setYesNo("Peggle Deluxe", "Peggle Nights");
+  d->escapeButton = ID_CLOSE;
+  d->returnButton = game == Game::Nights ? ID_NO : ID_YES;
+  d->resize(227, d->y, 366, d->preferredHeight(366));
+  d->scrollTarget = 280;
+}
+
+void App::doConfirmMainMenuDialog() {
+  if (sessionsOf(*this).askToLeave()) return;
+  if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
+    finishOptionsDialog(true, false);
+    doToMenu();
+    return;
+  }
+  Dialog* d = doDialog(D_ReturnToMenu, true, "Return to Main Menu?", "Are you sure you want to quit this game and return to the main menu?", "", BUTTONS_YES_NO);
+  alignQuestionWithMenu(d);
+}
+void App::doConfirmRestartLevelDialog(float top) {
+  const char* title = "New Level?";
+  const char* text = "Are you sure that you want to pick a new level?";
+  const char* yes = "New Level";
+  if (gameMode == GameMode::Challenge) {
+    title = "Restart Challenge?";
+    text = "Are you sure that you want to restart the challenge?";
+    yes = "Restart";
+  } else if (gameMode == GameMode::Adventure) {
+    title = "Restart Level?";
+    text = "Are you sure that you want to restart the level?";
+    yes = "Restart";
+  } else if (const auto* gs = dynamic_cast<GameScreen*>(cur_.get()); gs && !gs->hasProgress()) {
+    dialogButton(D_RestartLevel, ID_YES);
+    return;
+  }
+  Dialog* d = doDialog(D_RestartLevel, true, title, text, "", BUTTONS_YES_NO);
+  d->setYesNo(yes, "CANCEL");
+  if (top > 0) d->scrollTarget = top;
+  else alignQuestionWithMenu(d);
+}
+
+void App::restartChallenge() {
+  auto* gs = dynamic_cast<GameScreen*>(cur_.get());
+  if (!gs) return;
+  if (auto* e = getDialog(D_EndLevel)) e->doScrollOff();
+  const TrophyInfo* t = trophies.byId(curChallenge);
+  challengeStep = 0;
+  challengeMore = false;
+  challengeKeepLives = false;
+  if (t && !t->levels.empty() && t->levels[0] != "pick") challengeLevel = resolveChallengeLevel(t->levels[0]);
+  gs->startChallengeLevel();
 }
 
 
@@ -295,19 +396,46 @@ void App::showEndLevel(int mode, const LevelOutcome& o, const std::string& level
   dialogs_.push_back(std::move(d));
 }
 
+bool App::playNewLevel() {
+  auto* gs = dynamic_cast<GameScreen*>(cur_.get());
+  if (!gs || !curProfile) return false;
+  int s = curStage, l = curLevel;
+  if (OtherGame* o = otherFiles()) {
+    LevelDraw d;
+    if (!o->drawLevel(*this, true, d)) return false;
+    notePlayed(d.theirs ? o->game : game, d.stage, d.level);
+    if (d.theirs) {
+      StartTarget t;
+      t.place = StartPlace::Level;
+      t.mode = gameMode;
+      t.stage = d.stage;
+      t.level = d.level;
+      t.duel = duelSes;
+      requestGameSwitch(o->game, t);
+      return true;
+    }
+    s = d.stage;
+    l = d.level;
+  } else if (!stages.randomLevel(*curProfile, s, l, gameMode == GameMode::Duel, 10, rand()) || s < 0) {
+    return false;
+  }
+  curStage = s;
+  curLevel = l;
+  curProfile->levelSelectStage = s;
+  curProfile->dirty = true;
+  gs->nextLevel();
+  return true;
+}
+
 void App::endLevelButton(int id, int mode) {
-  if (auto* d = getDialog(D_EndLevel)) d->doScrollOff();
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   auto m = (EndLevelDialog::Mode)mode;
-  if (id == 1000 && gs && game == Game::Nights && (m == EndLevelDialog::ChallengeLevelDone || m == EndLevelDialog::ChallengeLives)) {
-    const TrophyInfo* t = trophies.byId(curChallenge);
-    challengeStep = 0;
-    challengeMore = false;
-    challengeKeepLives = false;
-    if (t && !t->levels.empty() && t->levels[0] != "pick") challengeLevel = resolveChallengeLevel(t->levels[0]);
-    gs->startChallengeLevel();
+  if (id == 1000 && gs && (m == EndLevelDialog::ChallengeLevelDone || m == EndLevelDialog::ChallengeLives)) {
+    Dialog* e = getDialog(D_EndLevel);
+    doConfirmRestartLevelDialog(e ? e->y : -1.0f);
     return;
   }
+  if (auto* d = getDialog(D_EndLevel)) d->doScrollOff();
   if (id == 1001 && newMantel && game == Game::Nights && m != EndLevelDialog::AdventureComplete) {
     newMantel = false;
     challengeMore = false;
@@ -315,10 +443,14 @@ void App::endLevelButton(int id, int mode) {
     return;
   }
   if (id == 1000) {
-    if (game == Game::Nights && m == EndLevelDialog::ChallengeLose) showTrophyScreen();
-    else doToMenu();
+    doToMenu();
     return;
   }
+  if (id == 0 && m == EndLevelDialog::ChallengeLose) {
+    showTrophyScreen();
+    return;
+  }
+  if (id == 0 && (m == EndLevelDialog::QuickWin || m == EndLevelDialog::QuickLose) && playNewLevel()) return;
   bool win = m == EndLevelDialog::AdventureWin || m == EndLevelDialog::QuickWin || m == EndLevelDialog::ChallengeWin || m == EndLevelDialog::AdventureComplete;
   if (m == EndLevelDialog::AdventureComplete) {
     if (game == Game::Nights) {
@@ -326,8 +458,7 @@ void App::endLevelButton(int id, int mode) {
       showProgressScreen(4);
       return;
     }
-    showMainMenu();
-    tryShowNewTrophy();
+    if (!tryShowNewTrophy()) showMainMenu();
     return;
   }
   if (!gs) return;
@@ -341,7 +472,7 @@ void App::endLevelButton(int id, int mode) {
     challengeKeepLives = true;
     gs->startChallengeLevel();
   } else if (win || m == EndLevelDialog::ChallengeLevelDone) {
-    if (m == EndLevelDialog::QuickWin) gs->restartLevel();
+    if (m == EndLevelDialog::QuickWin) gs->restartLevel(false);
     else if (challengeMore) {
       challengeMore = false;
       const TrophyInfo* t = trophies.byId(curChallenge);
@@ -355,7 +486,7 @@ void App::endLevelButton(int id, int mode) {
     if (t && !t->levels.empty() && t->levels[0] != "pick") challengeLevel = resolveChallengeLevel(t->levels[0]);
     gs->startChallengeLevel();
   } else {
-    gs->restartLevel();
+    gs->restartLevel(false);
   }
 }
 
@@ -363,8 +494,9 @@ std::string App::resolveChallengeLevel(const std::string& tok) {
   std::string l = tok;
   for (auto& c : l) c = (char)std::tolower((unsigned char)c);
   if (l.rfind("rand", 0) == 0 && curProfile) {
+    if (challengeStep == 0) stages.resetUse();
     int s = -1, lv = -1;
-    if (stages.randomLevel(*curProfile, s, lv, false, rand()) && s >= 0)
+    if (stages.randomLevel(*curProfile, s, lv, l == "rand2", 10, rand()) && s >= 0)
       if (const StageInfo* st = stages.stage(s))
         if (const LevelInfo* li = st->level(lv)) { curStage = s; curLevel = lv; return li->file; }
   }

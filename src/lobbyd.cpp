@@ -12,11 +12,12 @@ int main(int argc, char** argv) {
   int port = 7770;
   pp::LobbyServer srv;
   for (int i = 1; i < argc; i++) {
-    if (!std::strcmp(argv[i], "--no-udp")) srv.enableUdp = false;
+    if (!std::strcmp(argv[i], "--proxy-local")) srv.proxyLocal = true;
+    else if (!std::strcmp(argv[i], "--no-udp")) srv.enableUdp = false;
     else if (!std::strcmp(argv[i], "--aux-offset") && i + 1 < argc) srv.udpAuxOffset = std::atoi(argv[++i]);
     else if (argv[i][0] != '-') port = std::atoi(argv[i]);
     else {
-      std::fprintf(stderr, "usage: pp_lobbyd [port] [--no-udp] [--aux-offset N]\n");
+      std::fprintf(stderr, "usage: pp_lobbyd [port] [--no-udp] [--aux-offset N] [--proxy-local]\n");
       return 2;
     }
   }

@@ -429,6 +429,11 @@ void sendInit(HostProcess& p, const std::string& lib, const std::string& dir, co
   if (p.send(tx, 5000) != IoResult::Ok && err) *err = "cannot talk to the plugin helper (" + p.exitText() + ")";
 }
 
+std::string utf8Path(const fs::path& p) {
+  auto u = p.u8string();
+  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+
 }
 
 std::string NativeMod::protectionText(uint32_t p) {
@@ -502,7 +507,7 @@ std::unique_ptr<NativeMod> NativeMod::load(const fs::path& lib, const Manifest& 
   if (!ec) dir = canon;
   fs::path libPath = fs::canonical(lib, ec);
   if (ec) libPath = lib;
-  sendInit(*I.proc, libPath.string(), dir.string(), m.id, false, m.cosmetic, I.tx, &herr);
+  sendInit(*I.proc, utf8Path(libPath), utf8Path(dir), m.id, false, m.cosmetic, I.tx, &herr);
   if (!herr.empty()) {
     setErr(herr);
     return nullptr;

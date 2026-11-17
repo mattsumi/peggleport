@@ -33,11 +33,11 @@ Mbed TLS is offered under Apache-2.0 or GPL-2.0-or-later; PegglePort uses it und
 SDL3 carries a few small parts of its own (stb_image and stb_truetype for its helpers, dlmalloc, FreeBSD libm routines, HIDAPI). OpenJPEG's
 optional codec tools are switched off. Their notices are in the fetched source trees.
 
-## Optional, never shipped by this project
+## Optional, separately licensed
 
 | Component | Used for | Licence |
 |---|---|---|
-| Steamworks SDK | Steam presence and friend invites, only with `-DPP_STEAM=ON` | Valve's SDK licence, not redistributable |
+| Steamworks SDK | Steam presence, friend invitations, lobbies and peer networking, only with `-DPP_STEAM=ON` | [Valve's SDK Access Agreement](https://partner.steamgames.com/documentation/sdk_access_agreement/). SDK headers and tools stay separate; permitted runtime files come from `redistributable_bin`. |
 
 ## Written for this project
 

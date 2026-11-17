@@ -8,11 +8,15 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "audio.h"
+#include "gamefind.h"
+#include "gamepaths.h"
+#include "log.h"
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "render.h"
@@ -21,6 +25,11 @@ namespace pp::ui {
 
 namespace {
 
+struct Pacer {
+  uint64_t last = 0;
+  double acc = 0;
+};
+
 struct Live {
   SDL_Window* win = nullptr;
   SDL_Renderer* ren = nullptr;
@@ -28,6 +37,20 @@ struct Live {
   Gfx* gfx = nullptr;
   std::vector<SDL_Gamepad*> pads;
   bool hidden = false;
+  GameWindow* window = nullptr;
+  int leftTicks = 0;
+  Pacer* pacer = nullptr;
+  SDL_ThreadID thread = 0;
+  int busy = 0;
+  bool redrawing = false;
+};
+
+struct Busy {
+  explicit Busy(Live& l) : live(l) { live.busy++; }
+  ~Busy() { live.busy--; }
+  Busy(const Busy&) = delete;
+  Busy& operator=(const Busy&) = delete;
+  Live& live;
 };
 
 static bool handleGamepad(Live& L, const SDL_Event& e) {
@@ -129,34 +152,60 @@ static void handleEvent(Live& L, SDL_Event& e) {
 
 static void pumpEvents(Live& L) {
   SDL_Event e;
-  while (SDL_PollEvent(&e)) handleEvent(L, e);
+  while (SDL_PollEvent(&e)) {
+    Busy busy(L);
+    handleEvent(L, e);
+  }
 }
 
-struct Pacer {
-  uint64_t last = 0;
-  double acc = 0;
-};
-
-static void paceOnce(Live& L, Pacer& P) {
-  pumpEvents(L);
-  L.hidden = (SDL_GetWindowFlags(L.win) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0;
-  uint64_t now = SDL_GetTicksNS();
+static void advance(Live& L, Pacer& P, uint64_t now) {
   if (!P.last) P.last = now;
   P.acc = std::min(P.acc + (double)(now - P.last) / 1e6, 200.0);
   P.last = now;
   while (P.acc >= 10.0 && !L.app->wantsQuit()) {
     P.acc -= 10.0;
     L.app->tick();
+    if (L.leftTicks > 0) {
+      if (Audio* left = L.window->leftSound()) left->tickMusic();
+      if (--L.leftTicks == 0) L.window->dropLeftGame();
+    }
   }
+}
+
+static void showFrame(Live& L, const Pacer& P) {
+  L.app->renderAlpha = (float)(P.acc / 10.0);
+  L.app->frame();
+  SDL_RenderPresent(L.ren);
+}
+
+static void paceOnce(Live& L, Pacer& P) {
+  pumpEvents(L);
+  Busy busy(L);
+  L.hidden = (SDL_GetWindowFlags(L.win) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0;
+  uint64_t now = SDL_GetTicksNS();
+  advance(L, P, now);
   if (L.hidden) {
     SDL_Delay(16);
     return;
   }
-  L.app->renderAlpha = (float)(P.acc / 10.0);
-  L.app->frame();
-  SDL_RenderPresent(L.ren);
+  showFrame(L, P);
   double ms = (double)(SDL_GetTicksNS() - now) / 1e6;
   if (ms < 2.0) SDL_DelayNS((uint64_t)((2.0 - ms) * 1e6));
+}
+
+static bool redrawWhileResizing(void* userdata, SDL_Event* e) {
+  if (e->type != SDL_EVENT_WINDOW_EXPOSED) return true;
+  Live& L = *static_cast<Live*>(userdata);
+  if (L.busy > 0 || L.redrawing || !L.app || !L.pacer || L.app->wantsQuit()) return true;
+  if (SDL_GetCurrentThreadID() != L.thread || e->window.windowID != SDL_GetWindowID(L.win)) return true;
+  int w = 0, h = 0;
+  if ((SDL_GetWindowFlags(L.win) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0) return true;
+  if (!SDL_GetWindowSizeInPixels(L.win, &w, &h) || w <= 0 || h <= 0) return true;
+  L.redrawing = true;
+  advance(L, *L.pacer, SDL_GetTicksNS());
+  showFrame(L, *L.pacer);
+  L.redrawing = false;
+  return true;
 }
 
 }
@@ -205,77 +254,218 @@ static SDL_Surface* makeWindowIcon(Game game) {
   return s;
 }
 
-static RunResult playWindow(Vfs& vfs, Game game, SDL_Window* win, SDL_Renderer* ren) {
+static bool bothInstalled(const RunOptions& o) { return o.hasGame && o.hasGame(o.game) && o.hasGame(otherGame(o.game)); }
+
+static Game homeOf(const RunOptions& o) { return bothInstalled(o) && o.home ? o.home() : o.game; }
+
+static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, bool freshWindow, GameRequest& next) {
+  SDL_Window* win = window.window();
+  SDL_Renderer* ren = window.renderer();
   RunResult result = RunResult::Quit;
   SDL_Cursor* customCursor = nullptr;
+  std::unique_ptr<Audio> audio = std::make_unique<Audio>(vfs);
+  if (!audio->openDevice()) audio.reset();
   {
     Renderer board(ren, vfs);
     Gfx gfx(ren, vfs);
-    std::unique_ptr<Audio> audio = std::make_unique<Audio>(vfs);
-    if (!audio->openDevice()) audio.reset();
     App::Config cfg;
-    cfg.game = game;
+    cfg.game = o.game;
+    cfg.start = o.start;
+    cfg.bothGames = bothInstalled(o);
+    cfg.home = homeOf(o);
+    if (cfg.bothGames && o.gameDir) cfg.otherDir = o.gameDir(otherGame(o.game));
     cfg.seed = (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count();
     App app(gfx, vfs, audio.get(), &board, cfg);
+    app.homeHook = [&](Game g) {
+      if (o.setHome) o.setHome(g);
+    };
     app.setFullscreenHook = [&](bool on) { SDL_SetWindowFullscreen(win, on); };
     customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
     app.showCursorHook = [&](bool custom) { SDL_SetCursor(custom && customCursor ? customCursor : SDL_GetDefaultCursor()); };
     app.showCursorHook(app.settings.customCursors);
+    window.dropCursor();
     app.modAssetsHook = [&] {
       SDL_Cursor* old = customCursor;
       customCursor = makeCursor(vfs, "images/cursor_pointer", 0, 0);
       app.showCursorHook(app.settings.customCursors);
       if (old) SDL_DestroyCursor(old);
     };
-    if (app.settings.fullscreen) SDL_SetWindowFullscreen(win, true);
-    app.showLoadingScreen();
+    if (!freshWindow) app.settings.fullscreen = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) != 0;
+    else if (app.settings.fullscreen) SDL_SetWindowFullscreen(win, true);
+    bool pictureFillsWindow = false;
+    SDL_Surface* picture = window.takePicture(pictureFillsWindow);
+    if (o.start.handOver) {
+      app.startAt(o.start, picture, pictureFillsWindow);
+      app.frame();
+    } else {
+      app.showLoadingScreen();
+    }
+    if (picture) SDL_DestroySurface(picture);
 
     Live L;
     L.win = win;
     L.ren = ren;
     L.app = &app;
     L.gfx = &gfx;
+    L.window = &window;
+    L.leftTicks = window.leftSound() ? 110 : 0;
+    if (!L.leftTicks) window.dropLeftGame();
     Pacer P;
-    while (!app.wantsQuit()) paceOnce(L, P);
+    L.pacer = &P;
+    L.thread = SDL_GetCurrentThreadID();
+    SDL_AddEventWatch(redrawWhileResizing, &L);
+    if (o.setGame) {
+      o.setGame(&app, [&](const std::function<bool()>& done) {
+        P.last = 0;
+        while (!app.wantsQuit() && !done()) paceOnce(L, P);
+        P.last = 0;
+      });
+    }
+    bool told = !(o.start.handOver && o.start.askedAt);
+    while (!app.wantsQuit()) {
+      paceOnce(L, P);
+      if (!told) {
+        told = true;
+        log::info("start", "Switched to " + app.titleText() + " in " + std::to_string((SDL_GetTicksNS() - o.start.askedAt) / 1000000) + " ms");
+      }
+      GameRequest wanted;
+      if (app.takeGameSwitchRequest(wanted)) {
+        if (!o.canOpen || o.canOpen(wanted.game)) {
+          next = wanted;
+          result = RunResult::SwitchGame;
+          app.frame();
+          window.keepPicture(SDL_RenderReadPixels(ren, nullptr), app.pictureFillsWindow());
+          app.playMusic("fadeout");
+          app.requestQuit();
+        } else {
+          app.gameSwitchRefused(wanted);
+        }
+        P.last = 0;
+      }
+      if (app.takeGameFoldersRequest() && o.chooseFolders) {
+        if (o.chooseFolders(o.game)) {
+          app.finishOptionsDialog(true, false);
+          next = GameRequest();
+          next.game = o.game;
+          result = RunResult::SwitchGame;
+          app.requestQuit();
+        } else {
+          app.setGames(bothInstalled(o), homeOf(o));
+        }
+        P.last = 0;
+      }
+    }
 
+    SDL_RemoveEventWatch(redrawWhileResizing, &L);
+    if (o.setGame) o.setGame(nullptr, nullptr);
     if (!(SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED))) SDL_GetWindowSize(win, &app.settings.winW, &app.settings.winH);
     app.shutdown();
-    if (app.gameSwitchRequested()) result = RunResult::SwitchGame;
     for (SDL_Gamepad* g : L.pads) SDL_CloseGamepad(g);
   }
-  SDL_SetCursor(SDL_GetDefaultCursor());
-  if (customCursor) SDL_DestroyCursor(customCursor);
+  window.dropLeftGame();
+  if (result == RunResult::SwitchGame && next.start.handOver) {
+    window.keepSound(std::move(audio));
+    window.keepCursor(customCursor);
+  } else {
+    SDL_SetCursor(SDL_GetDefaultCursor());
+    if (customCursor) SDL_DestroyCursor(customCursor);
+  }
   return result;
 }
 
-RunResult runApp(const RunOptions& o, Vfs& vfs, std::string& error) {
-  Game game = o.game;
+static void keepPendingInvites() {
+  SDL_PumpEvents();
+  SDL_Event e;
+  while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_DROP_FILE, SDL_EVENT_DROP_TEXT) > 0)
+    if (e.drop.data && pp::online::isInviteLike(e.drop.data)) pp::ui::online::setPendingInvite(e.drop.data);
+}
+
+bool GameWindow::open(Game game, int w, int h, bool keepPicture, std::string& error) {
   const char* title = game == Game::Deluxe ? "Peggle Deluxe (PegglePort)" : "Peggle Nights (PegglePort)";
+  if (!win_) {
+    SDL_Rect area;
+    if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &area) && area.w > 0 && area.h > 0) {
+      w = std::min(w, area.w);
+      h = std::min(h, area.h);
+    }
+    if (!SDL_CreateWindowAndRenderer(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win_, &ren_)) {
+      error = std::string("The game window could not be opened: ") + SDL_GetError();
+      win_ = nullptr;
+      ren_ = nullptr;
+      return false;
+    }
+    SDL_SetRenderVSync(ren_, 1);
+    SDL_StartTextInput(win_);
+  } else {
+    SDL_SetWindowTitle(win_, title);
+    if (!keepPicture) {
+      SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);
+      SDL_RenderClear(ren_);
+      SDL_RenderPresent(ren_);
+    }
+  }
+  if (SDL_Surface* icon = makeWindowIcon(game)) { SDL_SetWindowIcon(win_, icon); SDL_DestroySurface(icon); }
+  return true;
+}
+
+void GameWindow::keepPicture(SDL_Surface* picture, bool fillsWindow) {
+  if (picture_) SDL_DestroySurface(picture_);
+  picture_ = picture;
+  pictureFillsWindow_ = fillsWindow;
+}
+
+SDL_Surface* GameWindow::takePicture(bool& fillsWindow) {
+  SDL_Surface* picture = picture_;
+  fillsWindow = pictureFillsWindow_;
+  picture_ = nullptr;
+  return picture;
+}
+
+void GameWindow::keepSound(std::unique_ptr<Audio> sound) { leftSound_ = std::move(sound); }
+
+void GameWindow::keepFiles(std::shared_ptr<Vfs> files) { leftFiles_ = std::move(files); }
+
+void GameWindow::dropLeftGame() {
+  leftSound_.reset();
+  leftFiles_.reset();
+}
+
+void GameWindow::keepCursor(SDL_Cursor* cursor) {
+  dropCursor();
+  leftCursor_ = cursor;
+}
+
+void GameWindow::dropCursor() {
+  if (!leftCursor_) return;
+  if (SDL_GetCursor() == leftCursor_) SDL_SetCursor(SDL_GetDefaultCursor());
+  SDL_DestroyCursor(leftCursor_);
+  leftCursor_ = nullptr;
+}
+
+void GameWindow::close() {
+  dropLeftGame();
+  dropCursor();
+  keepPicture(nullptr);
+  if (ren_) SDL_DestroyRenderer(ren_);
+  if (win_) SDL_DestroyWindow(win_);
+  ren_ = nullptr;
+  win_ = nullptr;
+}
+
+RunResult runApp(const RunOptions& o, Vfs& vfs, GameWindow& window, GameRequest& next, std::string& error) {
   int w = o.winW, h = o.winH;
   Settings remembered;
-  if (remembered.load(defaultUserDir(game).parent_path() / "settings.ini") && remembered.winW >= 640 && remembered.winH >= 480) {
+  if (remembered.load(defaultUserDir(o.game).parent_path() / "settings.ini") && remembered.winW >= 640 && remembered.winH >= 480) {
     w = remembered.winW;
     h = remembered.winH;
   }
-  SDL_Rect area;
-  if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &area) && area.w > 0 && area.h > 0) {
-    w = std::min(w, area.w);
-    h = std::min(h, area.h);
-  }
+  keepPendingInvites();
   SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
-  SDL_Window* win = nullptr;
-  SDL_Renderer* ren = nullptr;
-  if (!SDL_CreateWindowAndRenderer(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win, &ren)) {
-    error = std::string("The game window could not be opened: ") + SDL_GetError();
-    return RunResult::Failed;
-  }
-  SDL_SetRenderVSync(ren, 1);
-  if (SDL_Surface* icon = makeWindowIcon(game)) { SDL_SetWindowIcon(win, icon); SDL_DestroySurface(icon); }
+  bool freshWindow = !window.isOpen();
+  if (!window.open(homeOf(o), w, h, o.start.handOver, error)) return RunResult::Failed;
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);
-  RunResult result = playWindow(vfs, game, win, ren);
+  RunResult result = playWindow(o, vfs, window, freshWindow, next);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
-  SDL_DestroyRenderer(ren);
-  SDL_DestroyWindow(win);
   return result;
 }
 

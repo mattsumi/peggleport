@@ -20,13 +20,13 @@ namespace pp::ui {
 
 
 void ListBox::draw(Gfx& g) {
-  g.fill(0, 0, w, h, 0x505050);
+  g.fill(0, 0, w, h, back);
   g.pushClip(0, 0, w, h);
   int n = visibleItems() + 1;
   for (int i = 0; i < n; i++) {
     int idx = top + i;
     if (idx >= (int)lines.size()) break;
-    float y = i * itemH;
+    float y = topInset + i * itemH;
     uint32_t col = 0xffff50;
     if (idx == select) {
       g.fill(0, y, w, itemH, 0xf45d02);
@@ -34,9 +34,12 @@ void ListBox::draw(Gfx& g) {
     } else if (idx == hilite) {
       col = 0xffffff;
     }
-    g.drawString(font, w / 2, y + g.fontAscent(font), lines[idx], col, 1, Align::Center);
+    const float base = y + g.fontAscent(font) + (float)(int)((itemH - g.fontHeight(font)) / 2);
+    if (centered) g.drawString(font, w / 2, base, lines[idx], col, 1, Align::Center);
+    else g.drawString(font, 4, base, lines[idx], col, 1);
   }
   g.popClip();
+  if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, -8, -8, w + 16, h + 16);
 }
 bool ListBox::mouseDown(float lx, float ly, int button, int clicks) {
   if (button != 1) return false;
@@ -45,13 +48,20 @@ bool ListBox::mouseDown(float lx, float ly, int button, int clicks) {
   return true;
 }
 void ListBox::mouseMove(float lx, float ly) { hilite = indexAt(ly); }
+void ListBox::reveal() {
+  const int vis = std::max(1, visibleItems());
+  if (select < 0) return;
+  if (select < top) top = select;
+  else if (select >= top + vis) top = select - vis + 1;
+  top = std::clamp(top, 0, std::max(0, (int)lines.size() - vis));
+}
 void ListBox::wheel(float d) {
   int maxTop = std::max(0, (int)lines.size() - visibleItems());
   top = std::clamp(top - (int)d, 0, maxTop);
 }
 
 
-UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "", "", BUTTONS_YES_NO) {
+UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "", "", BUTTONS_OK_CANCEL) {
   rope = true;
   auto l = std::make_unique<ListBox>();
   l->gfx = &a.gfx;
@@ -72,7 +82,7 @@ UserDialog::UserDialog(App& a) : Dialog(a, D_UserList, true, "WHO ARE YOU?", "",
   };
 }
 
-float UserDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + 0xff + buttonH + 5; }
+float UserDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + 0xff + buttonH + 5; }
 
 void UserDialog::layout() {
   float left = insL, top = contentTop(app.gfx);
@@ -97,15 +107,13 @@ void UserDialog::layout() {
 void UserDialog::drawLayer(Gfx& g) {
   layout();
   Dialog::drawLayer(g);
-  Tex* fr = g.img("IMAGE_DLG_BLUEFRAME");
-  if (fr) g.drawBox(fr, list->x - 8, list->y - 8, list->w + 16, list->h + 16);
 }
 
 bool UserDialog::input(const Input& in) {
   if (in.type == Input::Wheel) { list->wheel(in.wheel); return true; }
   if (in.type == Input::KeyDown) {
-    if (in.key == SDLK_UP && list->select > 0) { list->select--; return true; }
-    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; return true; }
+    if (in.key == SDLK_UP && list->select > 0) { list->select--; list->reveal(); return true; }
+    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; list->reveal(); return true; }
   }
   return Dialog::input(in);
 }
@@ -132,6 +140,7 @@ void UserDialog::confirmDelete() {
   idx = std::max(0, idx - 1);
   if (!list->lines.empty()) list->select = std::min(idx, (int)list->lines.size() - 1);
   else list->select = -1;
+  list->reveal();
   if (!app.curProfile) {
     app.curProfile = app.profiles.get(selName());
     if (!app.curProfile) app.curProfile = app.profiles.any();
@@ -178,7 +187,9 @@ NewUserDialog::NewUserDialog(App& a, bool isRename, bool cert, bool canCancel)
     lines.clear();
     rope = false;
   } else {
-    w = 400;
+    w = 300;
+    edit->paper = true;
+    edit->ink = 0x000000;
   }
 }
 
@@ -210,10 +221,10 @@ void NewUserDialog::layout() {
     }
   } else {
     layoutButtons();
-    edit->x = 0x30;
-    edit->y = 0x69;
-    edit->w = w - 96;
-    edit->h = 0x18;
+    edit->x = 48;
+    edit->y = 108;
+    edit->w = w - 97;
+    edit->h = 20;
   }
 }
 
@@ -221,11 +232,12 @@ void NewUserDialog::drawLayer(Gfx& g) {
   layout();
   if (!certificate) {
     Dialog::drawLayer(g);
+    if (Tex* box = g.img("IMAGE_DLG_TEXTBOX")) g.drawBox(box, edit->x - 8, edit->y - 11, edit->w + 17, edit->h + 20);
     return;
   }
   Tex* c = g.img("IMAGE_MM_CERTIFICATE");
   if (c) g.draw(c, 0, 0);
-  g.drawString("PLAIN", 0x87 - g.textWidth("PLAIN", dateText) / 2, 0x186, dateText, 0x808080);
+  g.drawString("PLAIN", 0x87 - g.textWidth("PLAIN", dateText) / 2, 0x186, dateText, 0x000080);
   if (noBtn->visible || importBtn) g.fill(0x133, 0x164, 0x88, 0x32, 0xd6cfc0);
   if (stamp > 0) {
     Tex* st = g.img("IMAGE_MM_APPROVEDSTAMP");
@@ -276,7 +288,7 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
     s->id = id;
     s->label = label;
     s->value = v;
-    s->w = 0xbe;
+    s->w = 0xa2;
     s->h = 0x24;
     return add(std::move(s));
   };
@@ -286,13 +298,14 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   auto mkCheck = [&](int id, const char* label, bool v) {
     auto c = std::make_unique<Checkbox>();
     c->id = id;
-    c->image = a.gfx.img("IMAGE_DLG_BUTTON2");
-    c->style = 1;
+    c->image = a.gfx.img("IMAGE_DLG_BUTTON1");
+    c->style = 0;
     c->label = label;
     c->checked = v;
-    c->labelX = 30;
-    c->w = a.gfx.textWidth("BUTTON", label) + 30;
-    c->h = c->image ? c->image->lh() / 3 : 24;
+    c->labelX = 40;
+    c->labelY = 2;
+    c->w = 0xb6;
+    c->h = c->image ? c->image->lh() / 4 : 34;
     return add(std::move(c));
   };
   fullscreen = mkCheck(3, "Fullscreen", a.settings.fullscreen);
@@ -311,7 +324,12 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   gamesBtn->visible = !fg;
   widescreen = patchButton(11, "Widescreen", "IMAGE_DLG_BUTTON3", 0, 0);
   visuals = patchButton(14, "Enhanced Visuals...", "IMAGE_DLG_BUTTON3", 0, 0);
+  homeBtn = patchButton(16, "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
+  homeBtn->visible = !fg && a.bothGames;
+  demoBtn = patchButton(17, "Demo", "IMAGE_DLG_BUTTON3", 0, 0);
+  demoBtn->visible = !fg && a.game == Game::Nights;
   updateWidescreenLabel();
+  updateHomeLabel();
   if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
     yesBtn->image = pb;
     yesBtn->kind = Button::Kind::Embedded;
@@ -321,24 +339,30 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
     yesBtn->font = "BUTTON";
   }
   bool adv = a.gameMode == GameMode::Adventure, chal = a.gameMode == GameMode::Challenge;
+  const auto* board = dynamic_cast<GameScreen*>(a.screen());
+  const bool watching = a.gameMode == GameMode::Demo || (board && board->viewing());
   if (fg && chal) newLevel->label = "Restart Challenge";
   else if (adv) newLevel->label = "Restart Level";
   mainMenu->visible = fg;
   newLevel->visible = fg;
-  newChallenge->visible = !fg && chal;
+  newChallenge->visible = fg && chal;
   help->visible = true;
-  if (fg && (a.gameMode == GameMode::Demo)) { newLevel->visible = false; help->visible = false; }
+  if (fg && watching) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
-  extraH = 0xdc + (fg ? 0 : 0x3c);
+  extraH = (float)(0xdc + (fg ? 0x24 : 0x50));
   if (editor->visible) extraH += 0x20;
+  if (homeBtn->visible) extraH += 0x20;
+  if (demoBtn->visible) extraH += 0x20;
   if (mainMenu->visible) extraH += 0x20;
   if (help->visible) extraH += 0x20;
   if (fg && chal) extraH += 0x20;
 }
 
+void OptionsDialog::updateHomeLabel() { homeBtn->label = std::string("Main Menu: ") + (app.homeGame == Game::Nights ? "Peggle Nights" : "Peggle Deluxe"); }
+
 void OptionsDialog::updateWidescreenLabel() { widescreen->label = std::string("Widescreen: ") + widescreenName(app.widescreenMode()); }
 
-float OptionsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + extraH; }
+float OptionsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH; }
 
 void OptionsDialog::layout() {
   Gfx& g = app.gfx;
@@ -353,6 +377,8 @@ void OptionsDialog::layout() {
   colorblind->x = vsync->x;  colorblind->y = cursors->y;  colorblind->w = 0xb6;
   widescreen->x = left;   widescreen->y = cursors->y + cursors->h + 6;   widescreen->w = W;   widescreen->h = help->h;
   visuals->x = left;      visuals->y = fromGame ? widescreen->y : widescreen->y + help->h + 2;   visuals->w = W;   visuals->h = help->h;
+  homeBtn->x = left;      homeBtn->y = visuals->y + help->h + 2;   homeBtn->w = W;   homeBtn->h = help->h;
+  demoBtn->x = left;      demoBtn->y = (homeBtn->visible ? homeBtn->y : visuals->y) + help->h + 2;   demoBtn->w = W;   demoBtn->h = help->h;
   if (yesBtn) {
     yesBtn->x = (w - yesBtn->w) / 2;
     yesBtn->y = h - insB - yesBtn->h - 6;
@@ -360,22 +386,22 @@ void OptionsDialog::layout() {
   float bw = W / 2 - 2, bh = help->h;
   if (!fromGame) {
     help->x = yesBtn->x; help->y = yesBtn->y - 0x1e - bh + 0; help->w = yesBtn->w;
-    help->y = yesBtn->y - bh - 4;
+    help->y = yesBtn->y - bh - 24;
     help->w = bw;
     modsBtn->x = help->x + bw; modsBtn->y = help->y; modsBtn->w = bw; modsBtn->h = bh;
     if (editor->visible) { editor->x = help->x; editor->w = bw; editor->y = help->y - bh; }
     if (gamesBtn->visible) { gamesBtn->x = help->x + bw; gamesBtn->w = bw; gamesBtn->y = help->y - bh; }
   } else {
-    mainMenu->x = yesBtn->x; mainMenu->w = yesBtn->w; mainMenu->y = yesBtn->y + yesBtn->h + 2;
+    mainMenu->x = left; mainMenu->w = W; mainMenu->y = h - insB - bh - 0x1e - bh;
     if (app.gameMode == GameMode::Challenge) {
-      newLevel->x = mainMenu->x; newLevel->w = mainMenu->w; newLevel->y = mainMenu->y + bh;
-      help->x = mainMenu->x; help->w = bw; help->y = newLevel->y + bh;
-      newChallenge->x = help->x + help->w; newChallenge->w = bw; newChallenge->y = help->y;
+      newLevel->x = mainMenu->x; newLevel->w = mainMenu->w; newLevel->y = mainMenu->y - bh;
+      help->x = mainMenu->x; help->w = bw; help->y = newLevel->y - bh;
+      newChallenge->x = help->x + help->w + 5; newChallenge->w = bw; newChallenge->y = help->y;
     } else if (newLevel->visible) {
-      help->x = mainMenu->x; help->w = bw; help->y = mainMenu->y + bh;
-      newLevel->x = help->x + help->w; newLevel->w = bw; newLevel->y = help->y;
+      help->x = mainMenu->x; help->w = bw; help->y = mainMenu->y - bh;
+      newLevel->x = help->x + help->w + 5; newLevel->w = bw; newLevel->y = help->y;
     } else {
-      help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y + bh;
+      help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y - bh;
     }
   }
   for (Button* b : {help, mainMenu, newLevel, newChallenge, modsBtn, editor, gamesBtn}) b->h = bh;
@@ -392,7 +418,7 @@ void OptionsDialog::sliderChanged(int id, double v) {
   else if (id == 1) app.settings.sfx = (float)v;
   else app.settings.fever = (float)v;
   app.applySettings();
-  if (id == 1) app.playSample("BUTTON1");
+  if (id == 1 && !sfx->dragging) app.playSample("BUTTON1");
 }
 
 void OptionsDialog::checkboxChanged(int id, bool on) {
@@ -407,11 +433,16 @@ void OptionsDialog::onButton(int id) {
     case 7: app.showHelpScreen(app.hasBoard()); if (!app.hasBoard()) app.finishOptionsDialog(true, true); break;
     case 12: app.showModsScreen(); app.finishOptionsDialog(true, true); break;
     case 8: app.doConfirmMainMenuDialog(); break;
-    case 9: app.doConfirmRestartLevelDialog(app.gameMode == GameMode::Challenge ? 1 : 0); break;
+    case 9: app.doConfirmRestartLevelDialog(); break;
     case 10: app.doConfirmNewChallengeDialog(); break;
     case 13: app.finishOptionsDialog(true, true); app.showEditor(); break;
     case 14: app.doVisualsDialog(); break;
-    case 15: app.finishOptionsDialog(true, true); app.requestGameSwitch(); break;
+    case 15: app.requestGameFolders(); break;
+    case 17: app.startDemo(); break;
+    case 16:
+      app.setHomeGame(app.homeGame == Game::Nights ? Game::Deluxe : Game::Nights);
+      updateHomeLabel();
+      break;
     case 11:
       app.settings.widescreen = (app.settings.widescreen + 1) % kWidescreenModes;
       updateWidescreenLabel();

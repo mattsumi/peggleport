@@ -10,10 +10,12 @@
 #include <utility>
 
 #include "audio.h"
+#include "online/discord.h"
 #include "profile.h"
 #include "ui/gfx.h"
 #include "ui/fireworks.h"
 #include "ui/stages.h"
+#include "ui/start_target.h"
 #include "ui/widescreen.h"
 #include "ui/widgets.h"
 #include "vfs.h"
@@ -26,6 +28,8 @@ namespace pp::ui {
 
 class App;
 class Dialog;
+struct OtherGame;
+class SessionKeeper;
 class LogView;
 
 class Panel : public WidgetHost {
@@ -56,6 +60,11 @@ class Panel : public WidgetHost {
   virtual void drawOverlay(Gfx& g) {}
   void draw(Gfx& g);
   virtual bool input(const Input& in);
+  void releaseHover() {
+    if (!hover) return;
+    hover->mouseLeave();
+    hover = nullptr;
+  }
   virtual void keyDown(int key, int mod) {}
   virtual void onShow() {}
 
@@ -64,6 +73,7 @@ class Panel : public WidgetHost {
   void buttonEnter(int id) override { onButtonEnter(id); }
   void buttonLeave(int id) override { onButtonLeave(id); }
   void playSound(const std::string& id, float pitch = 0) override;
+  bool labelFullGradient() const override;
   virtual void onButton(int id) {}
   virtual void onButtonPress(int id, int clicks) {}
   virtual void onButtonEnter(int id) {}
@@ -81,12 +91,18 @@ class Screen : public Panel {
   virtual int canvasWidth() const { return 800; }
   virtual int canvasHeight() const { return 600; }
   virtual void lostFocus() {}
+  virtual void onLeave() {}
+  virtual void discordPresence(pp::online::Discord::Presence& presence) const {}
 };
 
 class App : public WidgetHost {
  public:
   struct Config {
     Game game = Game::Deluxe;
+    StartTarget start;
+    bool bothGames = false;
+    Game home = Game::Deluxe;
+    std::filesystem::path otherDir, otherUserDir;
     std::filesystem::path userDir;
     bool fastBoot = false;
     int boardWidth = 0;
@@ -99,15 +115,47 @@ class App : public WidgetHost {
   ~App();
 
   void tick();
+  bool discordEnabled() const { return discordEnabled_; }
+  void setDiscordEnabled(bool enabled);
+  void clearDiscord();
+  std::string takeDiscordInvite();
   WidescreenMode widescreenMode() const;
   int boardWidthForNewBoard() const;
+  int frameCanvasWidth(int boardCanvas) const;
+  float pointerOnCanvas(int canvasW) const;
   void frame(int canvasW = 0);
   void input(const Input& in);
   void shutdown();
   bool wantsQuit() const { return quit_; }
   void requestQuit() { quit_ = true; }
-  void requestGameSwitch() { switchGame_ = true; quit_ = true; }
-  bool gameSwitchRequested() const { return switchGame_; }
+  void requestGameSwitch(Game g, StartTarget start = {});
+  bool takeGameSwitchRequest(GameRequest& r);
+  void gameSwitchRefused(const GameRequest& r);
+  bool gameSwitchPending() const { return switchWanted_; }
+  void startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow);
+  bool pictureFillsWindow() const { return cur_ && (cur_->isGame() || cur_->canvasWidth() != 800); }
+  bool bothGames = false;
+  Game homeGame = Game::Deluxe;
+  std::function<void(Game)> homeHook;
+  void setHomeGame(Game g);
+  void setGames(bool both, Game home);
+  bool goHome();
+  bool goHomeList(StartPlace place);
+  bool startInList(const StartTarget& start);
+  OtherGame* otherLevels();
+  OtherGame* otherFiles();
+  bool otherOpen(GameMode mode);
+  bool modeOpen(GameMode mode) const;
+  int listPage = -1;
+  bool pickOther = false;
+  void enterAdventure();
+  void doAdventureQuestion();
+  void requestGameFolders() { foldersWanted_ = true; }
+  bool takeGameFoldersRequest() {
+    bool wanted = foldersWanted_;
+    foldersWanted_ = false;
+    return wanted;
+  }
   void onWindowClose();
   int updateCount() const { return updates_; }
   float renderAlpha = 1.0f;
@@ -132,6 +180,8 @@ class App : public WidgetHost {
   int maxStage = 0, maxLevel = 0;
   bool colorblind = false;
   bool menuNewLevels = false, menuUnlocked = false;
+  int faeriesCaught = 0;
+  void keepFaeries();
   bool trialDisabled = true;
   std::string titleText() const;
   int numStages() const { return stages.numStages(); }
@@ -161,6 +211,7 @@ class App : public WidgetHost {
   int modApplyCount() const { return modApplyCount_; }
   std::function<void()> modAssetsHook;
   void showBoard(bool fromAdventure, bool newLevel);
+  void startDemo();
   void startAdventureGame();
   void showIntroScreen();
   void showProgressScreen(int mode);
@@ -173,11 +224,11 @@ class App : public WidgetHost {
   void addDialog(int id, std::unique_ptr<Dialog> d);
   bool hasModal() const;
   bool anyDialog() const;
+  void releaseCovered();
   bool boardPaused() const;
   void pauseBoard(bool on);
   void doOptionsDialog();
   void doVisualsDialog();
-  std::string scoreKey(const std::string& level, int boardWidth) const { return settings.separateWideScores && boardWidth != 650 && !level.empty() && level[0] != '_' ? level + "@w" + std::to_string(boardWidth) : level; }
   void doUserDialog();
   void doImportProfileDialog();
   void importDialogButton(int dlg, int btn);
@@ -187,7 +238,9 @@ class App : public WidgetHost {
   void doConfirmRestartAdventureDialog();
   void doConfirmNewChallengeDialog();
   void doConfirmMainMenuDialog();
-  void doConfirmRestartLevelDialog(int kind);
+  void doConfirmRestartLevelDialog(float top = -1);
+  void restartChallenge();
+  void alignQuestionWithMenu(Dialog* d);
   void doToMenu();
   void doConfirmDeleteUserDialog(const std::string& name);
   void finishUserDialog(bool accepted);
@@ -198,16 +251,20 @@ class App : public WidgetHost {
   bool hasBoard() const;
   void showEndLevel(int mode, const struct LevelOutcome& o, const std::string& level, const std::string& title, int rank, bool newBest);
   void endLevelButton(int id, int mode);
+  bool playNewLevel();
   void doDialogScroll(int id, bool modal, const std::string& header, const std::string& lines, const std::string& footer, int mode);
   bool challengeMore = false;
   std::string resolveChallengeLevel(const std::string& token);
   int packStage = -1;
-  struct DuelSession { int wins[2]{}, fevers[2]{}, points[2]{}, streakOwner = -1, streak = 0; } duelSes;
+  using DuelSession = DuelTally;
+  DuelSession duelSes;
   struct DuelEnd { bool active = false; int score[2]{}; std::string name[2]; } duelEnd;
   std::string endBodyOverride;
   std::string endHeaderOverride;
   std::string challengeLevel;
   int challengeScore = 0;
+  int challengeScore2 = 0;
+  int challengeBalls = 0;
   int challengeLives = 0;
   bool challengeKeepLives = false;
   int mantelBefore = 0;
@@ -221,7 +278,7 @@ class App : public WidgetHost {
   void doConfirmDeleteReplay(const std::string& name);
   void doSaveReplayDialog();
   void replayDialogButton(int dlg, int btn);
-  void playReplayFile(const std::string& path);
+  void playReplayFile(const std::filesystem::path& path);
   void dialogButton(int dialogId, int buttonId);
   void finishOptionsDialog(bool apply, bool scrollOff);
   void positionDialog(Dialog* d, float width, bool fromMenu = false);
@@ -232,7 +289,7 @@ class App : public WidgetHost {
   void syncProfile();
   void saveProfile() { if (curProfile && !cfg.noSave) profiles.saveIfDirty(curProfile); }
   void saveAll();
-  int tryShowNewTrophy();
+  bool tryShowNewTrophy();
   void applySettings();
   void applyColorblind(bool on);
 
@@ -241,6 +298,9 @@ class App : public WidgetHost {
   void stopMusic();
   Screen* helpOverlay() const { return overlay_.get(); }
   uint32_t rand();
+  uint32_t randState() const { return rng_; }
+  void setRandState(uint32_t v) { if (v) rng_ = v; }
+  int lastOpponent = -1, lastRolled = -1;
   CrtRand& crtRand() { return crt_; }
 
   void buttonDepress(int id) override {}
@@ -250,6 +310,7 @@ class App : public WidgetHost {
   void scrollOn(Panel* l);
   int scrollDir = 0;
 
+  std::shared_ptr<SessionKeeper> sessions;
   void setScreen(std::unique_ptr<Screen> s, Dir offDir);
   float canvasW() const { return canvasW_; }
   float mouseX = 0, mouseY = 0;
@@ -285,8 +346,17 @@ class App : public WidgetHost {
   std::vector<std::unique_ptr<Dialog>> deadDialogs_;
   std::unique_ptr<LogView> logView_;
   int updates_ = 0;
+  bool discordEnabled_ = false;
+  std::unique_ptr<pp::online::Discord> discord_;
+  std::string discordInvite_;
+  uint64_t discordInviteUntil_ = 0;
   bool quit_ = false;
-  bool switchGame_ = false;
+  bool switchWanted_ = false;
+  bool switchHome_ = false;
+  int switchWait_ = 0;
+  bool foldersWanted_ = false;
+  GameRequest switchTo_;
+  std::unique_ptr<OtherGame> other_;
   float canvasW_ = 800;
   uint32_t rng_ = 0x2545f491;
   CrtRand crt_;
@@ -296,7 +366,7 @@ class App : public WidgetHost {
 enum DialogId {
   D_DeleteUser = 2, D_ReturnToMenu = 4, D_Quit = 5, D_RestartLevel = 6, D_NewChallenge = 7, D_RestartAdventure = 8, D_CreateUser = 10,
   D_NameError = 11, D_ToMenu = 13, D_Tip = 14, D_HighScoreEntry = 16, D_Options = 19, D_RenameUser = 20, D_NameErrorRename = 21,
-  D_UserList = 24, D_SaveGameError = 26, D_Replay1 = 27, D_Replay2 = 34, D_Locked = 38, D_SaveAll = 41, D_DeleteReplay = 42, D_ReplayError = 43, D_ImportProfile = 44,
+  D_UserList = 24, D_WhichAdventure = 25, D_SaveGameError = 26, D_Replay1 = 27, D_Replay2 = 34, D_Locked = 38, D_SaveAll = 41, D_DeleteReplay = 42, D_ReplayError = 43, D_ImportProfile = 44, D_SaveReplay = 47, D_OverwriteReplay = 48,
   D_EndLevel = 1, D_Character = 30, D_Pause = 40
 };
 

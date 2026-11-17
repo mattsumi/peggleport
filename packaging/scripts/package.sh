@@ -58,6 +58,36 @@ case "$LABEL" in
     ;;
   windows)
     cp "$ROOT/packaging/windows/README-WINDOWS.txt" "$STAGE/"
+    if [ ! -f "$BUILD/CMakeCache.txt" ] || [ ! -r "$BUILD/CMakeCache.txt" ]; then
+      echo "package.sh: cannot read $BUILD/CMakeCache.txt" >&2
+      exit 1
+    fi
+    if ! STEAM_ENABLED=$(awk '
+      /^PP_STEAM:/ {
+        count++
+        if (!match($0, /^PP_STEAM:[^=]+=/)) exit 1
+        value = substr($0, RLENGTH + 1)
+        sub(/\r$/, "", value)
+        upper = toupper(value)
+        enabled = !(value == "" || upper ~ /^(0|OFF|NO|FALSE|N|IGNORE)$/ || value == "NOTFOUND" || value ~ /-NOTFOUND$/)
+      }
+      END {
+        if (count != 1) exit 1
+        print enabled
+      }
+    ' "$BUILD/CMakeCache.txt"); then
+      echo "package.sh: expected exactly one PP_STEAM cache entry in $BUILD/CMakeCache.txt" >&2
+      exit 1
+    fi
+    if [ "$STEAM_ENABLED" = 1 ]; then
+      for f in steam_api64.dll steam_appid.txt; do
+        if [ ! -f "$(dirname "$PP")/$f" ]; then
+          echo "package.sh: Steam build is missing $f beside $PP" >&2
+          exit 1
+        fi
+        cp "$(dirname "$PP")/$f" "$STAGE/"
+      done
+    fi
     ;;
   macos)
     bash "$ROOT/packaging/scripts/macos_app.sh" "$PP" "$STAGE" "$VERSION" "$MODHOST"

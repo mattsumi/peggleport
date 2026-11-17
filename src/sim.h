@@ -127,7 +127,8 @@ struct Event {
               Bubble,
               ChainStart,
               ChainStrike,
-              ChainBolt   } type;
+              ChainBolt,
+              LevelBump   } type;
   int a = 0, b = 0;
   int c = 0;
 };
@@ -145,6 +146,7 @@ struct Ball {
   V2 lastN;
   bool hitFlag142 = false, hitFlag165 = false;
   int uid = 0;
+  bool pairs = true;
   bool alive = true, slowFlag = false, touchedBumper = false;
   bool fire = false, spooky = false;
   bool chain = false;
@@ -189,6 +191,7 @@ struct BoardConfig {
   bool duel = false;
   int balls = 0;
   int startScore = 0;
+  int startScore2 = 0;
   int orange = 25;
   uint32_t seed = 4357;
   bool greens = true, purple = true;
@@ -212,14 +215,15 @@ struct BoardConfig {
 struct LevelResult {
   bool finished = false, won = false, cleared = false;
   int totalScore = 0;
-  int shots = 0, pegsHit = 0, bestShot = 0;
+  int shots = 0, pegsHit = 0, bestShot = 0, bestFever = 0;
   int shotPoints = 0, feverPoints = 0, stylePoints = 0;
-  int freeBalls = 0;
+  int freeBalls[4]{};
   int styleCount[24]{};
   int ballsLeft = 0;
   int orangeTotal = 0, orangeHit = 0, pegsTotal = 0, pegsCleared = 0;
   int ticks = 0;
   int percentCleared() const { return pegsTotal ? pegsCleared * 100 / pegsTotal : 0; }
+  int freeBallTotal() const { return freeBalls[0] + freeBalls[1] + freeBalls[2] + freeBalls[3]; }
 };
 
 class AIMgr;
@@ -443,9 +447,11 @@ class Board {
   void sapInsert(int first, int second) { sapPairs_.insert(sapKey(first, second)); }
   void sapErase(int first, int second) { sapPairs_.erase(sapKey(first, second)); }
   std::vector<char> sapIn_;
+  bool sapAll_ = false;
   int ballUid_ = 0;
   const float* sapBox(int id) const;
   bool sapOverlap(int a, int b) const;
+  bool sapBallPairs(int a, int b) const;
   void sapAdd(int id);
   void sapRemove(int id);
   void sapSortList(std::vector<SapEnd>& list, int axis);

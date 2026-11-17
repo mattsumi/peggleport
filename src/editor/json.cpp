@@ -383,6 +383,9 @@ J levelToJson(const Level& L, const LevelMeta& m) {
 }
 
 namespace {
+int heldInt(double v) { return v >= -2147483648.0 && v < 2147483648.0 ? (int)v : -1; }
+uint32_t heldU32(double v) { return v >= 0.0 && v < 4294967296.0 ? (uint32_t)v : 0u; }
+
 struct Reader {
   std::map<int, NodeP> ids;
   struct Pending { Val* v; int id; };
@@ -394,7 +397,7 @@ struct Reader {
     if (j.t == J::Obj) {
       const J* b = j.get("bits");
       v.p = Prim::F32;
-      v.bits = b ? (uint32_t)b->n : 0;
+      v.bits = b ? heldU32(b->n) : 0;
       return true;
     }
     auto& tab = primTable(ctx);
@@ -405,7 +408,7 @@ struct Reader {
     else { err = "unknown numeric field '" + key + "'"; return false; }
     v.p = p;
     if (p == Prim::F32) { float f = (float)j.n; std::memcpy(&v.bits, &f, 4); }
-    else v.bits = (uint32_t)(int64_t)std::llround(j.n);
+    else v.bits = (uint32_t)(int64_t)std::llround(std::clamp(std::isnan(j.n) ? 0.0 : j.n, -2147483648.0, 4294967295.0));
     return true;
   }
   NodeP node(const J& j, Ctx ctx) {
@@ -413,9 +416,9 @@ struct Reader {
     if (j.t != J::Obj) { err = "object expected"; return nullptr; }
     for (auto& [k, jv] : j.o) {
       if (k == "kind") continue;
-      if (k == "_id") { ids[(int)jv.n] = n; continue; }
-      if (k.rfind("_spare_", 0) == 0) { n->spare[k.substr(7)] = (uint32_t)jv.n; continue; }
-      if (ctx == CObj && k == "type") { n->type = (int)jv.n; continue; }
+      if (k == "_id") { ids[heldInt(jv.n)] = n; continue; }
+      if (k.rfind("_spare_", 0) == 0) { n->spare[k.substr(7)] = heldU32(jv.n); continue; }
+      if (ctx == CObj && k == "type") { n->type = heldInt(jv.n); continue; }
       switch (jv.t) {
         case J::Bool: n->flags[k] = jv.b; break;
         case J::Num: { Val v; if (!num(jv, ctx, k, v)) return nullptr; n->fields[k] = v; break; }
@@ -435,7 +438,7 @@ struct Reader {
             Val v; v.k = VK::Ref; v.ref = 3;
             Val& slot = n->fields[k];
             slot = v;
-            pend.push_back({&slot, (int)r->n});
+            pend.push_back({&slot, heldInt(r->n)});
           } else if (jv.get("bits") && jv.o.size() == 1) {
             Val v; if (!num(jv, ctx, k, v)) return nullptr; n->fields[k] = v;
           } else if (ctx == CObj && k == "peg") {
@@ -463,13 +466,14 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
   const J* fmt = j.get("format");
   if (!fmt || fmt->s != "peggleport-level") return fail("not a peggleport-level JSON file");
   out = Level();
-  if (auto v = j.get("version")) out.version = (int32_t)v->n;
-  if (auto v = j.get("mode")) out.mode = (uint8_t)v->n;
+  if (auto v = j.get("version")) out.version = (int32_t)heldInt(v->n);
+  if (auto v = j.get("mode")) out.mode = (uint8_t)(heldU32(v->n) & 0xffu);
   if (auto m = j.get("meta")) {
     auto s = [&](const char* k, std::string& dst) { if (auto v = m->get(k)) dst = v->s; };
-    auto n = [&](const char* k, int& dst) { if (auto v = m->get(k)) dst = (int)v->n; };
     s("name", meta.name); s("title", meta.title); s("background", meta.background); s("master", meta.master);
-    n("board_width", meta.boardWidth); n("balls", meta.balls); n("orange", meta.orange);
+    if (auto v = m->get("board_width")) meta.boardWidth = v->n >= 650.0 ? (int)std::min(v->n, 1400.0) : 650;
+    if (auto v = m->get("balls")) meta.balls = v->n >= 0.0 ? (int)std::min(v->n, 99.0) : 0;
+    if (auto v = m->get("orange")) meta.orange = v->n >= 0.0 ? (int)std::min(v->n, 500.0) : 0;
     if (const J* ph = m->get("physics"); ph && ph->t == J::Obj) {
       meta.physics = PhysicsEdit();
       for (const auto& kv : ph->o) {
@@ -488,7 +492,7 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
     if (o.t == J::Obj && o.get("$ref")) {
       e.k = VK::Ref;
       e.ref = 3;
-      r.pend.push_back({&e, (int)o.get("$ref")->n});
+      r.pend.push_back({&e, heldInt(o.get("$ref")->n)});
       continue;
     }
     e.k = VK::Ptr;
@@ -501,6 +505,7 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
     if (it == r.ids.end()) return fail("dangling $ref " + std::to_string(p.id));
     p.v->n = it->second;
   }
+  holdToPanelRanges(out);
   return true;
 }
 

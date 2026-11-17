@@ -108,6 +108,8 @@ Renderer::~Renderer() {
   if (bloomB_) SDL_DestroyTexture(bloomB_);
   for (auto& [_, t] : cache_)
     if (t.t) SDL_DestroyTexture(t.t);
+  for (auto& [_, t] : modCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : fontTex_)
     if (t) SDL_DestroyTexture(t);
 }
@@ -117,8 +119,11 @@ void Renderer::reloadAssets(const VfsChange& change) {
   for (auto& [_, t] : cache_)
     if (t.t) SDL_DestroyTexture(t.t);
   cache_.clear();
+  for (auto& [_, t] : modCache_)
+    if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : fontTex_)
     if (t) SDL_DestroyTexture(t);
+  modCache_.clear();
   fontTex_.clear();
   fonts_.reset();
   man_ = ImageManifest(vfs_);
@@ -201,12 +206,15 @@ void Renderer::beginCanvas(int canvasW) {
   oy_ = (oh - 600 * s_) * 0.5f;
 }
 
-Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor) {
+Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor) { return tex(path, rows, cols, mask, alphaColor, false); }
+
+Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor, bool limited) {
   std::string key = path + "|" + std::to_string(rows) + "x" + std::to_string(cols) + "|" + mask + "|" + std::to_string(alphaColor) + "|q" + std::to_string(texQ_);
-  auto it = cache_.find(key);
-  if (it != cache_.end()) return it->second.t ? &it->second : nullptr;
+  auto& cache = limited ? modCache_ : cache_;
+  auto it = cache.find(key);
+  if (it != cache.end()) return it->second.t ? &it->second : nullptr;
   Tex T;
-  if (auto im = loadGameImage(vfs_, path, mask)) {
+  if (auto im = loadGameImage(vfs_, path, mask, limited)) {
     if (alphaColor >= 0)
       for (size_t i = 0; i + 3 < im->rgba.size(); i += 4) {
         im->rgba[i] = (alphaColor >> 16) & 255;
@@ -232,7 +240,18 @@ Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const 
       T.cols = std::max(1, cols);
     }
   }
-  auto& slot = cache_[key] = T;
+  if (limited) {
+    if (!T.t) return nullptr;
+    size_t bytes = (size_t)T.w * T.h * 4;
+    for (const auto& [_, t] : cache) bytes += (size_t)t.w * t.h * 4;
+    while (!cache.empty() && (cache.size() >= 256 || bytes > 67108864)) {
+      auto old = cache.begin();
+      bytes -= (size_t)old->second.w * old->second.h * 4;
+      SDL_DestroyTexture(old->second.t);
+      cache.erase(old);
+    }
+  }
+  auto& slot = cache[key] = T;
   return slot.t ? &slot : nullptr;
 }
 
@@ -246,7 +265,8 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
   if (auto im = loadGameImage(vfs_, path)) {
     if (texQ_ == 1 && im->scale < 1.5f) { upscale2(*im, 1, 1); im->scale *= 2; }
     else if (texQ_ == -1 && im->w % 2 == 0 && im->h % 2 == 0) { downscale2(*im); im->scale *= 0.5f; }
-    int cropY = 0;
+    int cropY = 0, cropX = 0;
+    const int fullW = im->w;
     if (im->w >= 700 * im->scale) {
       std::vector<int> cc((size_t)im->w, 0), rc((size_t)im->h, 0);
       for (int y = 0; y < im->h; y++)
@@ -267,40 +287,52 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
         im->w = x1 - x0;
         im->h = y1 - y0;
         cropY = y0;
+        cropX = x0;
+      }
+      {
+        const int ym0 = im->h / 6, ym1 = im->h * 2 / 3;
+        auto colMean = [&](int x) {
+          long sum = 0;
+          for (int y = ym0; y < ym1; y++)
+            for (int c = 0; c < 3; c++) sum += im->rgba[((size_t)y * im->w + x) * 4 + c];
+          return (float)sum / (float)((ym1 - ym0) * 3);
+        };
+        const int most = std::max(1, (int)std::lround(3 * im->scale));
+        int tl = 0, tr = 0;
+        while (tl < most && std::fabs(colMean(tl) - colMean(tl + 1)) > 3.0f) tl++;
+        while (tr < most && std::fabs(colMean(im->w - 1 - tr) - colMean(im->w - 2 - tr)) > 3.0f) tr++;
+        if (tl + tr > 0) {
+          const int nw = im->w - tl - tr;
+          std::vector<uint8_t> c((size_t)nw * im->h * 4);
+          for (int y = 0; y < im->h; y++) std::memcpy(&c[(size_t)y * nw * 4], &im->rgba[((size_t)y * im->w + tl) * 4], (size_t)nw * 4);
+          im->rgba = std::move(c);
+          im->w = nw;
+          cropX += tl;
+        }
       }
     }
     const int w = im->w, h = im->h;
     const float sc = im->scale;
-    const int tw = std::max(w, (int)std::lround(targetW * sc));
-    const int w2 = std::min(tw, (int)std::lround(w * std::min(1.15f + 0.15f * std::clamp((targetW - 916.0f) / 334.0f, 0.0f, 1.0f), (float)tw / (float)w)));
-    const int ox = (tw - w2) / 2;
+    const int tw = std::max(1, (int)std::lround(targetW * sc));
+    const int off = (tw - fullW) / 2 + cropX;
     std::vector<uint8_t> out((size_t)tw * h * 4);
-    auto srcCol = [&](int x) {
-      float u = ((float)x + 0.5f) * (float)w / (float)w2 - 0.5f;
-      return std::clamp(u, 0.0f, (float)(w - 1));
-    };
-    auto stretched = [&](int x, int y, uint8_t* px4) {
-      float u = srcCol(std::clamp(x, 0, w2 - 1));
-      int i0 = (int)u, i1 = std::min(i0 + 1, w - 1);
-      float f = u - (float)i0;
-      for (int c = 0; c < 4; c++)
-        px4[c] = (uint8_t)std::lround(im->rgba[((size_t)y * w + i0) * 4 + c] * (1 - f) + im->rgba[((size_t)y * w + i1) * 4 + c] * f);
-    };
     std::vector<float> dist((size_t)tw, 0.0f);
+    int gap = 0;
     for (int x = 0; x < tw; x++) {
-      int d = x < ox ? ox - x : (x >= ox + w2 ? x - (ox + w2) + 1 : 0);
-      dist[(size_t)x] = (float)d;
-      int sx;
-      if (d == 0) sx = x - ox;
-      else {
-        int p = (d - 1) % (2 * w2);
-        if (p >= w2) p = 2 * w2 - 1 - p;
-        sx = x < ox ? p : w2 - 1 - p;
+      const int u = x - off;
+      int sx = u, d = 0;
+      if (u < 0 || u >= w) {
+        d = u < 0 ? -u : u - w + 1;
+        int p = (d - 1) % (2 * w);
+        if (p >= w) p = 2 * w - 1 - p;
+        sx = u < 0 ? p : w - 1 - p;
+        gap = std::max(gap, d);
       }
-      for (int y = 0; y < h; y++) stretched(sx, y, &out[((size_t)y * tw + x) * 4]);
+      dist[(size_t)x] = (float)d;
+      for (int y = 0; y < h; y++) std::memcpy(&out[((size_t)y * tw + x) * 4], &im->rgba[((size_t)y * w + sx) * 4], 4);
     }
-    const int band = std::max(ox, 1);
-    if (ox > 0) {
+    const int band = std::max(gap, 1);
+    if (gap > 0) {
       std::vector<uint8_t> bl = out, tmp = out;
       const int R = std::max(2, (int)std::lround(6 * sc));
       auto boxH = [&](std::vector<uint8_t>& a, std::vector<uint8_t>& dst) {
@@ -734,20 +766,41 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
     static const char* prize[] = {"IMAGE_BONUS5000", "IMAGE_BONUS10000", "IMAGE_BONUS25000", "IMAGE_BONUS50000", "IMAGE_BONUS100000"};
     static const char* light[] = {"IMAGE_BONUS5000LIGHT", "IMAGE_BONUS10000LIGHT", "IMAGE_BONUS25000LIGHT", "IMAGE_BONUS50000LIGHT", "IMAGE_BONUS100000LIGHT"};
     float hx = BX + o.pos.x, hy = BY + o.pos.y;
-    if (Tex* h = img("IMAGE_BONUSHALO")) put(h, {0, 0, h->lw(), h->lh()}, (float)(int)(hx - (int)(h->lw() / 2)), (float)(int)(hy - lift - 40));
-    if (Tex* t = img(prize[k])) put(t, {0, 0, t->lw(), t->lh()}, (float)(int)(hx - (int)(t->lw() / 2)), (float)(int)(hy - lift - 25));
+    if (b.cfg.nights) {
+      const bool duel = b.cfg.duel;
+      const char* bucket = "IMAGE_RBUCKET";
+      int dy1 = -10, dy2 = -5;
+      switch (o.score) {
+        case 5000:
+        case 10000: bucket = "IMAGE_BBUCKET"; dy1 = 0; dy2 = 0; break;
+        case 25000: bucket = "IMAGE_GBUCKET"; dy1 = -7; dy2 = -5; break;
+        case 50000: bucket = duel ? "IMAGE_RBUCKET" : "IMAGE_GBUCKET"; dy1 = -7; dy2 = duel ? -7 : -5; break;
+        default: break;
+      }
+      const int row = o.flash > 0 && (o.flash / 15) % 2 == 0 ? 1 : 0;
+      if (Tex* d = img(bucket)) putCelAt(d, 0, row, (float)(int)(hx - (int)(d->cw() / 2)), (float)(int)(hy - lift - 25 + dy1));
+      if (Tex* t = img(prize[k])) putCelAt(t, 0, row, (float)(int)(hx - (int)(t->cw() / 2)), (float)(int)(hy - lift - 35 + dy1 + dy2));
+    } else {
+      if (Tex* h = img("IMAGE_BONUSHALO")) put(h, {0, 0, h->lw(), h->lh()}, (float)(int)(hx - (int)(h->lw() / 2)), (float)(int)(hy - lift - 40));
+      if (Tex* t = img(prize[k])) put(t, {0, 0, t->lw(), t->lh()}, (float)(int)(hx - (int)(t->lw() / 2)), (float)(int)(hy - lift - 25));
+    }
     lightImg = img(light[k]);
   }
-  if (auto t = objImage(o.image)) {
+  Tex* objTex = objImage(o.image);
+  if (objTex && b.W > 650 && !o.fromBase) {
+    const float half = (float)(b.W - 650) * 0.5f, cx = o.pos.x + rot({o.imgDx, o.imgDy}, o.rot).x, reach = std::max(objTex->lw(), objTex->lh()) * 0.5f;
+    if (cx - reach > half + 650.0f || cx + reach < half) objTex = nullptr;
+  }
+  if (auto t = objTex) {
     V2 off = rot({o.imgDx, o.imgDy}, o.rot);
     float lw = t->lw(), lh = t->lh();
-    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y, lw, lh, o.rot, a, false, 0xffffff, o.mirror);
+    sprite(t, {0, 0, (float)t->w, (float)t->h}, BX + o.pos.x + off.x, BY + o.pos.y + off.y + (b.cfg.nights && o.shape == Shape::Hole ? 2.0f : 0.0f), lw, lh, o.rot, a, false, 0xffffff, o.mirror);
   }
-  if (feverSlot && lightImg && o.flash > 0) {
+  if (feverSlot && o.flash > 0) {
     float hx = BX + o.pos.x, hy = BY + o.pos.y;
     const char* gl = o.subId == 1 || o.subId == 5 ? "IMAGE_BONUSGLOW_BLUE" : o.subId == 2 || o.subId == 4 ? "IMAGE_BONUSGLOW_GREEN" : "IMAGE_BONUSGLOW";
     if (Tex* g = img(gl)) put(g, {0, 0, g->lw(), g->lh()}, (float)(int)(hx - (int)(g->lw() / 2)), (float)(int)(hy - 55), {0xffffffffu, Blend::Add});
-    if ((o.flash / 15) % 2 == 0)
+    if (lightImg && (o.flash / 15) % 2 == 0)
       put(lightImg, {0, 0, lightImg->lw(), lightImg->lh()}, (float)(int)(hx - (int)(lightImg->lw() / 2)), (float)(int)(hy - lift - 40), {0x808080ffu, Blend::Add});
   }
 }
@@ -822,7 +875,12 @@ void Renderer::doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0
           }
         } else if (hitImg) {
           float rot = std::atan2(prev.y - cur.y, cur.x - prev.x);
-          putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {0xffffffffu, Blend::Normal}, 1.0f, rot);
+          if (b.cfg.nights) {
+            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {(col << 8) | 0xffu, Blend::Normal}, 1.0f, rot);
+            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
+          } else {
+            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {0xffffffffu, Blend::Normal}, 1.0f, rot);
+          }
         }
         break;
       }
@@ -862,6 +920,35 @@ void Renderer::drawBoardShadow() {
   struct R { float x, y, w, h, dx, dw; };
   const R pieces[] = {{0, 0, 30, h2, 0, 0}, {30, 0, 205, 25, 0, dw / 2}, {235, 0, 173, 108, dw / 2, 0}, {408, 0, 207, 25, dw / 2, dw / 2}, {615, 0, W - 615, h2, dw, 0}};
   for (auto& p : pieces) put(t, {p.x, p.y, p.w, p.h}, X + p.x + p.dx, Y + p.y, {}, p.w + p.dw, p.h);
+}
+
+void Renderer::drawWallMarks(float padL) {
+  if (padL <= 0) return;
+  const float x0 = 75.0f, x1 = BX, x2 = BX + (float)boardW_, x3 = 75.0f + (float)boardW_ + 2.0f * padL;
+  SDL_SetRenderDrawBlendMode(r_, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawColor(r_, 0, 0, 0, 80);
+  SDL_FRect l{px(x0), py(BY), px(x1) - px(x0), 560.0f * s_}, rr{px(x2), py(BY), px(x3) - px(x2), 560.0f * s_};
+  SDL_RenderFillRect(r_, &l);
+  SDL_RenderFillRect(r_, &rr);
+  Tex* t = img("IMAGE_INT_BACKSHADOW");
+  if (!t) return;
+  const float W = t->lw(), h2 = t->lh() - 25;
+  put(t, {0, 0, 30, h2}, 76.0f + padL, 49.0f);
+  put(t, {615, 0, W - 615, h2}, 691.0f + padL, 49.0f);
+}
+
+void Renderer::drawBoardShadowBottom(float rows, float top) {
+  Tex* t = img("IMAGE_INT_BACKSHADOW");
+  if (!t) return;
+  const float W = t->lw(), y = t->lh() - rows;
+  const float dw = (float)(canvasW_ - 800), e = 0.01f;
+  auto sx = [&](float c) { return (std::round(px(c)) - ox_) / s_ + e; };
+  auto sy = [&](float c) { return (std::round(py(c)) - oy_) / s_ + e; };
+  const float x0 = sx(76), x1 = sx(106), x2 = sx(691 + dw), x3 = sx(76 + W + dw);
+  const float y0 = sy(top + y), h = sy(top + y + rows) - y0 + e;
+  put(t, {0, y, 30, rows}, x0, y0, {}, x1 - x0 + e, h);
+  put(t, {30, y, 585, rows}, x1, y0, {}, x2 - x1 + e, h);
+  put(t, {615, y, W - 615, rows}, x2, y0, {}, x3 - x2 + e, h);
 }
 
 void Renderer::drawZoomFrame(const Board& b) {
@@ -1034,11 +1121,8 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   }
   boardW_ = b.W;
   canvasW_ = 800 + (b.W - 650);
-  float padL = 0;
-  if (vis_.ultraWideHud && ow > 0 && oh > 0) {
-    float winCanvas = (float)ow * 600.0f / (float)oh;
-    if (winCanvas > (float)canvasW_ + 4.0f) padL = std::floor((winCanvas - (float)canvasW_) * 0.5f);
-  }
+  const float padL = frameCanvas_ > canvasW_ ? (float)((frameCanvas_ - canvasW_) / 2) : 0.0f;
+  frameCanvas_ = 0;
   canvasW_ += (int)(2 * padL);
   BX = 75.0f + padL;
   {
@@ -1109,6 +1193,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
       quad(bg, {0, 0, (float)bg->w, (float)bg->h}, cx - w / 2, cy - h / 2, w, h);
     }
     if (padL > 0) SDL_SetRenderClipRect(r_, &objClip);
+    drawBoardShadowBottom(b.cfg.nights ? 26.0f : 25.0f, ((int)bg->lh() & 1) ? 49.0f : 50.0f);
   }
   for (size_t i = 0; i <= b.objs.size(); i++) {
     emitDraw(b, 0, i);
@@ -1144,6 +1229,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawEffects(b, 1);
   drawBoardShadow();
+  drawWallMarks(padL);
   drawHud(b, hud);
   SDL_SetRenderClipRect(r_, &objClip);
   for (size_t i = 0; i <= b.objs.size(); i++) {
@@ -1154,8 +1240,9 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   fxDrawTexts(b, 0);
   fxDrawTexts(b, 1);
   SDL_SetRenderClipRect(r_, &objClip);
+  const float launcherShift = (float)(b.W - 650) * 0.5f;
   for (auto& bl : b.balls)
-    if (bl.bx0 <= 425.0f && 225.0f < bl.bx1 && bl.by0 <= 127.0f && -73.0f < bl.by1) drawBall(b, bl, false);
+    if (bl.bx0 <= 425.0f + launcherShift && 225.0f + launcherShift < bl.bx1 && bl.by0 <= 127.0f && -73.0f < bl.by1) drawBall(b, bl, false);
   if (b.phase == Phase::Aim) zenOn_ = b.turns[b.cur] > 0 && b.master[b.cur] == Board::P_ZEN;
   if (zenOn_ && !b.balls.empty()) {
     SDL_SetRenderClipRect(r_, &canvasClip);

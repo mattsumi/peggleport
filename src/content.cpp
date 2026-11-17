@@ -1,6 +1,8 @@
 #include "content.h"
 
+#include "gamepaths.h"
 #include "log.h"
+#include "ui/cfg.h"
 
 #include <filesystem>
 #include <fstream>
@@ -36,7 +38,7 @@ static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
 }
 
 static void parseStages(const std::string& text, const std::string& pack, std::vector<StageLevel>& out) {
-  std::istringstream in(text);
+  std::istringstream in(ui::cfgStripComments(text));
   std::string line;
   int stage = -1;
   while (std::getline(in, line)) {
@@ -125,15 +127,15 @@ static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int
 static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
   out = LevelBundle();
   std::vector<uint8_t> lvBytes, sideBytes, baseBytes;
-  fs::path p(nameOrPath);
+  fs::path p = pathFromUtf8(nameOrPath);
   std::error_code ec;
   if (p.extension() == ".dat" && fs::is_regular_file(p, ec)) {
     if (!slurp(p, lvBytes)) {
-      if (err) *err = "cannot read " + p.string();
+      if (err) *err = "cannot read " + pathToUtf8(p);
       return false;
     }
-    out.name = p.stem().string();
-    out.source = p.string();
+    out.name = pathToUtf8(p.stem());
+    out.source = pathToUtf8(p);
     fs::path side = p;
     side.replace_extension(".ini");
     slurp(side, sideBytes);
@@ -170,7 +172,7 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     }
     out.base = std::make_shared<Level>(std::move(*bl));
   }
-  if (ini.count("board_width")) out.cfg.boardWidth = std::max(650, std::atoi(ini["board_width"].c_str()));
+  if (ini.count("board_width")) out.cfg.boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
   if (ini.count("balls")) out.cfg.balls = std::max(1, std::atoi(ini["balls"].c_str()));
   if (ini.count("orange")) out.cfg.orange = std::max(0, std::atoi(ini["orange"].c_str()));
   {

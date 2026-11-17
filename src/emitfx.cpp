@@ -58,6 +58,8 @@ struct Particle {
   int age = 0, life = 1, fadeAt = 0, fadeIn = 0;
 };
 
+float heldTo(float v, float lo, float hi, float other) { return v >= lo ? (v <= hi ? v : hi) : (v < lo ? lo : other); }
+
 struct Emitter {
   const Node* node = nullptr;
   std::string image;
@@ -101,11 +103,11 @@ struct EmitFx {
       m.randomStart = n.flag("random_start");
       m.visible = n.flag("visible");
       m.layer = n.flag("background") ? 0 : n.flag("foreground2") ? 3 : n.flag("foreground") ? 2 : 1;
-      m.randRate = n.f("rand_rate");
-      m.rateMul = n.has("hardware_rate") ? n.f("hardware_rate") : 1.0f;
-      m.fadeAt = n.has("alpha_fade_at") ? n.f("alpha_fade_at") : 0.5f;
-      m.fadeInto = n.has("alpha_into") ? n.f("alpha_into") : 0.1f;
-      m.duration = n.has("duration") ? n.f("duration") : 0.75f;
+      m.randRate = heldTo(n.f("rand_rate"), 0.0f, 1000.0f, 0.0f);
+      m.rateMul = heldTo(n.has("hardware_rate") ? n.f("hardware_rate") : 1.0f, 0.0f, 1000.0f, 1.0f);
+      m.fadeAt = heldTo(n.has("alpha_fade_at") ? n.f("alpha_fade_at") : 0.5f, 0.0f, 1000.0f, 0.5f);
+      m.fadeInto = heldTo(n.has("alpha_into") ? n.f("alpha_into") : 0.1f, 0.0f, 1000.0f, 0.1f);
+      m.duration = heldTo(n.has("duration") ? n.f("duration") : 0.75f, 0.0f, 1000.0f, 0.75f);
       m.spiral = n.f("spiral_count");
       m.pending = n.has("fast_forward") ? (int)n.i("fast_forward") : 100;
       m.rate.load(n.val("rate"), 0.0f);
@@ -257,7 +259,8 @@ struct EmitFx {
 
   void tick(Emitter& m, V2 pos) {
     if (!m.paused && m.pending > 0) {
-      const int n = (int)(m.rateMul * (float)m.pending);
+      const float steps = m.rateMul * (float)m.pending;
+      const int n = steps > 100000.0f ? 100000 : steps > 0.0f ? (int)steps : 0;
       for (int k = 0; k < n; k++) step(m, pos);
       m.pending = 0;
     }
@@ -299,7 +302,10 @@ void Renderer::emitDraw(const Board& b, int layer, size_t at) {
         alpha = alpha * ((float)p.age / (float)p.fadeIn);
       else if (p.fadeAt >= 0 && p.fadeAt <= p.age)
         alpha = alpha * (1.0f - (float)(p.age - p.fadeAt) / (float)std::max(1, p.life - p.fadeAt));
-      auto chan = [&](const Curve& c) { return std::clamp((int)(c.at(u) * 255.0f), 0, 255); };
+      auto chan = [&](const Curve& c) {
+        const float v = c.at(u) * 255.0f;
+        return v >= 255.0f ? 255 : v >= 1.0f ? (int)v : 0;
+      };
       const uint32_t rgb = ((uint32_t)chan(m.colR) << 16) | ((uint32_t)chan(m.colG) << 8) | (uint32_t)chan(m.colB);
       const int a = std::clamp((int)(std::clamp(alpha, 0.0f, 1.0f) * 255.0f), 0, 255);
       if (a == 0) continue;

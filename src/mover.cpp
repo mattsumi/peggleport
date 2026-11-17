@@ -17,7 +17,7 @@ inline float fatan2(float y, float x) { return (float)dm::atan2((double)y, (doub
 
 template <class R>
 inline int ftol(R v) {
-  return (int)v;
+  return v >= R(-2147483648.0) && v < R(2147483648.0) ? (int)v : -2147483647 - 1;
 }
 
 template <class R>

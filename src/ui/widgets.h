@@ -33,6 +33,7 @@ struct WidgetHost {
   virtual void checkboxChanged(int id, bool checked) {}
   virtual void sliderChanged(int id, double v) {}
   virtual void playSound(const std::string& id, float pitchSemis = 0) {}
+  virtual bool labelFullGradient() const { return false; }
 };
 
 class Widget {
@@ -70,8 +71,10 @@ class Button : public Widget {
   float fadeIn = 0.2f, fadeOut = 0.08f;
   bool idleImage = false;
   bool labelOnEmbedded = false;
+  int labelStyle = -1;
+  bool labelFullGradient = false;
   bool additiveDown = false;
-  std::string hoverSound = "MOUSEOVER", clickSound = "BUTTON1";
+  std::string hoverSound, clickSound = "BUTTON1";
   float hoverPitch = 0;
   int lastHoverTick = -1000, *tickRef = nullptr;
   int blink = 0;
@@ -117,7 +120,10 @@ class EditBox : public Widget {
   float maxWidth = 190;
   std::string widthFont = "OVERLOAD24";
   int caret = 0, tick = 0;
+  float textPad = 4;
+  bool clipText = false;
   bool paper = false;
+  bool selectAll = false;
   uint32_t ink = 0xffffff;
   bool wantsFocus() const override { return true; }
   void update() override { tick++; }
@@ -125,6 +131,7 @@ class EditBox : public Widget {
   bool key(int sdlKey, int mod) override;
   bool text(const std::string& t) override;
   bool mouseDown(float lx, float ly, int button, int clicks) override { return true; }
+  float textShift(Gfx& g) const;
   std::function<void()> onEnter;
   Gfx* gfx = nullptr;
 };

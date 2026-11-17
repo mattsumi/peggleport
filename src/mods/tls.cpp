@@ -296,6 +296,31 @@ std::unique_ptr<TlsStream> TlsStream::connect(sock_t s, const std::string& host,
   return std::unique_ptr<TlsStream>(new TlsStream(std::move(im)));
 }
 
+bool TlsStream::randomBytes(unsigned char* data, size_t len) {
+  if (!roots().ok) return false;
+  std::lock_guard<std::mutex> g(gTlsMu);
+  return mbedtls_psa_get_random(MBEDTLS_PSA_RANDOM_STATE, data, len) == 0;
+}
+
+void TlsStream::clearCancellation() { p_->stop = nullptr; }
+
+TlsStream::Status TlsStream::writeSome(const char* data, size_t len, size_t* sent, std::string* err) {
+  Impl& m = *p_;
+  *sent = 0;
+  if (m.ended) {
+    if (err) *err = m.lastErr;
+    return m.last;
+  }
+  int ret;
+  {
+    std::lock_guard<std::mutex> g(gTlsMu);
+    ret = mbedtls_ssl_write(&m.ssl, (const unsigned char*)data, std::min<size_t>(len, 16384));
+  }
+  if (ret > 0) { *sent = (size_t)ret; return Status::Ok; }
+  if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE || ret == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) return Status::Idle;
+  return m.end(Status::Failed, describe(ret, 0, std::string(), false), err);
+}
+
 TlsStream::Status TlsStream::read(char* buf, size_t cap, size_t* got, int waitMs, std::string* err) {
   Impl& m = *p_;
   *got = 0;

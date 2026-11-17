@@ -52,6 +52,7 @@ class MainMenu : public Screen {
   void keyDown(int key, int mod) override;
   void syncPlayerInfo();
   void startGame();
+  void startAdventure();
   void drawSpeechBubble(Gfx& g, int which, float alpha, bool fading);
   static bool mantelEarned(App& app, int id);
   static int mantelAt(App& app, float mx, float my);
@@ -70,6 +71,7 @@ class MainMenu : public Screen {
   void drawSparkles(Gfx& g);
   Button *bAdv, *bSolo, *bDuel, *bChal, *bReplay, *bOptions, *bDemo, *bQuit, *bLink, *bUpsell;
   void setBubble(int which, int delay);
+  int fadeTicks() const { return isNights ? 15 : 20; }
   void placeButtons();
   void updateBubbles();
   int advStage = 0, advLevel = 0, bubbleCount = 0;
@@ -90,9 +92,9 @@ class AdventureScreen : public Screen {
   void startGame();
   void drawHighScores(Gfx& g, float x, float y);
   void drawPersonalHighScores(Gfx& g, float x, float y);
-  void drawStats(Gfx& g, float x, float y, bool lifetime);
+  void drawStats(Gfx& g, float x, float y, bool current);
   void drawFrame(Gfx& g, float x, float y, float w, float h, const std::string& title);
-  bool hasSave = false;
+  bool hasSave = false, nights = false;
   Button *bContinue, *bRestart, *bMenu;
 };
 
@@ -110,9 +112,13 @@ class LevelScreen : public Screen {
   void doPlay(int id);
   bool canSelect(int id) const;
   void drawLevelInfo(Gfx& g, float x, float y);
+  const StageInfo* pageStage() const;
+  bool groupOpen() const;
   int stage = 0, hovered = -1, hoverTicks = 0;
   Button* bLevel[5];
   Button *bBack, *bNext, *bMenu, *bRandom;
+  OtherGame* og = nullptr;
+  bool other = false, pick = false;
 };
 
 class StoryScreen : public Screen {
@@ -126,13 +132,16 @@ class StoryScreen : public Screen {
   void onButton(int id) override;
   void finish();
   void initText();
+  void dreamIn();
+  void skipTyping();
+  void drawNights(Gfx& g);
   bool reveal, easter;
   int stage = 0;
   Button* bContinue = nullptr;
   int page = 1;
   int typed = 0, wait = 0, start = 20, boxFade = 0, boxes = 0, shownChars = 0;
   bool done = false, dreamy = false;
-  std::string text;
+  std::string text, text2, head;
   int totalVisible = 0, headVisible = 0;
   bool win = false;
   int tier = 0;
@@ -168,9 +177,13 @@ class TrophyScreen : public Screen {
   void keyDown(int key, int mod) override;
   void syncPage();
   void doPlay(int slot);
+  const TrophyPage* pageShown(bool& theirs) const;
+  int ownPages() const;
+  int theirPages() const;
   int page = 0, hovered = -1, hoverTicks = 0, badgeTicks = 0, applauseTicks = 0;
   Button* bSlot[5];
   Button *bBack, *bPrev, *bNext;
+  OtherGame* og = nullptr;
 };
 
 class ProgressScreen : public Screen {
@@ -218,5 +231,6 @@ class IntroScreen : public Screen {
 };
 
 void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha = 1.0f, int pointer = 0);
+void drawTrophyRoom(Gfx& g, App& app, int newest, int t);
 
 }

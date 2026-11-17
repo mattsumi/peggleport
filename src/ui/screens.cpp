@@ -1,5 +1,6 @@
 #include "online/online_ui.h"
 #include "ui/screens.h"
+#include "ui/session.h"
 
 #include <SDL3/SDL.h>
 #include <cstdint>
@@ -37,7 +38,6 @@ LoadingScreen::LoadingScreen(App& a) : Screen(a) {
     playBtn->h = playBtn->image->ch();
   }
   playBtn->idleImage = true;
-  playBtn->hoverSound = "MOUSEOVER";
   for (const char* g : {"Init", "Common", "MainMenu", "LevelSelect", "Dialog", "Interface", "Loading"})
     for (auto& id : a.gfx.man().groupImages(g)) resList.push_back(id);
   if (resList.size() > 400) resList.resize(400);
@@ -194,12 +194,13 @@ void LoadingScreen::drawLayer(Gfx& g) {
     if (logoFrames >= rise) logoY = finalY;
   }
   Tex* logo = g.img("IMAGE_LOAD_LOGO");
-  if (logo && logoFrames < 50) g.draw(logo, logoX, (int)logoY);
+  if (logo && logoFrames < 50) g.draw(logo, logoX, (float)(int)logoY);
   if (Tex* hill = g.img("IMAGE_LOAD_HILL")) g.draw(hill, 0, 0x11d);
-  if (Tex* sh = g.img("IMAGE_LOAD_SHADOW")) g.draw(sh, 162, 50 + 290, Mode(120 * visualProgress * visualProgress / 255.0f, 0x101010));
+  int shadowY = 290 + (logoBounce > 0 && logoBounce < 10 ? (int)(8 - 1.5f * (float)logoBounce) : 0);
+  if (Tex* sh = g.img("IMAGE_LOAD_SHADOW")) g.draw(sh, 162, (float)shadowY, Mode(120 * visualProgress * visualProgress / 255.0f, 0x101010));
   if (Tex* ov = g.img("IMAGE_LOAD_OVERLAY")) g.draw(ov, 201, 420);
   if (logo) {
-    if (logoFrames >= 50 && logoFrames < 70) g.draw(logo, logoX, (int)logoY);
+    if (logoFrames >= 50 && logoFrames < 70) g.draw(logo, logoX, (float)(int)logoY);
     else if (logoFrames >= 70) {
       float fy = finalY;
       if (logoBounce > 0 && logoBounce < 10) fy += 8 - 1.5f * logoBounce;
@@ -235,6 +236,16 @@ void LoadingScreen::drawOverlay(Gfx& g) {
     return;
   }
   int cnt = updateCount;
+  Tex* frameL = g.img("IMAGE_SCREENFRAMELEFT");
+  Tex* frameT = g.img("IMAGE_SCREENFRAMETOP");
+  Tex* frameB = g.img("IMAGE_SCREENFRAMEBOTTOM");
+  Tex* frameR = g.img("IMAGE_SCREENFRAMERIGHT");
+  if (frameL && frameT && frameB && frameR) {
+    g.draw(frameL, 0, 0);
+    g.draw(frameT, frameL->lw(), 0);
+    g.draw(frameB, frameL->lw(), frameL->lh() - frameB->lh());
+    g.draw(frameR, frameL->lw() + frameT->lw(), 0);
+  }
   if (playPulse > 0 && playPulse < 50 && playBtn->visible) {
     float v = playPulse < 25 ? (float)playPulse : (float)(50 - playPulse);
     float a = v / 25.0f * 100.0f / 255.0f;
@@ -304,6 +315,7 @@ bool LoadingScreen::input(const Input& in) {
   if (nights && !used && in.type == Input::MouseDown && mouseVisible) {
     int popped = nights->click(mouseX, mouseY);
     for (int i = 0; i < popped; i++) app.playSample("FAIRY_POP");
+    app.faeriesCaught += popped;
   }
   return used;
 }
@@ -325,31 +337,34 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   auto emb = [&](int id, const char* img, float pitch) {
     Button* b = embeddedButton(id, img, 0, 0);
     b->additiveDown = true;
+    b->hoverSound = "MOUSEOVER";
     b->hoverPitch = pitch;
     return b;
   };
   bAdv = emb(0, "IMAGE_MM_ADVENTURE", 0);
   bSolo = emb(1, "IMAGE_MM_SOLO", 2);
-  bDuel = emb(2, "IMAGE_MM_DUEL", 5);
-  bChal = emb(3, "IMAGE_MM_CHALLENGE", 4);
+  bDuel = emb(2, "IMAGE_MM_DUEL", 4);
+  bChal = emb(3, "IMAGE_MM_CHALLENGE", 5);
   auto brown = [&](int id, const char* label, float pitch) {
     Button* b = patchButton(id, label, "IMAGE_DLG_BROWNBUTTON1", 0, 0);
+    b->hoverSound = "MOUSEOVER";
     b->hoverPitch = pitch;
     return b;
   };
   bReplay = brown(4, "Replays", 7);
   bOptions = brown(5, "Options", 9);
-  bDemo = brown(6, "Demos", 11);
+  bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demo", 11);
   bQuit = patchButton(7, "Quit", "IMAGE_DLG_PURPLEBUTTON", 7, 0x215);
-  bQuit->hoverPitch = 13;
+  bQuit->hoverSound = "MOUSEOVER";
+  bQuit->hoverPitch = 12;
   online::addMainMenuButton(*this);
   auto lk = std::make_unique<Button>();
   lk->id = 8;
   lk->kind = Button::Kind::Link;
   lk->label = "If this is not you, click here.";
   lk->font = "PLAIN2";
-  lk->colNormal = 0x646464;
-  lk->colOver = 0xffffff;
+  lk->colNormal = 0x000064;
+  lk->colOver = 0x0000ff;
   lk->w = a.gfx.textWidth(lk->font, lk->label);
   lk->h = a.gfx.fontHeight(lk->font) + 8;
   lk->x = 0x13b;
@@ -375,9 +390,9 @@ void MainMenu::syncPlayerInfo() {
     int prev = p->trophyLevelSeen;
     if (p->advCompletions > 0) {
       trophyTier = 1;
-      if ((int)p->trophies.size() >= (int)app.trophies.numTrophies()) {
+      if ((int)app.trophies.numHeld(p->trophies) >= (int)app.trophies.numTrophies()) {
         trophyTier = 2;
-        if (p->clearedLevels.size() >= app.stages.numLevels()) trophyTier = 3;
+        if (app.stages.numClearedOwn(p->clearedLevels) >= app.stages.numLevels()) trophyTier = 3;
       }
     }
     if (prev < trophyTier) {
@@ -387,7 +402,7 @@ void MainMenu::syncPlayerInfo() {
       app.saveProfile();
     }
   }
-  bLink->visible = p != nullptr;
+  bLink->visible = p != nullptr && bubble == 0;
   bAdv->blink = 0;
   buildSparkles();
 }
@@ -396,7 +411,7 @@ void MainMenu::setBubble(int which, int delay) {
   if (bubble != which) {
     int c = bubbleCount++;
     if (c >= delay) {
-      bubbleFade = 15;
+      bubbleFade = fadeTicks();
       bubbleOld = bubble;
       bubble = which;
       bubbleCount = 0;
@@ -424,6 +439,8 @@ void MainMenu::update() {
   if (false) {} 
   bool unused_ = any; (void)unused_;
   updateBubbles();
+  bLink->visible = app.curProfile != nullptr && bubble == 0;
+  if (app.bothGames && app.homeGame != app.game && !app.anyDialog() && !app.helpOverlay() && !app.moving()) app.goHome();
 }
 
 void MainMenu::placeButtons() {
@@ -436,7 +453,7 @@ void MainMenu::placeButtons() {
   bOptions->x = 0x108; bOptions->y = 0x22a;
   bReplay->x = 0x1a1; bReplay->y = 0x22a;
   bLink->x = 0x13b;
-  bLink->y = 0x88;
+  bLink->y = (float)(isNights ? 0x88 : 0x8e);
 }
 
 void MainMenu::updateBubbles() {
@@ -444,13 +461,13 @@ void MainMenu::updateBubbles() {
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) any = any || b->over || b->down;
   if (app.getDialog(D_Locked) || app.hasModal()) {
   } else if (!any) {
-    if (trophyTier > 0 && app.mouseX >= 330 && app.mouseX < 490 && app.mouseY >= 200 && app.mouseY < 425) setBubble(trophyTier + 8, 50);
+    if (!isNights && trophyTier > 0 && app.mouseX >= 330 && app.mouseX < 490 && app.mouseY >= 200 && app.mouseY < 425) setBubble(trophyTier + 8, 50);
     else setBubble(0, 15);
   } else {
     if (bQuit->over) setBubble(8, 15);
     else if (bOptions->over) setBubble(7, 15);
     else if (bReplay->over) setBubble(6, 15);
-    else if (bDemo->over) setBubble(5, 15);
+    else if (bDemo->over) setBubble(isNights ? 9 : 5, 15);
     else if (bDuel->over) setBubble(3, 15);
     else if (bChal->over) setBubble(4, 15);
     else if (bSolo->over) setBubble(2, 15);
@@ -483,14 +500,14 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
   if (fading && (!name.empty() || which > 0)) {
     float k = 1.0f;
     if (bubbleFade > 0) {
-      float d = 10.0f - std::fabs(10.0f - (float)bubbleFade);
+      float d = (float)fadeTicks() / 2.0f - std::fabs((float)fadeTicks() / 2.0f - (float)bubbleFade);
       k -= 0.0025f * d;
     }
     if (isNights) drawSpeechBox(g, bx - 5, by + 4, 280, 126, k);
     else if (Tex* sb = g.img("IMAGE_MM_SPEECHBUBBLE")) g.drawRot(sb, sb->lw() / 2 + bx, sb->lh() / 2 + 10 + by, 0, k, k);
   }
   float tH = 0x50, tW = 0xeb, tY = 0x14 + by, tX = 0xa + bx;
-  uint32_t col = 0x646464;
+  uint32_t col = 0x000064;
   if (which > 0) {
     std::string s;
     switch (which) {
@@ -502,25 +519,30 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
         break;
       case 2: s = "Play individual levels that you have unlocked in Adventure!"; break;
       case 3: s = "Play against a friend or the computer in this two player mode!"; break;
-      case 4: s = isNights ? "Complete all of these extra difficult challenges to boost your Peggle Master rank!" : "Complete all of these extra\ndifficult challenges to become a\nPeggle Grand Master!"; break;
+      case 4: s = isNights ? "Complete all of these extra\ndifficult challenges to boost\nyour Peggle Master rank!" : "Complete all of these extra\ndifficult challenges to become a\nPeggle Grand Master!"; break;
       case 5: s = "Watch the Peggle Masters play and see if you can learn their tricks!"; break;
       case 6: s = "View instant replays\nthat you've saved!"; break;
       case 7: s = "Set options like sound volume\nand colorblind mode.\nHelp is also available here."; break;
       case 8: s = "See you again soon!"; break;
-      case 9: s = "This trophy is awarded for completing Adventure Mode!"; break;
+      case 9: s = isNights ? "Check your progress\nthrough the game." : "This trophy is awarded for completing Adventure Mode!"; break;
       case 10: s = "This trophy is awarded for beating all of the challenges!"; break;
       case 11: s = "This trophy is awarded for beating all of the challenges and clearing all of the levels!"; break;
     }
-    float hh = g.wrappedHeight("SMALLMONO", tW, s, 20);
-    g.drawWrapped("SMALLMONO", {tX, tY + (tH - hh) / 2, tW, tH}, s, col, alpha, Align::Center, 20);
+    float hh = g.wrappedHeight("PLAIN2", tW, s, 20);
+    g.drawWrapped("PLAIN2", {tX, tY + (tH - hh) / 2, tW, tH}, s, col, alpha, Align::Center, 20);
   } else if (!name.empty()) {
     std::string s = adv < 0 ? (isNights ? "Welcome to Peggle Nights," : "Welcome to Peggle,") : "Welcome Back,";
     float ty = tY - 10 + g.fontHeight("PLAIN2BIG");
     g.drawString("PLAIN2BIG", bx + tW / 2 + 10, ty, s, 0x86065d, alpha, Align::Center);
-    g.drawString("PLAIN2BIG", bx + 0xfa / 2.0f + 10, ty + g.fontHeight("PLAIN2BIG") - 10, name + "!", 0x86065d, alpha, Align::Center);
+    g.drawString("PLAIN2BIG", bx + 0xfa / 2.0f + (isNights ? 10 : 0), ty + g.fontHeight("PLAIN2BIG") - 10, name + "!", 0x86065d, alpha, Align::Center);
   }
-  if (which == 8 || (fading && bubbleOld == 8 && bubbleFade > 0)) {
-    if (Tex* cry = g.img("IMAGE_MM_CRY")) g.draw(cry, 0xc2, 0xb2, Mode(which == 8 ? 1.0f : bubbleFade / 15.0f));
+  if (which == 8) {
+    float k = 1.0f;
+    if (bubbleFade > 0) {
+      k = (float)bubbleFade / (float)fadeTicks();
+      if (bubble == 8) k = 1.0f - k;
+    }
+    if (Tex* cry = g.img("IMAGE_MM_CRY")) g.draw(cry, 0xc2, 0xb2, Mode(k));
   }
 }
 
@@ -530,12 +552,13 @@ void MainMenu::drawLayer(Gfx& g) {
   (void)dim;
   if (Tex* bg = g.img("IMAGE_MM_BACKGROUND")) g.draw(bg, 15, 11);
   float sunX = -170, sunY = -190;
-  if (Tex* glow = g.img("IMAGE_SUNGLOW")) g.drawRot(glow, sunX + 0x18a, sunY + 0x17f, 0.05f * sunTick * 0.01f, 1, 1);
+  if (Tex* glow = g.img("IMAGE_SUNGLOW")) g.drawRot(glow, sunX + 0x18a, sunY + 0x17f, 0.05f * (float)sunTick * 3.14159265f / 180.0f, 1, 1);
   if (Tex* bs = g.img("IMAGE_MM_BLANKSUN")) g.draw(bs, sunX + 0x13f, sunY + 0x133);
-  if (Tex* fg = g.img("IMAGE_MM_FOREGROUND")) g.draw(fg, 0, 600 - fg->lh() - 0x3c);
+  if (Tex* fg = g.img("IMAGE_MM_FOREGROUND")) g.draw(fg, 15, 600 - fg->lh() - 0x3c);
   if (Tex* bj = g.img("IMAGE_MM_BJORN")) g.draw(bj, 15, 0x82);
-  if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, (1.0f - bubbleFade / 15.0f > 0 ? 1.0f : 1.0f) * (float)bubbleFade / 15.0f, true);
-  drawSpeechBubble(g, bubble, 1.0f - (bubbleFade > 0 ? (float)bubbleFade / 15.0f : 0.0f), bubbleFade == 0);
+  const float fade = (float)bubbleFade / (float)fadeTicks();
+  if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, fade, true);
+  drawSpeechBubble(g, bubble, 1.0f - fade, bubbleFade == 0);
   if (trophyTier > 0) {
     if (Tex* tr = g.img("IMAGE_MM_TROPHIES")) {
       int cel = std::clamp(trophyTier - 1, 0, 2);
@@ -591,46 +614,46 @@ void MainMenu::keyDown(int key, int) {
 
 void MainMenu::onButton(int id) {
   if (online::handleMenuButton(app, id)) return;
-  const PlayerInfo* p = app.curProfile;
   if (id >= 1 && id <= 3) app.menuNewLevels = false;
   if (id == 3) app.menuUnlocked = false;
   switch (id) {
     case 0:
-      app.gameMode = GameMode::Adventure;
-      app.curStage = advStage;
-      app.curLevel = advLevel;
-      startGame();
+      if (app.bothGames) app.doAdventureQuestion();
+      else startAdventure();
       break;
     case 1:
       app.gameMode = GameMode::QuickPlay;
+      if (sessionsOf(app).askToContinue(true)) break;
       startGame();
       break;
     case 2:
       app.gameMode = GameMode::Duel;
+      if (sessionsOf(app).askToContinue(true)) break;
       startGame();
       break;
     case 3:
       app.gameMode = GameMode::Challenge;
+      if (sessionsOf(app).askToContinue(true)) break;
       startGame();
       break;
     case 4: app.doReplaysDialog(); break;
     case 5: app.doOptionsDialog(); break;
-    case 6:
-      if (p && p->maxStage < 2) {
-        app.doNotYet("^FFFF00^DEMO MODE LOCKED!^oldclr^\nThis mode shows how the Masters play.\n\n^FFFF00^To Unlock:^oldclr^\nFinish Stage 2 of Adventure Mode!");
-        return;
-      }
-      app.gameMode = GameMode::Demo;
-      app.curStage = (int)(app.rand() % (unsigned)(std::min(p ? p->maxStage : 0, app.numStages() - 1) + 1));
-      app.curLevel = (int)(app.rand() % 5u);
-      app.showBoard(true, true);
-      break;
+    case 6: app.startDemo(); break;
     case 7: app.doConfirmQuitDialog(); break;
     case 8:
       app.playSample("BUTTON1");
       app.doUserDialog();
       break;
+    case 9: app.showAdventureScreen(); break;
   }
+}
+
+void MainMenu::startAdventure() {
+  app.gameMode = GameMode::Adventure;
+  app.curStage = advStage;
+  app.curLevel = advLevel;
+  if (sessionsOf(app).askToContinue(true)) return;
+  startGame();
 }
 
 void MainMenu::startGame() {
@@ -639,14 +662,16 @@ void MainMenu::startGame() {
     case GameMode::Adventure:
       if (p && p->advCompletions > 0) {
         if (p->justBeatAdventure()) p->restartAdventure();
-        app.showAdventureScreen();
-        return;
+        if (!isNights) {
+          app.showAdventureScreen();
+          return;
+        }
       }
       app.startAdventureGame();
       return;
     case GameMode::QuickPlay:
     case GameMode::Duel:
-      if (app.gameMode == GameMode::Duel && p && p->maxStage < 1) {
+      if (app.gameMode == GameMode::Duel && p && p->maxStage < 1 && !app.otherOpen(GameMode::Duel)) {
         app.doNotYet("^FFFF00^DUEL MODE LOCKED!^oldclr^\nThis mode lets you compete against a friend or the computer.\n\n^FFFF00^To Unlock:^oldclr^\nFinish Stage 1 of Adventure Mode!");
         return;
       }
@@ -654,7 +679,7 @@ void MainMenu::startGame() {
       app.showLevelScreen(false);
       return;
     case GameMode::Challenge:
-      if (p && (app.game == Game::Nights ? p->maxStage < 3 : p->advCompletions <= 0)) {
+      if (p && (app.game == Game::Nights ? p->maxStage < 3 : p->advCompletions <= 0) && !app.otherOpen(GameMode::Challenge)) {
         app.doNotYet("^FFFF00^CHALLENGE MODE LOCKED!^oldclr^\nThis mode presents " + std::to_string(app.trophies.numTrophies()) + " challenges for advanced players.\n\n^FFFF00^To Unlock:^oldclr^\n" +
                      (app.game == Game::Nights ? "Finish Stage 3 of Adventure Mode!" : "Complete Adventure Mode!"));
         return;

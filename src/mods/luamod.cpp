@@ -642,8 +642,9 @@ int d_rgb(lua_State* L) {
   return 1;
 }
 int d_hsv(lua_State* L) {
-  double h = luaL_checknumber(L, 1), s = luaL_optnumber(L, 2, 1.0), v = luaL_optnumber(L, 3, 1.0);
-  h = (h - std::floor(h)) * 6.0;
+  auto unit = [](double x) { return x > 0.0 ? (x < 1.0 ? x : 1.0) : 0.0; };
+  double h = luaL_checknumber(L, 1), s = unit(luaL_optnumber(L, 2, 1.0)), v = unit(luaL_optnumber(L, 3, 1.0));
+  h = std::isfinite(h) ? (h - std::floor(h)) * 6.0 : 0.0;
   int i = (int)h;
   double f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
   double r, g, b;

@@ -19,6 +19,7 @@
 
 #include "audio.h"
 #include "editor/editor.h"
+#include "gamepaths.h"
 #include "render.h"
 #include "ui/app.h"
 #include "ui/hooks.h"
@@ -78,6 +79,7 @@ class EditorScreen : public Screen {
   float scroll_[5]{};
   std::string modName_ = "MyLevels";
   bool exitArmed_ = false;
+  bool exitWasArmed_ = false;
   struct Prompt {
     bool on = false;
     std::string label, text;
@@ -235,7 +237,7 @@ void EditorScreen::collectLevels() {
       fs::path lv = m.path() / "levels";
       if (!fs::is_directory(lv, ec)) continue;
       for (auto& f : fs::directory_iterator(lv, ec))
-        if (f.path().extension() == ".dat") levelList_.push_back({f.path().string(), "mod " + m.path().filename().string() + ": " + f.path().stem().string()});
+        if (f.path().extension() == ".dat") levelList_.push_back({pathToUtf8(f.path()), "mod " + pathToUtf8(m.path().filename()) + ": " + pathToUtf8(f.path().stem())});
     }
 }
 
@@ -655,7 +657,7 @@ void EditorScreen::drawToolbar() {
   add("Open", 48, [&] { collectLevels(); openDlg_ = true; openFilter_.clear(); openScroll_ = 0; dirtyLayout(); });
   add("Save", 48, [&] { quickSave(); });
   add("To mod", 58, [&] { saveMod(); });
-  add("Export", 56, [&] { std::string e; if (ed.saveJson(exportPath(".json"), &e)) say("exported " + exportPath(".json").string()); else say(e); });
+  add("Export", 56, [&] { std::string e; if (ed.saveJson(exportPath(".json"), &e)) say("exported " + pathToUtf8(exportPath(".json"))); else say(e); });
   add("Import", 56, [&] { std::string e; if (ed.loadJson(exportPath(".json"), &e)) { say(ed.status); fitView(); } else say(e); });
   x += 10;
   add("Undo", 46, [&] { ed.undo(); say(ed.status); }, false, ed.undoDepth() > 0);
@@ -1038,13 +1040,13 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   propRow(x, y, w, "Mod name", modName_, [this](int b) { if (b == 1) startPrompt("Mod name", modName_, [this](const std::string& t) { if (!t.empty()) modName_ = t; dirtyLayout(); }); }, nullptr, false);
   button({x, y, w, 22}, "Save to mod (shows in Quick Play)", [this] { saveMod(); });
   y += 27;
-  T(x, y, (app.userDir / "mods" / modName_).string(), kDim);
+  T(x, y, pathToUtf8(app.userDir / "mods" / modName_), kDim);
   y += fh_ + 6;
   char b[160];
   std::snprintf(b, sizeof b, "file version %d, %zu objects", ed.level->version, ed.objects().size());
   T(x, y, b, kDim);
   y += fh_ + 2;
-  T(x, y, ed.savedPath.empty() ? "not saved yet" : "saved: " + fs::path(ed.savedPath).filename().string(), kDim);
+  T(x, y, ed.savedPath.empty() ? "not saved yet" : "saved: " + pathToUtf8(ed.savedPath.filename()), kDim);
 }
 
 void EditorScreen::tabGen(float x, float y0, float w) {
@@ -1238,7 +1240,7 @@ void EditorScreen::syncModArt() {
       auto& lm = const_cast<Layer&>(L);
       for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
         if (it->is_regular_file(ec)) {
-          std::string key = normKey(fs::relative(it->path(), dir, ec).generic_string());
+          std::string key = normKey(genericUtf8(fs::relative(it->path(), dir, ec)));
           if (key == "MOD.INI") continue;
           lm.files[key] = it->path();
           ch.keys.insert(key);
@@ -1376,7 +1378,7 @@ void EditorScreen::startPrompt(const std::string& label, const std::string& init
 }
 void EditorScreen::quickSave() {
   std::string err;
-  if (!ed.savedPath.empty() && fs::path(ed.savedPath).extension() == ".dat" && ed.saveDat(ed.savedPath, &err)) { say(ed.status); return; }
+  if (!ed.savedPath.empty() && ed.savedPath.extension() == ".dat" && ed.saveDat(ed.savedPath, &err)) { say(ed.status); return; }
   saveMod();
 }
 void EditorScreen::saveMod() {
@@ -1435,12 +1437,12 @@ void EditorScreen::indexMod(const fs::path& dir) {
       auto& lm = const_cast<Layer&>(L);
       std::error_code ec;
       for (fs::recursive_directory_iterator it(dir / "levels", ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_regular_file(ec)) lm.files[normKey("levels/" + fs::relative(it->path(), dir / "levels", ec).generic_string())] = it->path();
+        if (it->is_regular_file(ec)) lm.files[normKey("levels/" + genericUtf8(fs::relative(it->path(), dir / "levels", ec)))] = it->path();
     }
   if (!mounted) app.vfs.mountMod(dir, &e2);
 }
 void EditorScreen::exitEditor() {
-  if (ed.dirty() && !exitArmed_) {
+  if (ed.dirty() && !exitWasArmed_) {
     exitArmed_ = true;
     say("unsaved changes: press Exit again to leave");
     return;
@@ -1451,6 +1453,7 @@ void EditorScreen::startPlay() {
   ed.validate();
   std::string err;
   playSeed_ = app.rand();
+  if (app.audio) app.audio->dropQueued();
   playOk_ = ed.buildBoard(play_, playLb_, nullptr, playSeed_, false, &err);
   if (!playOk_) { say("cannot play: " + err); return; }
   playing_ = true;
@@ -1460,6 +1463,7 @@ void EditorScreen::startPlay() {
 }
 void EditorScreen::stopPlay() {
   playing_ = false;
+  if (app.audio) app.audio->stopLoops();
   builtRev_ = -1;
   dirtyLayout();
   say("back in the editor");
@@ -1566,6 +1570,7 @@ bool EditorScreen::input(const Input& in) {
         return true;
       }
       rebuild();
+      exitWasArmed_ = exitArmed_;
       exitArmed_ = false;
       for (size_t i = ctls_.size(); i-- > 0;) {
         Ctl& c = ctls_[i];
@@ -1728,7 +1733,7 @@ void EditorScreen::keyDown(int key, int mod) {
     case SDLK_A: animate_ = !animate_; builtRev_ = -1; return;
     case SDLK_E: ed.previewOranges = !ed.previewOranges; if (ed.previewOranges) ed.previewSeed++; ed.revision++; say(ed.previewOranges ? "random orange preview" : "stored colours"); return;
     case SDLK_M: ed.mirrorSelection(!shift); return;
-    case SDLK_R: ed.rotateSelection(shift ? -15 : 15); return;
+    case SDLK_R: ed.rotateSelection(shift ? -15.0f : 15.0f); return;
     case SDLK_D: ed.duplicateSelection(20, 20); return;
     case SDLK_T:
     case SDLK_F5: startPlay(); return;

@@ -1,6 +1,7 @@
 #pragma once
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -54,12 +55,20 @@ class StageMgr {
   const StageInfo* stage(int i) const { return i >= 0 && i < (int)stages_.size() ? &stages_[i] : nullptr; }
   StageInfo* stage(int i) { return i >= 0 && i < (int)stages_.size() ? &stages_[i] : nullptr; }
   const LevelInfo* levelByName(const std::string& name) const;
+  int scoreListTop(const std::string& key) const;
+  std::string title(int i) const;
   size_t numLevels() const { return mainLevels_; }
   size_t numAllLevels() const { return byName_.size(); }
+  size_t numClearedOwn(const std::set<std::string>& cleared) const;
   const std::string& tip(unsigned i) const;
   size_t numTips() const { return tips_.size(); }
   const std::vector<std::string>& credits() const { return credits_; }
-  bool randomLevel(const PlayerInfo& p, int& stage, int& level, bool duel, uint32_t rnd);
+  bool randomLevel(const PlayerInfo& p, int& stage, int& level, bool skipExcluded, int minAge, uint32_t rnd, bool retry = true);
+  void resetUse();
+  struct UseMark { int stage = 0, level = 0, use = 0; };
+  std::vector<UseMark> useMarks() const;
+  int useCount() const { return useCounter_; }
+  void restoreUse(const std::vector<UseMark>& marks, int counter);
   void markUsed(int stage, int level) { if (auto* s = stage_(stage)) if (level >= 0 && level < (int)s->levels.size()) s->levels[level].lastUse = ++useCounter_; }
   std::string cfgError;
 
@@ -95,14 +104,21 @@ class TrophyMgr {
  public:
   bool load(const Vfs& vfs);
   const std::vector<TrophyPage>& pages() const { return pages_; }
-  size_t numTrophies() const { return byId_.size(); }
+  size_t numTrophies() const { return mainTrophies_; }
+  size_t numAllTrophies() const { return byId_.size(); }
+  int numMainPages() const { return mainPages_; }
+  size_t numHeld(const std::set<int>& held) const;
   const TrophyInfo* byId(int id) const { auto it = byId_.find(id); return it == byId_.end() ? nullptr : it->second; }
   std::vector<const TrophyInfo*> forClearedLevel(const std::string& level) const;
+  std::vector<const TrophyInfo*> forScoreOnLevel(const std::string& level, int score) const;
   std::string cfgError;
 
  private:
+  void parseCfg(const std::string& text);
   std::vector<TrophyPage> pages_;
   std::map<int, const TrophyInfo*> byId_;
+  size_t mainTrophies_ = 0;
+  int mainPages_ = 0;
 };
 
 }

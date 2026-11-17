@@ -8,6 +8,7 @@
 #include <mutex>
 
 #include "gamepaths.h"
+#include "mods/text.h"
 
 namespace pp::ui {
 
@@ -86,7 +87,6 @@ void ImportDialog::drawLayer(Gfx& g) {
   layout();
   yesBtn->enabled = haveScan && selected() >= 0 && selected() < (int)scan.profiles.size() && scan.profiles[(size_t)selected()].readable;
   Dialog::drawLayer(g);
-  if (Tex* fr = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(fr, list->x - 8, list->y - 8, list->w + 16, list->h + 16);
   float ty = list->y + list->h + 14;
   float th = fileBtn->y - ty - 6;
   std::string text;
@@ -94,8 +94,14 @@ void ImportDialog::drawLayer(Gfx& g) {
     text = status;
   } else if (!haveScan) {
     text = "Bring in your players from the original Peggle Deluxe or Peggle Nights. Choose the folder named userdata where the original game keeps its saves, or one player file such as user1.dat. The original files are only read, never changed.";
-    auto where = originalSaveFolders(app.game);
-    if (!where.empty()) text += "\n\nUsual place on this computer:\n" + pathToUtf8(where.front());
+    std::string usual;
+    for (auto& w : originalSaveFolders(app.game)) {
+      std::error_code ec;
+      if (std::filesystem::equivalent(w, app.userDir, ec)) continue;
+      usual = mods::gameText(pathToUtf8(w));
+      break;
+    }
+    text += usual.empty() ? "\n\nNo saves of the original game were found in the usual places on this computer." : "\n\nUsual place on this computer:\n" + usual;
   } else {
     for (auto& s : detailLines()) text += (text.empty() ? "" : "\n") + s;
     for (size_t k = 0; k < scan.notes.size(); k++) text += (text.empty() ? "" : k == 0 ? "\n\n" : "\n") + scan.notes[k];
@@ -130,8 +136,8 @@ bool ImportDialog::input(const Input& in) {
     return true;
   }
   if (in.type == Input::KeyDown) {
-    if (in.key == SDLK_UP && list->select > 0) { list->select--; status.clear(); return true; }
-    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; status.clear(); return true; }
+    if (in.key == SDLK_UP && list->select > 0) { list->select--; list->reveal(); status.clear(); return true; }
+    if (in.key == SDLK_DOWN && list->select + 1 < (int)list->lines.size()) { list->select++; list->reveal(); status.clear(); return true; }
   }
   return Dialog::input(in);
 }

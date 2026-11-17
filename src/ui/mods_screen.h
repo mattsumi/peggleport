@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "ui/app.h"
 #include "ui/consent_dialog.h"
@@ -22,7 +23,12 @@ class ModsScreen : public Screen {
   void openFolder();
 
  private:
-  static constexpr int kRowH = 76, kPage = 5, kTop = 92;
+  static constexpr int kRowH = 75, kPage = 5, kTop = 84;
+  struct RowText {
+    std::string version;
+    float versionX = 0;
+  };
+  std::vector<RowText> rows_;
   int page_ = 0, sig_ = -1, seen_ = 0;
   bool dirty_ = true, wasFocused_ = true;
   std::string status_, touched_;

@@ -612,6 +612,11 @@ std::shared_ptr<Font> Font::load(const Vfs& vfs, const std::string& path, std::s
     if (err) *err = data->error;
     return nullptr;
   }
+  const uint8_t back = (uint8_t)'\\';
+  bool drawn = false;
+  for (auto& L : data->layers)
+    if (L.ch[back].width != 0 || L.ch[back].rw != 0) drawn = true;
+  if (!drawn && data->charMap[back] == back) data->charMap[back] = data->charMap[(uint8_t)'/'];
   auto f = std::make_shared<Font>();
   f->data_ = data;
   f->pointSize_ = data->defaultPointSize;
@@ -619,6 +624,21 @@ std::shared_ptr<Font> Font::load(const Vfs& vfs, const std::string& path, std::s
 }
 
 size_t Font::layerCount() const { return data_ ? data_->layers.size() : 0; }
+bool Font::layerColors(size_t layer, uint32_t& mult, uint32_t& add) const {
+  if (!data_ || layer >= data_->layers.size()) return false;
+  auto it = std::next(data_->layers.begin(), (std::ptrdiff_t)layer);
+  auto pack = [](const RGBAi& c) { return ((uint32_t)c.r << 24) | ((uint32_t)c.g << 16) | ((uint32_t)c.b << 8) | (uint32_t)c.a; };
+  mult = pack(it->mult);
+  add = pack(it->add);
+  return true;
+}
+void Font::setLayerColors(size_t layer, uint32_t mult, uint32_t add) const {
+  if (!data_ || layer >= data_->layers.size()) return;
+  auto it = std::next(data_->layers.begin(), (std::ptrdiff_t)layer);
+  auto unpack = [](uint32_t v) { return RGBAi{(int)(v >> 24), (int)((v >> 16) & 255), (int)((v >> 8) & 255), (int)(v & 255)}; };
+  it->mult = unpack(mult);
+  it->add = unpack(add);
+}
 size_t Font::activeLayerCount() const { prepare(); return active_.size(); }
 int Font::defaultPointSize() const { return data_ ? data_->defaultPointSize : 0; }
 

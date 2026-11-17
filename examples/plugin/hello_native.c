@@ -20,7 +20,7 @@ static void on_frame(void) {
   double n = 0;
   api->state_get("native_hits", &n);
   snprintf(buf, sizeof buf, "native plugin: %d pegs hit", (int)n);
-  api->draw_text(20.0f, -8.0f, buf, 0xa0ffa0ffu);
+  api->draw_text(8.0f, 534.0f, buf, 0xa0ffa0ffu);
 }
 
 static void on_level_start(void) { api->state_set("native_hits", 0); }

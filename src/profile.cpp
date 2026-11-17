@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "gamepaths.h"
 
 #include "log.h"
 
@@ -105,30 +106,36 @@ static bool ieq(const std::string& a, const std::string& b) {
 
 
 void GameStats::add(const GameStats& o) {
-  a0 += o.a0;
+  shots += o.shots;
   bestShot = std::max(bestShot, o.bestShot);
-  a8 = std::max(a8, o.a8);
+  bestFever = std::max(bestFever, o.bestFever);
   for (int i = 0; i < 4; i++) freeBalls[i] += o.freeBalls[i];
-  for (int i = 0; i < 20; i++) styleShots[i] += o.styleShots[i];
+  for (int i = 0; i < 24; i++) styleShots[i] += o.styleShots[i];
+}
+int GameStats::totalStyleShots() const {
+  int n = 0;
+  for (int v : styleShots) n += v;
+  return n;
 }
 void GameStats::write(DataWriter& w) const {
   w.u8(version);
-  w.i32(a0);
+  w.i32(shots);
   w.i32(bestShot);
-  w.i32(a8);
+  w.i32(bestFever);
   for (int v : freeBalls) w.i32(v);
   w.i32(20);
-  for (int v : styleShots) w.i32(v);
+  for (int i = 0; i < 20; i++) w.i32(styleShots[i]);
 }
 bool GameStats::read(DataReader& r) {
   version = r.u8();
-  a0 = r.i32();
+  shots = r.i32();
   bestShot = r.i32();
-  a8 = r.i32();
+  bestFever = r.i32();
   for (int& v : freeBalls) v = r.i32();
   int count = r.i32();
   if (count != 20) return false;
-  for (int& v : styleShots) v = r.i32();
+  for (int i = 0; i < 20; i++) styleShots[i] = r.i32();
+  for (int i = 20; i < 24; i++) styleShots[i] = 0;
   return r.ok();
 }
 
@@ -141,6 +148,7 @@ void PlayerInfo::reset(bool keepLists) {
   storyPending = true;
   fEf = false;
   tipsMask = 0;
+  faeries = 0;
   tipCount = 0;
   tipOther = 0;
   computerSkill = -1;
@@ -186,6 +194,31 @@ void PlayerInfo::restartAdventure() {
   advStage = 0;
   advLevel = 0;
   storyPending = true;
+  statsA.reset();
+  dirty = true;
+}
+
+void PlayerInfo::countLevelStart() {
+  advLevelAttempts++;
+  if (advLevelAttempts > 1) advRetries++;
+  dirty = true;
+}
+
+void PlayerInfo::uncountLevelStart() {
+  if (advLevelAttempts > 1 && advRetries > 0) advRetries--;
+  if (advLevelAttempts > 0) advLevelAttempts--;
+  dirty = true;
+}
+
+void PlayerInfo::countFailedTry() {
+  advLevelAttempts++;
+  if (advLevelAttempts > 0) advRetries++;
+  dirty = true;
+}
+
+void PlayerInfo::addTotalStats(const GameStats& s, bool current) {
+  if (current) statsA.add(s);
+  statsB.add(s);
   dirty = true;
 }
 
@@ -194,13 +227,15 @@ int PlayerInfo::efficiencyBonus() const {
   return v >= 100000 ? v : 100000;
 }
 
-void PlayerInfo::checkTrophyTopScore(int id, int score) {
+void PlayerInfo::checkTrophyTopScore(int id, int score, bool lowerIsBetter) {
   if (score <= 0) return;
-  auto it = trophyTop.insert({id, score}).first;
-  if (it->second < score) {
-    it->second = score;
+  auto [it, added] = trophyTop.insert({id, score});
+  if (added) {
     dirty = true;
-  } else if (it->second == score) {
+    return;
+  }
+  if (lowerIsBetter ? it->second > score : it->second < score) {
+    it->second = score;
     dirty = true;
   }
 }
@@ -279,6 +314,18 @@ std::vector<uint8_t> PlayerInfo::serialize(int version) const {
     w.u32((uint32_t)mantelSeen.size());
     for (auto& s : mantelSeen) w.str(s);
   }
+  bool moreStyles = false;
+  for (int i = 20; i < 24; i++) moreStyles = moreStyles || statsA.styleShots[i] != 0 || statsB.styleShots[i] != 0;
+  if (moreStyles) {
+    w.u32(0x31535050);
+    w.u32(8);
+    for (int i = 20; i < 24; i++) w.i32(statsA.styleShots[i]);
+    for (int i = 20; i < 24; i++) w.i32(statsB.styleShots[i]);
+  }
+  if (faeries != 0) {
+    w.u32(0x31465050);
+    w.i32(faeries);
+  }
   return w.bytes();
 }
 
@@ -297,11 +344,11 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
     id = i;
     return false;
   }
-  maxStage = r.i32();
-  maxLevel = r.i32();
-  levelSelectStage = r.i32();
-  advStage = r.i32();
-  advLevel = r.i32();
+  maxStage = std::clamp(r.i32(), 0, 99);
+  maxLevel = std::clamp(r.i32(), 0, 4);
+  levelSelectStage = std::clamp(r.i32(), 0, 99);
+  advStage = std::clamp(r.i32(), -1, 99);
+  advLevel = std::clamp(r.i32(), 0, 4);
   char1 = r.i32();
   char2 = r.i32();
   strB4 = r.str();
@@ -329,7 +376,7 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
   b128 = r.u8();
   clearedLevels.clear();
   for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) clearedLevels.insert(r.str());
-  advCompletions = r.i32();
+  advCompletions = std::clamp(r.i32(), 0, 1000000);
   b58 = r.u8();
   tipsMask = r.i32();
   advScore = r.i32();
@@ -347,9 +394,17 @@ bool PlayerInfo::deserialize(const std::vector<uint8_t>& data) {
     uint32_t magic = r.u32();
     if (magic == 0x314e5050) {
       for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) acedLevels.insert(r.str());
+    } else if (magic == 0x31465050) {
+      faeries = r.i32();
     } else if (magic == 0x314d5050) {
       for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) mantelSeen.insert(r.str());
       mantelSeenKnown = true;
+    } else if (magic == 0x31535050) {
+      for (uint32_t n = r.u32(), i = 0; i < n && r.ok(); i++) {
+        const int32_t v = r.i32();
+        if (i < 4) statsA.styleShots[20 + i] = v;
+        else if (i < 8) statsB.styleShots[16 + i] = v;
+      }
     } else {
       break;
     }
@@ -386,12 +441,12 @@ static bool writeFileAtomic(const fs::path& p, const std::vector<uint8_t>& data)
   {
     std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
     if (!f) {
-      pp::log::error("game", "cannot save " + p.string() + ": the file cannot be written");
+      pp::log::error("game", "cannot save " + pathToUtf8(p) + ": the file cannot be written");
       return false;
     }
     f.write((const char*)data.data(), (std::streamsize)data.size());
     if (!f) {
-      pp::log::error("game", "cannot save " + p.string() + ": writing failed");
+      pp::log::error("game", "cannot save " + pathToUtf8(p) + ": writing failed");
       return false;
     }
   }
@@ -400,7 +455,7 @@ static bool writeFileAtomic(const fs::path& p, const std::vector<uint8_t>& data)
     fs::remove(p, ec);
     fs::rename(tmp, p, ec);
   }
-  if (ec) pp::log::error("game", "cannot save " + p.string() + ": " + ec.message());
+  if (ec) pp::log::error("game", "cannot save " + pathToUtf8(p) + ": " + ec.message());
   return !ec;
 }
 
@@ -409,15 +464,21 @@ static const char* kNames[32] = {"Andy", "Anthony", "Ben", "Bill", "Brian", "Ace
                                  "Eric", "Hans", "Isaac", "Jason", "James", "Jeff", "Joe", "John", "Josh", "Juho", "Kathy",
                                  "Katrina", "Mark", "Matt", "Max", "Shawn", "Stephen", "Sukhbir", "Tysen", "Walter", "Wes"};
 
+static const char* kNightsNames[36] = {"Adam", "Anthony", "Ben", "Bill", "Brian", "Carl", "Chad", "Chris", "DP", "Dan", "Dave", "Ed",
+                                       "Eric", "Ethan", "George", "Heather", "Isaac", "Jason", "Jeff", "Jeremy", "Joe", "John", "Josh", "Kirk",
+                                       "Kurt", "Marcia", "Matt", "Mike", "Rich", "Scott", "Shawn", "Stephen", "Sukhbir", "Tod", "Tysen", "Walter"};
+
 const std::vector<HighScoreEntry>& HighScoreMgr::scores(const std::string& key) {
   auto& t = tables_[key];
   if (t.empty()) {
     bool adv = key.compare(0, 10, "_adventure") == 0;
-    int s = adv ? 20000000 : 300000;
+    const int top = !adv && game_ == Game::Nights && tops_ ? tops_(key) : -1;
+    int s = top >= 0 ? top : adv ? 20000000 : 300000;
     for (int i = 0; i < 10; i++) {
       rng_ = rng_ * 1103515245u + 12345u;
-      t.push_back({kNames[(rng_ >> 16) & 31], s});
-      s -= adv ? (i == 0 ? 3000000 : 1500000) : 10000;
+      t.push_back({game_ == Game::Nights ? kNightsNames[(rng_ >> 16) % 36] : kNames[(rng_ >> 16) & 31], s});
+      if (top >= 0) s = std::max(50000, s - (i > 0 ? 25000 : top >= 400000 ? 100000 : top >= 300000 ? 75000 : 50000));
+      else s -= adv ? (i == 0 ? 3000000 : 1500000) : 10000;
     }
   }
   return t;
@@ -482,7 +543,7 @@ bool HighScoreMgr::load(const fs::path& file) {
   std::vector<uint8_t> d;
   if (!readFile(file, d)) return false;
   if (!deserialize(d)) {
-    pp::log::warn("game", "the high score file " + file.string() + " is damaged and was ignored");
+    pp::log::warn("game", "the high score file " + pathToUtf8(file) + " is damaged and was ignored");
     return false;
   }
   return true;
@@ -494,7 +555,7 @@ bool ProfileMgr::validName(const std::string& n) {
   if (n.empty() || n.size() > 40) return false;
   for (unsigned char c : n)
     if (c < 32) return false;
-  return n.find_first_not_of(' ') != std::string::npos;
+  return true;
 }
 
 PlayerInfo* ProfileMgr::find(const std::string& name) {
@@ -599,18 +660,16 @@ bool ProfileMgr::load() {
   std::vector<uint8_t> d;
   if (!readFile(dir_ / "users.dat", d)) return false;
   if (!deserializeUsers(d)) {
-    pp::log::warn("game", "the player list " + (dir_ / "users.dat").string() + " is damaged or from another version and was ignored");
+    pp::log::warn("game", "the player list " + pathToUtf8(dir_ / "users.dat") + " is damaged or from another version and was ignored");
     return false;
   }
-  pp::log::info("game", "loaded " + std::to_string(profiles_.size()) + " player profile(s) from " + dir_.string());
+  pp::log::info("game", "loaded " + std::to_string(profiles_.size()) + " player profile(s) from " + pathToUtf8(dir_));
   return true;
 }
 bool ProfileMgr::save() { return writeFileAtomic(dir_ / "users.dat", serializeUsers()); }
 
 PlayerInfo* ProfileMgr::add(const std::string& name) {
-  std::string n = name;
-  while (!n.empty() && n.front() == ' ') n.erase(n.begin());
-  while (!n.empty() && n.back() == ' ') n.pop_back();
+  const std::string& n = name;
   if (!validName(n) || find(n)) return nullptr;
   auto p = std::make_unique<PlayerInfo>();
   p->reset(false);
@@ -717,7 +776,6 @@ bool Settings::load(const fs::path& file) {
     else if (k == "WinW") winW = std::atoi(v.c_str());
     else if (k == "WinH") winH = std::atoi(v.c_str());
     else if (k == "Widescreen") widescreen = std::clamp(std::atoi(v.c_str()), 0, 4);
-    else if (k == "SeparateWideScores") separateWideScores = bl();
     else if (k == "VisInterpolate") vis.interpolate = bl();
     else if (k == "VisSmooth") vis.smooth = bl();
     else if (k == "VisBloom") vis.bloom = bl();
@@ -734,7 +792,7 @@ bool Settings::save(const fs::path& file) const {
   std::ostringstream o;
   o << "MusicVolume=" << music << "\nSfxVolume=" << sfx << "\nFeverVolume=" << fever << "\nMuted=" << (muted ? 1 : 0) << "\nFullscreen=" << (fullscreen ? 1 : 0)
     << "\nCustomCursors=" << (customCursors ? 1 : 0) << "\nWaitForVSync=" << (vsync ? 1 : 0) << "\nCurUser=" << curUser << "\nMaxStage=" << maxStage
-    << "\nMaxLevel=" << maxLevel << "\nWinW=" << winW << "\nWinH=" << winH << "\nWidescreen=" << widescreen << "\nSeparateWideScores=" << (separateWideScores ? 1 : 0) << "\nVisInterpolate=" << (vis.interpolate ? 1 : 0)
+    << "\nMaxLevel=" << maxLevel << "\nWinW=" << winW << "\nWinH=" << winH << "\nWidescreen=" << widescreen << "\nVisInterpolate=" << (vis.interpolate ? 1 : 0)
     << "\nVisSmooth=" << (vis.smooth ? 1 : 0) << "\nVisBloom=" << (vis.bloom ? 1 : 0) << "\nVisSparks=" << (vis.sparks ? 1 : 0)
     << "\nVisUltraWideHud=" << (vis.ultraWideHud ? 1 : 0) << "\nVisBloomStrength=" << vis.bloomStrength << "\n";
   std::string s = o.str();

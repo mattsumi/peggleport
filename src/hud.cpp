@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 
+#include "gamepaths.h"
 #include "masters.h"
 #include "render.h"
 
@@ -22,6 +23,17 @@ std::string commaSep(long long v) {
     out += s[i];
   }
   return v < 0 ? "-" + out : out;
+}
+
+std::string fitName(const Font& f, std::string name, const std::string& mark, int room) {
+  if (f.width(name + mark) <= room) return name + mark;
+  while (!name.empty()) {
+    while (name.size() > 1 && ((unsigned char)name.back() & 0xc0) == 0x80) name.pop_back();
+    name.pop_back();
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    if (f.width(name + "..." + mark) <= room) break;
+  }
+  return name + "..." + mark;
 }
 }
 
@@ -69,13 +81,83 @@ void Renderer::drawBallColumn(const Board& b) {
   if (back) put(back, {0, 0, back->lw(), back->lh()}, 24, 180);
   int n = b.ballsLeft[b.cur];
   if (b.fever && b.feverBallsPaid > 0) n = std::max(0, n - b.feverBallsPaid);
+  if (b.phase == Phase::Aim) n = std::max(0, n - 1);
   int shown = std::min(n, 15);
   int spacing = ball ? (int)ball->lh() : 20;
   int bottom = 410 + 3 * shown;
-  if (back) put(back, {0, 0, back->lw(), back->lh()}, 28, (float)(17 + bottom));
+  if (Tex* plunger = img("IMAGE_INT_PLUNGER")) put(plunger, {0, 0, plunger->lw(), plunger->lh()}, 28, (float)(17 + bottom));
   int vis = std::min(n, 25);
   for (int i = 0; i < vis; i++) put(ball, {0, 0, ball->lw(), ball->lh()}, 30, (float)(bottom - i * spacing));
   if (glass) put(glass, {0, 0, glass->lw(), glass->lh()}, 3, 92);
+}
+
+void Renderer::shotMeterTick(const Board& b) {
+  if (b.lstate == 2 && !b.fever) {
+    const int s = b.shotScore;
+    if (s >= 125000 && shotMeter_ < 125000) shotMeter_ = shotMeterTarget_ = 125000;
+    else if (s >= 75000 && shotMeter_ < 75000) shotMeter_ = shotMeterTarget_ = 75000;
+    else if (s >= 25000 && shotMeter_ < 25000) shotMeter_ = shotMeterTarget_ = 25000;
+    else shotMeterTarget_ = s;
+  } else if (!b.fever) {
+    shotMeterTarget_ = 0;
+  }
+  if (shotMeter_ < shotMeterTarget_) {
+    int d = shotMeterTarget_ - shotMeter_;
+    shotMeter_ += d > 100000 ? 5000 : d > 25000 ? 1000 : d > 1000 ? 200 : d > 100 ? 100 : 10;
+    if (shotMeter_ > shotMeterTarget_) shotMeter_ = shotMeterTarget_;
+  } else if (shotMeter_ > shotMeterTarget_) {
+    int d = shotMeter_ - shotMeterTarget_;
+    if (d > 100000) shotMeter_ -= 5000;
+    shotMeter_ -= d > 25000 ? 1000 : 200;
+    if (shotMeter_ < shotMeterTarget_) shotMeter_ = shotMeterTarget_;
+  }
+}
+
+void Renderer::drawShotMeter() {
+  Tex* meter = img("IMAGE_INT_FREEBALLMETER");
+  Tex* cap = img("IMAGE_INT_FREEBALLMETERTOP");
+  if (!meter || !cap) return;
+  const int v = shotMeter_;
+  if (v <= 0) return;
+  const float cw = meter->cw(), mh = meter->lh(), ch = cap->lh();
+  const int bottom = (int)mh + 165;
+  auto pair = [&](Tex* t, int cel, float sy, float sh, float dy) {
+    const SDL_FRect src{cel * cw, sy, cw, sh};
+    put(t, src, 5, dy);
+    const bool was = flipX_;
+    flipX_ = !was;
+    put(t, src, 59, dy);
+    flipX_ = was;
+  };
+  int baseCel = -1, fillCel = 0, progress = v, span = 25000;
+  if (v > 125000) {
+    pair(meter, 2, 0, mh, 165);
+    return;
+  }
+  if (v > 75000) {
+    baseCel = 1;
+    fillCel = 2;
+    progress = v - 75000;
+    span = 50000;
+  } else if (v > 25000) {
+    baseCel = 0;
+    fillCel = 1;
+    progress = v - 25000;
+    span = 50000;
+  }
+  if (baseCel >= 0) pair(meter, baseCel, 0, mh, 165);
+  int filled = (int)mh * progress / span;
+  if (filled <= 0) return;
+  filled = std::min(filled, (int)mh);
+  const float fillTop = (float)(bottom - filled);
+  pair(meter, fillCel, mh - (float)filled, (float)filled, fillTop);
+  float capY = fillTop - ch, capSrc = 0, capH = ch;
+  if (capY < 163) {
+    capSrc = 163 - capY;
+    capH = ch - capSrc;
+    capY = 163;
+  }
+  if (capH > 0) pair(cap, fillCel, capSrc, capH, capY);
 }
 
 void Renderer::drawOrbBack(const Board& b, const Hud& hud, int dw) {
@@ -118,7 +200,7 @@ void Renderer::drawModPortrait(const Board& b, int dw) {
   if (it == cache_.end()) {
     Tex T;
     if (!mm->portraitFile.empty()) {
-      std::ifstream f(mm->portraitFile, std::ios::binary);
+      std::ifstream f(pathFromUtf8(mm->portraitFile), std::ios::binary);
       std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
       Image im;
       if (!bytes.empty() && bytes.size() <= (4u << 20) && decodeImage(bytes, im) && im.w > 0 && im.h > 0 && im.w <= 4096 && im.h <= 4096) {
@@ -286,19 +368,22 @@ void Renderer::drawOrbFront(const Board& b, int dw) {
   if (b.master[b.cur] == 12 || b.master[b.cur] == 7) blinkOff = (chTick_ / 30) % 2 == 0;
   bool hideCount = chCountBlink_ != 0 && (chCountBlink_ / 30) % 2 == 0;
   if (Tex* t = img("IMAGE_IP_POWERUPBANNER")) {
-    int row = std::clamp(stageCel_, 0, t->rows - 1);
+    static const int kBannerOfPower[15] = {-1, 0, 4, 1, 2, 3, 5, 9, -1, 6, -1, -1, 8, 7, 10};
+    const int pw = b.master[b.cur];
+    const int own = pw >= 0 && pw < 15 ? kBannerOfPower[pw] : -1;
+    int row = std::clamp(own >= 0 ? own : stageCel_, 0, t->rows - 1);
     putCelAt(t, (active && !blinkOff) ? 1 : 0, row, 343 + cx, 1);
   }
   if (Tex* t = img("IMAGE_INT_COUNTER")) put(t, {0, 0, t->lw(), t->lh()}, 382 + cx, 17);
-  if (Font* f = hideCount ? nullptr : font("FONT_SMALL_DISP")) {
+  if (Font* f = hideCount ? nullptr : font("FONT_OVERLOAD10OUTLINE")) {
     std::string s = std::to_string(std::clamp(b.turns[b.cur], 0, 99));
-    drawText(f, 400 + cx - f->width(s) / 2.0f, 32, s, 0xffffffffu);
+    drawText(f, 400 + cx - (float)(f->width(s) / 2), 32, s, 0xffffffffu);
   }
 }
 
 void Renderer::drawOrangeMeter(const Board& b, int dw) {
   int hits = std::clamp(25 - b.orangeLeft, 0, 25);
-  float X = 737 + dw;
+  float X = (float)(737 + dw);
   Tex* mid = img("IMAGE_INT_FEVERMETER");
   Tex* top = img("IMAGE_INT_FEVERMETERTOP");
   Tex* bot = img("IMAGE_INT_FEVERMETERBOTTOM");
@@ -322,12 +407,13 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
   drawPortrait(b, dw);
   drawBallColumn(b);
   drawFrame(dw);
+  drawShotMeter();
   drawOrbFront(b, dw);
-  if (Tex* t = tex("images/dialog/menubutton", 2, 1, "roundbutton_")) putCelAt(t, 0, hud.menuOver ? 1 : 0, 12.0f, 540.0f);
+  if (Tex* t = tex("images/dialog/menubutton", 2, 1, "roundbutton_"); t && hud.menuOver) putCelAt(t, 0, 0, 12.0f, 540.0f);
   if (b.shotIndex == 0) {
     if (Tex* t = img("IMAGE_INT_BUTTONCOVER")) put(t, {0, 0, t->lw(), t->lh()}, 735.0f + dw, 538);
-  } else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_")) {
-    putCelAt(t, 0, hud.replayOver ? 1 : 0, 736.0f + dw, 540.0f);
+  } else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_"); t && hud.replayOver) {
+    putCelAt(t, 0, 0, 736.0f + dw, 540.0f);
   }
   drawOrangeMeter(b, dw);
   if (hud.clearedBefore)
@@ -339,12 +425,12 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
   Font* left = font("FONT_BALLSLEFT");
   if (small) {
     auto mode = [&](const std::string& t, bool leftSide) {
-      float x = leftSide ? 128.0f : 508.0f + dw;
+      float x = leftSide ? 128.0f : 508.0f + dw / 2.0f;
       if (small->width(t) > 75) x -= 6;
       drawText(small, x, 20, t, 0xffffffff);
     };
     auto detail = [&](const std::string& t, bool leftSide, float off) {
-      float x = leftSide ? 128.0f : 508.0f + dw;
+      float x = leftSide ? 128.0f : 508.0f + dw / 2.0f;
       if (small->width(t) > 75) x -= 6;
       drawText(small, x + off, 35, t, 0xffffffff);
     };
@@ -360,10 +446,18 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
       mode(hud.topName, false);
       detail("Score", false, 0);
     } else if (hud.mode == Hud::ModeQuick || hud.mode == Hud::ModeDemo) {
-      if (hud.mode == Hud::ModeQuick) mode("Quick", true);
+      mode(hud.mode == Hud::ModeQuick ? "Quick" : "Demo", true);
       detail("Score", true, 0);
       mode("Top Score", false);
       if (hud.topScore > 0) detail(hud.topName, false, 0);
+    } else if (hud.mode == Hud::ModeParty && !hud.party.empty()) {
+      for (size_t i = 0; i < hud.party.size() && i < 4; i++) {
+        const bool rightBox = i >= 2;
+        const float x0 = rightBox ? 508.0f + dw / 2.0f : 128.0f, x1 = rightBox ? 670.0f + dw : 295.0f + dw / 2.0f;
+        const float colW = std::floor((x1 - x0 - 12.0f) / 2.0f), x = x0 + (i % 2) * (colW + 12.0f);
+        drawText(small, x, 20, fitName(*small, hud.party[i].name, i == 0 ? " (you)" : "", (int)colW), 0xffffffff, TextAlign::Left, 1, false);
+        drawText(small, x, 35, commaSep(i == 0 ? b.dispScore[p < 2 ? p : 0] : hud.party[i].score), 0xffffffff, TextAlign::Left, 1, false);
+      }
     } else {
       detail("Score", true, 0);
       mode(hud.challengeText.empty() ? "Challenge" : hud.challengeText, true);
@@ -379,7 +473,7 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
       drawText(sc, right - w, 28, t, 0xffffffff);
     }
   }
-  if (score) {
+  if (score && hud.mode != Hud::ModeParty) {
     std::string s = commaSep(b.dispScore[p < 2 ? p : 0]);
     int w = score->width(s);
     float right = 295.0f + (w > 100 ? 5 : 0) + dw / 2.0f;

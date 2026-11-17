@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstring>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <memory>
+#include <type_traits>
 #include <vector>
 #include <string>
 #include <array>
@@ -23,6 +25,8 @@ using namespace detail;
 
 namespace {
 
+float heldTo(float v, float lo, float hi) { return v >= lo ? (v <= hi ? v : hi) : (v < lo ? lo : 0.0f); }
+
 uint64_t fnvMix(uint64_t h, const void* p, size_t n) {
   const uint8_t* b = (const uint8_t*)p;
   for (size_t i = 0; i < n; i++) {
@@ -33,6 +37,12 @@ uint64_t fnvMix(uint64_t h, const void* p, size_t n) {
 }
 template <class T>
 uint64_t mix(uint64_t h, const T& v) {
+  if constexpr (std::is_floating_point_v<T>) {
+    if (std::isnan(v)) {
+      const T canonical = std::numeric_limits<T>::quiet_NaN();
+      return fnvMix(h, &canonical, sizeof canonical);
+    }
+  }
   return fnvMix(h, &v, sizeof v);
 }
 
@@ -65,11 +75,11 @@ static void buildBrickLocal(const Node& n, Obj& o) {
   BrickParams p;
   p.type = (int)n.i("brick_type", 0);
   p.sub = n.has("brick_subdiv") ? (int)n.i("brick_subdiv") : 2;
-  p.radius = n.f("brick_radius", 35.0f);
+  p.radius = heldTo(n.f("brick_radius", 35.0f), -2000.0f, 2000.0f);
   p.ext = n.has("brick_angle") ? n.f("brick_angle") : 30.0f;
   p.ang150 = n.f("brick_left_angle", 0.0f);
   p.ang154 = n.f("brick_right_angle", 0.0f);
-  p.thick = n.has("brick_thickness") ? n.f("brick_thickness") : 20.0f;
+  p.thick = heldTo(n.has("brick_thickness") ? n.f("brick_thickness") : 20.0f, -500.0f, 500.0f);
   p.rot = n.f("brick_rotation", -90.0f);
   p.off = {n.f("u_0x160", 0.0f), n.f("u_0x164", 0.0f)};
   BrickShape s = brickInitFromParams(p);
@@ -124,8 +134,8 @@ bool Board::makeObj(const Level& L, const Node& n, Obj& o) {
   float baseRot = 0;
   switch (o.shape) {
     case Shape::Circle:
-      o.pos = {n.f("x"), n.f("y")};
-      o.radius = n.f("radius");
+      o.pos = {heldTo(n.f("x"), -2000.0f, 3000.0f), heldTo(n.f("y"), -2000.0f, 3000.0f)};
+      o.radius = heldTo(n.f("radius"), 0.0f, 500.0f);
       break;
     case Shape::Line: {
       V2 a(n.f("x1"), n.f("y1")), b(n.f("x2"), n.f("y2"));
@@ -243,8 +253,38 @@ void Board::addLevel(const Level& L, bool fromBase) {
   linkFollowers(L, nodeOf, first, emitNodes, emitFirst);
 }
 
+static float boundRadius(const Obj& o) {
+  if (o.shape == Shape::Circle) return o.radius;
+  if (o.shape == Shape::Hole) return std::sqrt(o.hw * o.hw + o.hh * o.hh);
+  float r = 0.0f;
+  for (const V2& v : o.local) r = std::max(r, std::sqrt(v.x * v.x + v.y * v.y) * std::fabs(o.scale));
+  return r;
+}
+
 void Board::widen() {
   float dw = (float)(W - 650), k = W / 650.0f;
+  for (auto& o : objs) {
+    if (o.fromBase || o.pegType != 0 || o.shape == Shape::None || o.mv.sub != -1) continue;
+    float lo = o.x0, hi = o.x1;
+    if (o.hasMover) {
+      if (o.shape == Shape::Line) continue;
+      const float br = boundRadius(o);
+      const int period = std::max(1, o.mv.pause1 > 0 ? o.mv.pause1 + o.mv.time + o.mv.pause2 : o.mv.time);
+      const int stride = std::max(1, period / 20000);
+      lo = 1e9f;
+      hi = -1e9f;
+      for (int t = 0; t < period; t += stride) {
+        float x = o.pos.x, y = o.pos.y, r = o.rot;
+        o.mv.calc(t, x, y, r);
+        lo = std::min(lo, x - br);
+        hi = std::max(hi, x + br);
+      }
+    }
+    if (hi < 0.0f || lo > 650.0f) o.visible = o.collidable = false;
+  }
+  float bumper = 0.0f;
+  for (const auto& o : objs)
+    if (o.fromBase && o.id == "fever" && o.shape == Shape::Circle) bumper = std::max(bumper, o.radius);
   for (auto& o : objs) {
     if (!o.fromBase) {
       if (o.hasMover) o.mv.ax += dw * 0.5f;
@@ -264,6 +304,7 @@ void Board::widen() {
     } else if (o.id == "fever") {
       if (o.hasMover) o.mv.ax *= k;
       else o.pos.x *= k;
+      if (o.shape == Shape::Hole) o.hw = (o.hw + bumper) * k - bumper;
     } else if (o.id == "flipper") {
       if (o.hasMover ? o.mv.ax > 300 : o.pos.x > 300) {
         if (o.hasMover) o.mv.ax += dw;
@@ -329,9 +370,10 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   for (int p = 0; p < 4; p++) master[p] = cfg.master[p] >= masters::kFirstPower && !masters::byPower(cfg.master[p]) ? 0 : cfg.master[p];
   setupPegs();
   if (!cfg.pegTypes.empty()) applyPegTypes();
-  int balls0 = cfg.balls > 0 ? cfg.balls : (cfg.duel ? 6 : 10);
+  int balls0 = cfg.balls > 0 ? std::min(cfg.balls, 99) : (cfg.duel ? 6 : 10);
   for (int p = 0; p < players; p++) ballsLeft[p] = balls0;
   score[0] = cfg.startScore;
+  if (players > 1) score[1] = cfg.startScore2;
   if (cfg.duel && players > 1) {
     uint32_t r = rng.rand();
     if (players != 2) {
@@ -582,6 +624,7 @@ void Board::stepBalls() {
         const int sinceNow = cfg.nights ? b.sinceHit : b.since;
         if ((o.id == "freeballcover" || o.id == "freeball") && b.fire) ev(Event::Bump, 1);
         else if (o.sound == 4 && (sinceNow > 4 || o.shape == Shape::Circle)) ev(Event::Bump, b.fire ? 1 : 0);
+        if (o.id.compare(0, 5, "lbump") == 0) ev(Event::LevelBump, nt.obj);
       }
       noteContact(b, o);
       if (o.pegType) pegHit(nt.obj);

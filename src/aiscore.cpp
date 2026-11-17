@@ -123,6 +123,13 @@ struct AIMgr::Run {
 
   bool isPeg(const Obj& o) const { return o.pegType != 0; }
 
+  bool collides(const Cand& c, const Obj& o, int oi) const {
+    if (o.pegType == 0) return true;
+    const bool passes = o.pegType == 4 && power == 3;
+    if (!passes && !c.fireball) return true;
+    return !c.seen[(size_t)oi];
+  }
+
   int scoreMult(int left) const { return clearAll && left <= 0 ? 10 : Board::multiplier(left); }
 
   void sample(Cand& c, int bi) {
@@ -156,7 +163,6 @@ struct AIMgr::Run {
     }
   }
 
-  std::vector<char> ballBall;
   void notifyBall(int ci, int oi);
   void setHole(int ci, int bi, const Obj& h);
   void doMultiball(int ci, int oi);
@@ -171,6 +177,12 @@ struct AIMgr::Run {
     cands.push_back(c);
     w.balls.push_back(b);
     owner.push_back((int)cands.size() - 1);
+    Ball& nb = w.balls.back();
+    nb.uid = ++w.ballUid_;
+    phys::ballSyncBounds(nb);
+    if (nights) w.sapSort();
+    w.sapAdd(Board::SAP_BALL + nb.uid);
+    nb.pairs = true;
   }
   void stepFrame();
   void jumpMovers(int n);
@@ -249,12 +261,13 @@ void AIMgr::Run::doMultiball(int ci, int oi) {
   const int bi = ballIndex(ci);
   const Ball sb = w.balls[(size_t)bi];
   const V2 peg = w.objs[(size_t)oi].pos;
-  float dir = 0.5f;
+  const float spd = nights ? 0.75f : 0.5f;
+  float dir = spd;
   const float dxp = peg.x - sb.pos.x;
   if (!(0.0f <= dxp)) {
-    dir = -0.5f;
+    dir = -spd;
   } else if (dxp == 0.0f && !(w.shotRand[0] & 1u)) {
-    dir = -0.5f;
+    dir = -spd;
   }
   Cand c;
   const Cand& src = cands[(size_t)ci];
@@ -273,11 +286,11 @@ void AIMgr::Run::doMultiball(int ci, int oi) {
   nb.r = sb.r;
   phys::ballSetPos(nb, peg.x, peg.y);
   nb.pos = nb.prev = peg;
-  nb.vel = {dir, -3.0f};
+  nb.vel = {dir, nights ? -3.5f : -3.0f};
+  nb.pairs = false;
   addCand(c, nb);
+  w.balls[(size_t)bi].pairs = true;
   cands[(size_t)ci].partner = (int)cands.size() - 1;
-  ballBall[(size_t)ci] = 1;
-  ballBall.push_back(1);
 }
 
 void AIMgr::Run::doExploder(int ci, int oi) {
@@ -390,7 +403,7 @@ void AIMgr::Run::notifyBall(int ci, int oi) {
     if (nights && m > limit) {
       v = 0;
     } else {
-      if (m == 1 && c.left == 1 && o.pegType == 2) v = nights ? (int)((double)v * 1.5) : 1;
+      if (m == 1 && c.left == 1 && o.pegType == 2) v = (int)((double)v * 1.5);
       v = (int)((double)(10 * v) / (2.0 + (double)m * 1.0));
       if (c.left < 3) v = (int)((double)(10 * v) / (2.0 + (double)(c.left + m) * 1.0));
       if (m == 1 && o.pegType == 2 && duel) v = v * 4;
@@ -474,7 +487,7 @@ void AIMgr::Run::stepFrame() {
     }
     if (second >= Board::SAP_BALL) {
       const int si = indexOf(second - Board::SAP_BALL);
-      if (si >= 0 && live[(size_t)si] && ballBall[(size_t)owner[(size_t)fi]] && ballBall[(size_t)owner[(size_t)si]])
+      if (si >= 0 && live[(size_t)si] && cands[(size_t)owner[(size_t)fi]].partner == owner[(size_t)si])
         phys::checkBallCollision(w.balls[(size_t)fi], w.balls[(size_t)si]);
       continue;
     }
@@ -484,7 +497,7 @@ void AIMgr::Run::stepFrame() {
       const Ball& b = w.balls[(size_t)fi];
       if (!phys::holeContains(b.pos.x, b.pos.y, o.pos.x, o.pos.y, o.hw, o.hh, o.circular)) continue;
       w.notes_.push_back({fi, second});
-    } else {
+    } else if (collides(cands[(size_t)owner[(size_t)fi]], o, second)) {
       cand.push_back(second);
     }
   }
@@ -497,6 +510,7 @@ void AIMgr::Run::stepFrame() {
     } else if (c.state == 1) {
       c.state = 2;
       dead[bi] = 1;
+      w.sapRemove(Board::SAP_BALL + w.balls[bi].uid);
     }
   }
   const auto notes = w.notes_;
@@ -530,6 +544,11 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
   r.w.noModHooks = true;
   r.w.events.clear();
   r.w.balls.clear();
+  r.w.sapX_.clear();
+  r.w.sapY_.clear();
+  r.w.sapPairs_.clear();
+  r.w.sapIn_.clear();
+  r.w.sapAll_ = true;
   r.mode = mode;
   r.skill = skill;
   r.cur = b.cur;
@@ -565,6 +584,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
   int ahead = 0;
   if (mode == 0) ahead = r.target / 10 - 1 + 100 + 1;
   if (ahead > 0) r.jumpMovers(ahead);
+  r.w.sapSync();
 
   std::vector<float> angles;
   int aimedAt = -1;
@@ -587,7 +607,7 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
         angles.push_back(a);
         for (int k = 0; k < nb; k++) {
           angles.push_back(r.keep(a - (float)k * 0.009999999776482582f));
-          angles.push_back(r.keep((float)k * 0.009999999776482582f + a));
+          if (k > 0 || !r.nights) angles.push_back(r.keep((float)k * 0.009999999776482582f + a));
         }
       }
       if (nb == 0) randoms -= orangeCount;
@@ -622,11 +642,12 @@ void AIMgr::begin(const Board& b, int skill, const std::function<uint32_t()>& rn
     if (r.charge) c.bestFrame = 0;
     V2 v;
     Ball ball = r.makeBall(angles[(size_t)i], r.fireball, v);
+    ball.pairs = false;
     r.cands.push_back(c);
     r.w.balls.push_back(ball);
     r.owner.push_back(i);
-    r.ballBall.push_back(0);
   }
+  r.w.sapSync();
   r.aimedIdx = aimedAt;
   thinking_ = true;
   if (r.target == 0 || n == 0) finish();
@@ -649,8 +670,10 @@ void AIMgr::finish() {
   const int n = (int)r.cands.size();
   int best = -1, bestScore = 0;
   bool bestB = false, bestC = false, bestE = false;
+  std::vector<int> loose;
   for (int i = 0; i < n; i++) {
     Run::Cand& c = r.cands[(size_t)i];
+    if (c.clone) continue;
     const int P0 = c.pegF[0], P1 = c.pegF[1], P2 = c.pegF[2], O0 = c.orgF[0], G = c.greenF;
     bool A = P0 != c.coll[0];
     bool B = P0 == O0;
@@ -694,6 +717,7 @@ void AIMgr::finish() {
       if (skill < 0 && B) c.score *= 10;
     }
     if (r.duel && c.hits == 0) c.score = 0;
+    if (B && !A && skill < 0 && c.score > 500) loose.push_back(i);
     if (bestScore < c.score) {
       bestB = B; bestC = C; bestE = E;
       bestScore = c.score;
@@ -701,6 +725,7 @@ void AIMgr::finish() {
     }
   }
   bestScore_ = bestScore;
+  if (!loose.empty() && skill < 0 && (int)(rnd_() % 100u) < 100) best = loose[(size_t)(rnd_() % (uint32_t)loose.size())];
   if (r.aimedIdx >= 0) {
     const auto& a = r.cands[(size_t)r.aimedIdx];
     aimInfo_ = {true, a.left, a.score, a.sum};

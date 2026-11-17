@@ -1,8 +1,10 @@
 #include "vfs.h"
 
+#include "gamepaths.h"
 #include "log.h"
 
 #include <cctype>
+#include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -38,6 +40,11 @@ std::string normKey(std::string_view path) {
   return s;
 }
 
+std::string genericUtf8(const fs::path& p) {
+  auto u = p.generic_u8string();
+  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+
 std::map<std::string, std::string> readIni(const std::string& text) {
   std::map<std::string, std::string> out;
   std::istringstream in(text);
@@ -57,11 +64,13 @@ std::map<std::string, std::string> readIni(const std::string& text) {
   return out;
 }
 
-static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
+static bool slurp(const fs::path& p, std::vector<uint8_t>& out, size_t maxBytes = std::numeric_limits<size_t>::max()) {
   std::ifstream f(p, std::ios::binary);
   if (!f) return false;
   f.seekg(0, std::ios::end);
-  out.resize((size_t)f.tellg());
+  auto size = f.tellg();
+  if (size < 0 || (uint64_t)size > maxBytes) return false;
+  out.resize((size_t)size);
   f.seekg(0);
   f.read((char*)out.data(), (std::streamsize)out.size());
   return (bool)f;
@@ -69,7 +78,7 @@ static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
 
 bool loadPak(const fs::path& p, Pak& out, std::string* err) {
   auto fail = [&](const std::string& m) {
-    if (err) *err = p.string() + ": " + m;
+    if (err) *err = pathToUtf8(p) + ": " + m;
     return false;
   };
   if (!slurp(p, out.data)) return fail("cannot read");
@@ -110,7 +119,7 @@ void Vfs::indexDir(Layer& L) {
        it != fs::recursive_directory_iterator(); it.increment(ec)) {
     if (ec) break;
     if (!it->is_regular_file()) continue;
-    auto rel = fs::relative(it->path(), L.root, ec).generic_string();
+    auto rel = genericUtf8(fs::relative(it->path(), L.root, ec));
     if (rel.empty() || rel[0] == '.') continue;
     L.files.emplace(normKey(rel), it->path());
   }
@@ -120,10 +129,10 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   fs::path mainPak = gameDir / "main.pak";
   auto pak = std::make_shared<Pak>();
   if (!loadPak(mainPak, *pak, err)) {
-    pp::log::error("game", "cannot open " + mainPak.string() + (err && !err->empty() ? ": " + *err : std::string()));
+    pp::log::error("game", "cannot open " + pathToUtf8(mainPak) + (err && !err->empty() ? ": " + *err : std::string()));
     return false;
   }
-  pp::log::info("game", "game data: " + gameDir.string() + " (" + std::to_string(pak->entries.size()) + " files in main.pak)");
+  pp::log::info("game", "game data: " + pathToUtf8(gameDir) + " (" + std::to_string(pak->entries.size()) + " files in main.pak)");
   Layer L;
   L.kind = Layer::PakFile;
   L.label = "main.pak";
@@ -135,20 +144,20 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   std::error_code ec;
   if (fs::is_directory(gameDir / "levelpacks", ec))
     for (auto& e : fs::directory_iterator(gameDir / "levelpacks", ec))
-      if (e.is_regular_file() && normKey(e.path().extension().string()) == ".PAK") packs.push_back(e.path());
+      if (e.is_regular_file() && normKey(pathToUtf8(e.path().extension())) == ".PAK") packs.push_back(e.path());
   std::sort(packs.begin(), packs.end());
   for (auto& p : packs) {
     auto lp = std::make_shared<Pak>();
     std::string e2;
     if (!loadPak(p, *lp, &e2)) {
-      pp::log::warn("game", "skipped level pack " + p.filename().string() + ": " + e2);
+      pp::log::warn("game", "skipped level pack " + pathToUtf8(p.filename()) + ": " + e2);
       continue;
     }
-    pp::log::info("game", "level pack " + p.filename().string() + " (" + std::to_string(lp->entries.size()) + " files)");
+    pp::log::info("game", "level pack " + pathToUtf8(p.filename()) + " (" + std::to_string(lp->entries.size()) + " files)");
     Layer P;
     P.kind = Layer::PakFile;
     P.isLevelPack = true;
-    P.label = "levelpacks/" + p.filename().string();
+    P.label = "levelpacks/" + pathToUtf8(p.filename());
     P.pak = lp;
     for (uint32_t i = 0; i < lp->entries.size(); i++) P.pakIndex.emplace(normKey(lp->entries[i].name), i);
     layers_.push_back(std::move(P));
@@ -165,15 +174,15 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
 bool Vfs::mountMod(const fs::path& modDir, std::string* err) {
   std::error_code ec;
   if (!fs::is_directory(modDir, ec)) {
-    if (err) *err = "mod directory not found: " + modDir.string();
-    pp::log::error("game", "mod directory not found: " + modDir.string());
+    if (err) *err = "mod directory not found: " + pathToUtf8(modDir);
+    pp::log::error("game", "mod directory not found: " + pathToUtf8(modDir));
     return false;
   }
   Layer L;
   L.kind = Layer::Dir;
   L.isMod = true;
   L.root = modDir;
-  L.label = "mod:" + modDir.filename().string();
+  L.label = "mod:" + pathToUtf8(modDir.filename());
   std::vector<uint8_t> ini;
   if (slurp(modDir / "mod.ini", ini)) {
     L.meta = readIni(std::string(ini.begin(), ini.end()));
@@ -217,7 +226,7 @@ size_t Vfs::unmountMods() {
 std::string Vfs::modSignature() const {
   std::string s;
   for (auto& L : layers_)
-    if (L.isMod) s += L.root.generic_string() + "|" + std::to_string(L.priority) + "|" + std::to_string(L.imageScale) + "\n";
+    if (L.isMod) s += genericUtf8(L.root) + "|" + std::to_string(L.priority) + "|" + std::to_string(L.imageScale) + "\n";
   return s;
 }
 
@@ -261,13 +270,16 @@ void vfsLogMiss(const char* kind, std::string_view path) {
   pp::log::writeOnce(pp::log::Level::Warn, "game", std::string("missing ") + kind + ": " + std::string(path));
 }
 
-std::optional<VfsHit> Vfs::read(std::string_view path) const {
+std::optional<VfsHit> Vfs::read(std::string_view path) const { return read(path, std::numeric_limits<size_t>::max()); }
+
+std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
   std::string k = normKey(path);
   for (auto& L : layers_) {
     if (L.kind == Layer::PakFile) {
       auto it = L.pakIndex.find(k);
       if (it == L.pakIndex.end()) continue;
       auto& e = L.pak->entries[it->second];
+      if (e.size > maxBytes) return std::nullopt;
       VfsHit h;
       h.layer = &L;
       h.bytes.assign(L.pak->data.begin() + e.offset, L.pak->data.begin() + e.offset + e.size);
@@ -277,7 +289,7 @@ std::optional<VfsHit> Vfs::read(std::string_view path) const {
     if (it == L.files.end()) continue;
     VfsHit h;
     h.layer = &L;
-    if (!slurp(it->second, h.bytes)) continue;
+    if (!slurp(it->second, h.bytes, maxBytes)) continue;
     return h;
   }
   return std::nullopt;

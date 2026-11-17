@@ -1,6 +1,7 @@
 #include "lobby.h"
 
 #include <algorithm>
+#include <iterator>
 #include <random>
 #include <sstream>
 #include <cstdint>
@@ -23,10 +24,11 @@ struct LobbyServer::Conn {
   sock_t s = BAD_SOCK;
   std::string in;
   std::string out;
-  enum Role { Unknown, HostCtl, Waiting, Pipe } role = Unknown;
+  enum Role { Unknown, HostCtl, WatchCtl, Waiting, Pipe } role = Unknown;
   Conn* peer = nullptr;
   std::string code, ip;
   bool dead = false, closeAfter = false, countedInRoom = false, wantUdp = false;
+  bool loopback = false, initial = true, proxied = false;
   std::string pairKey;
   Clock::time_point created = Clock::now(), lastActivity = Clock::now();
 };
@@ -143,14 +145,55 @@ void LobbyServer::reply(Conn& c, const std::string& s, bool closeAfter) {
   if (closeAfter) c.closeAfter = true;
 }
 
+static std::string peerKey(const sockaddr_storage& ss);
+
+bool LobbyServer::resolveSource(Conn& c, const std::string& header) {
+  c.initial = false;
+  if (!header.empty()) {
+    if (!proxyLocal || !c.loopback || c.proxied || c.role != Conn::Unknown || header.size() > 107 || header.back() != '\r') return false;
+    for (size_t i = 0; i + 1 < header.size(); i++) if ((unsigned char)header[i] < 32 || (unsigned char)header[i] >= 127) return false;
+    std::istringstream in(header.substr(0, header.size() - 1));
+    std::string command, family, source, destination, sourcePort, destinationPort, extra;
+    in >> command >> family >> source >> destination >> sourcePort >> destinationPort;
+    if (command != "PROXY" || (family != "TCP4" && family != "TCP6") || (in >> extra)) return false;
+    auto validPort = [](const std::string& text) {
+      if (text.empty() || text.size() > 5) return false;
+      unsigned port = 0;
+      for (unsigned char ch : text) {
+        if (ch < '0' || ch > '9') return false;
+        port = port * 10 + ch - '0';
+      }
+      return port > 0 && port <= 65535;
+    };
+    if (!validPort(sourcePort) || !validPort(destinationPort)) return false;
+    sockaddr_storage ss{}, ds{};
+    ss.ss_family = ds.ss_family = family == "TCP4" ? AF_INET : AF_INET6;
+    void* sa = family == "TCP4" ? (void*)&((sockaddr_in*)&ss)->sin_addr : (void*)&((sockaddr_in6*)&ss)->sin6_addr;
+    void* da = family == "TCP4" ? (void*)&((sockaddr_in*)&ds)->sin_addr : (void*)&((sockaddr_in6*)&ds)->sin6_addr;
+    if (inet_pton(ss.ss_family, source.c_str(), sa) != 1 || inet_pton(ds.ss_family, destination.c_str(), da) != 1) return false;
+    c.ip = peerKey(ss);
+    c.proxied = true;
+  }
+  size_t same = 0;
+  for (auto& other : conns_)
+    same += other.get() != &c && !other->dead && other->s != BAD_SOCK && !other->initial && other->ip == c.ip;
+  return same < limits.maxPerIp;
+}
+
 void LobbyServer::line(Conn& c, const std::string& l) {
+  if (c.closeAfter || c.dead) return;
+  if (l.rfind("PROXY", 0) == 0) {
+    if (!c.initial || !resolveSource(c, l)) reply(c, "ERR not allowed\n", true);
+    return;
+  }
+  if (c.initial && !resolveSource(c, {})) { reply(c, "ERR too many connections from your address\n", true); return; }
   std::istringstream is(l);
   std::string cmd;
   is >> cmd;
   if (cmd == "HOST" && c.role == Conn::Unknown) {
     Room r;
-    std::string name, party, players, level, hash;
-    is >> name >> players >> party >> level >> hash;
+    std::string name, party, players, level, hash, capability;
+    is >> name >> players >> party >> level >> hash >> capability;
     r.name = clean(name, 32);
     r.level = clean(level, 32);
     r.hash = clean(hash, 16);
@@ -167,8 +210,25 @@ void LobbyServer::line(Conn& c, const std::string& l) {
     r.hostIp = c.ip;
     c.role = Conn::HostCtl;
     c.code = r.code;
-    reply(c, "OK " + r.code + " " + r.token + "\n");
+    reply(c, "OK " + r.code + " " + r.token + (capability == "H" ? " H\n" : "\n"));
     rooms_[r.code] = r;
+  } else if (cmd == "WATCH" && c.role == Conn::Unknown) {
+    std::string capability;
+    is >> capability;
+    if (capability != "H") { reply(c, "ERR unknown command\n", true); return; }
+    c.role = Conn::WatchCtl;
+    reply(c, "OK H\n");
+  } else if (cmd == "PING" && (c.role == Conn::HostCtl || c.role == Conn::WatchCtl)) {
+    std::string nonce;
+    is >> nonce;
+    if (nonce.empty() || nonce.size() > 20 || nonce.find_first_not_of("0123456789") != std::string::npos) reply(c, "ERR bad PING\n", true);
+    else {
+      reply(c, "PONG " + nonce + "\n");
+      auto room = rooms_.find(c.code);
+      if (c.role == Conn::HostCtl && room != rooms_.end() && room->second.host == &c)
+        for (auto& pipe : conns_)
+          if (!pipe->dead && pipe->role == Conn::Pipe && pipe->code == c.code) pipe->lastActivity = Clock::now();
+    }
   } else if (cmd == "LIST" && c.role == Conn::Unknown) {
     std::string o;
     for (auto& [code, r] : rooms_)
@@ -177,7 +237,7 @@ void LobbyServer::line(Conn& c, const std::string& l) {
   } else if (cmd == "JOIN" && c.role == Conn::Unknown) {
     std::string code, flag;
     is >> code >> flag;
-    c.wantUdp = flag == "U";
+    c.wantUdp = flag == "U" && !c.proxied;
     auto it = rooms_.find(code);
     if (it == rooms_.end()) { reply(c, "ERR no such room\n", true); return; }
     Room& r = it->second;
@@ -209,7 +269,7 @@ void LobbyServer::line(Conn& c, const std::string& l) {
     c.countedInRoom = true;
     ri->second.joined++;
     std::string pk;
-    if (rdv_ && (flag == "U" || g->wantUdp)) {
+    if (rdv_ && !c.proxied && !g->proxied && (flag == "U" || g->wantUdp)) {
       pk = online::randomHex(16);
       if (!rdv_->addPair(pk, online::nowMs())) pk.clear();
     }
@@ -267,6 +327,15 @@ static std::string peerKey(const sockaddr_storage& ss) {
   return o;
 }
 
+static bool loopbackPeer(const sockaddr_storage& ss) {
+  if (ss.ss_family == AF_INET) return ((const unsigned char*)&((const sockaddr_in*)&ss)->sin_addr)[0] == 127;
+  if (ss.ss_family != AF_INET6) return false;
+  const auto* b = (const unsigned char*)&((const sockaddr_in6*)&ss)->sin6_addr;
+  static const unsigned char local[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+  static const unsigned char mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+  return std::memcmp(b, local, 16) == 0 || (std::memcmp(b, mapped, 12) == 0 && b[12] == 127);
+}
+
 void LobbyServer::poll() {
   if (rdv_) rdv_->poll(online::nowMs());
   auto now = Clock::now();
@@ -279,7 +348,8 @@ void LobbyServer::poll() {
     std::string ip = peerKey(ss);
     size_t same = 0;
     for (auto& c : conns_) same += c->ip == ip && c->s != BAD_SOCK;
-    if (conns_.size() >= limits.maxConns || same >= limits.maxPerIp) {
+    const bool localProxy = proxyLocal && loopbackPeer(ss);
+    if (conns_.size() >= limits.maxConns || (!localProxy && same >= limits.maxPerIp)) {
       closeSock(s);
       refused_++;
       continue;
@@ -288,6 +358,7 @@ void LobbyServer::poll() {
     auto c = std::make_unique<Conn>();
     c->s = s;
     c->ip = ip;
+    c->loopback = loopbackPeer(ss);
     conns_.push_back(std::move(c));
   }
   for (size_t i = 0; i < conns_.size(); i++) {
@@ -300,7 +371,12 @@ void LobbyServer::poll() {
         c.lastActivity = now;
         if (c.role == Conn::Pipe && c.peer) {
           c.peer->out.append(buf, (size_t)n);
-          if (c.peer->out.size() > limits.maxOutBuf) { drop(*c.peer); c.peer->closeAfter = true; break; }
+          if (c.peer->out.size() > limits.maxOutBuf) {
+            Conn* slow = c.peer;
+            drop(*slow);
+            slow->closeAfter = true;
+            break;
+          }
         } else c.in.append(buf, (size_t)n);
         if (c.in.size() > 4096) { drop(c); break; }
       } else {
@@ -308,12 +384,12 @@ void LobbyServer::poll() {
         break;
       }
     }
-    while (!c.dead && c.role != Conn::Pipe) {
+    while (!c.dead && !c.closeAfter && c.role != Conn::Pipe) {
       size_t nl = c.in.find('\n');
       if (nl == std::string::npos) break;
       std::string l = c.in.substr(0, nl);
       c.in.erase(0, nl + 1);
-      if (!l.empty() && l.back() == '\r') l.pop_back();
+      if (l.rfind("PROXY", 0) != 0 && !l.empty() && l.back() == '\r') l.pop_back();
       line(c, l);
       if (c.role == Conn::Pipe && !c.in.empty() && c.peer) {
         c.peer->out += c.in;
@@ -324,7 +400,7 @@ void LobbyServer::poll() {
     bool expired = false;
     if (c.role == Conn::Unknown || c.role == Conn::Waiting) expired = since(c.created) > limits.handshakeMs;
     else if (c.role == Conn::Pipe) expired = since(c.lastActivity) > limits.pipeIdleMs && c.peer && since(c.peer->lastActivity) > limits.pipeIdleMs;
-    else if (c.role == Conn::HostCtl) expired = since(c.lastActivity) > limits.hostIdleMs;
+    else if (c.role == Conn::HostCtl || c.role == Conn::WatchCtl) expired = since(c.lastActivity) > limits.hostIdleMs;
     if (expired) { c.closeAfter = true; drop(c); }
   }
   for (auto& cp : conns_) {
@@ -332,7 +408,7 @@ void LobbyServer::poll() {
     if (c.s == BAD_SOCK) continue;
     if (c.out.size() > limits.maxOutBuf) drop(c);
     while (!c.out.empty()) {
-      auto n = ::send(c.s, c.out.data(), c.out.size(), MSG_NOSIGNAL);
+      auto n = ::send(c.s, c.out.data(), (socklen_arg)c.out.size(), MSG_NOSIGNAL);
       if (n > 0) c.out.erase(0, (size_t)n);
       else {
         if (n < 0 && !wouldBlock()) drop(c);

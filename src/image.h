@@ -16,6 +16,8 @@ struct Image {
 };
 
 bool decodeImage(const std::vector<uint8_t>& bytes, Image& out, std::string* err = nullptr);
+bool decodeImage(const std::vector<uint8_t>& bytes, Image& out, std::string* err, bool limited);
 std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path, const std::string& explicitMask = "");
+std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path, const std::string& explicitMask, bool limited);
 
 }

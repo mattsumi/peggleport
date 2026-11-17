@@ -140,7 +140,7 @@ uint32_t rgbaOf(uint32_t rgb, int a) { return (rgb << 8) | (uint32_t)std::clamp(
 namespace {
 enum : int {
   T_FEVERBLAST_ROCKET = 4, T_COIN = 8, T_STREAK = 6, T_TRAIL = 0x13, T_STAR = 0x14, T_CATCHERGLOW = 0x1a, T_CATCHERSPARK = 0x1b, T_LETTER = 0x1d,
-  T_STYLESPARK = 0x2e, T_CHAIN_BOLT = 0x60, T_CHAIN_ARC = 0x61, T_CHAIN_EMBER = 0x62,
+  T_LEVELBUMP = 0x2d, T_STYLESPARK = 0x2e, T_CHAIN_BOLT = 0x60, T_CHAIN_ARC = 0x61, T_CHAIN_EMBER = 0x62,
 };
 int bucketIndex(const Board& b) {
   for (size_t i = 0; i < b.objs.size(); i++)
@@ -149,7 +149,7 @@ int bucketIndex(const Board& b) {
 }
 }
 
-void Renderer::fxStyleText(const Board&, const std::string& name, int pts, float x, float y, bool big) {
+void Renderer::fxStyleText(const Board& b, const std::string& name, int pts, float x, float y, bool big) {
   FxState& S = fx_;
   if (S.frame - S.styleFrame >= 20 || std::fabs(S.styleX - x) >= 20 || std::fabs(S.styleY - y) >= 20) {
     S.styleX = x;
@@ -158,7 +158,7 @@ void Renderer::fxStyleText(const Board&, const std::string& name, int pts, float
   } else {
     S.styleStack++;
     y -= 50.0f * S.styleStack;
-    x += (S.styleX >= 325.0f ? -50.0f : 50.0f) * S.styleStack;
+    x += (S.styleX >= (float)b.W / 2.0f ? -50.0f : 50.0f) * S.styleStack;
   }
   S.styleFrame = S.frame;
   std::string pl = pts >= 10000 ? "+" + commaSep(pts) : "+" + std::to_string(pts);
@@ -541,6 +541,20 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
     case Event::ChainBolt:
       if (e.a >= 0 && e.a < (int)b.objs.size() && e.b < (int)b.objs.size()) fxChainBolt(b, e.a, e.b, e.c & 0xff, ((e.c >> 8) & 1) != 0);
       break;
+    case Event::LevelBump: {
+      if (e.a < 0 || e.a >= (int)b.objs.size()) break;
+      bool renewed = false;
+      for (FxEffect& f : S.eff[1])
+        if (f.type == T_LEVELBUMP && f.i30 == e.a) {
+          f.age = 0;
+          renewed = true;
+        }
+      if (renewed) break;
+      FxEffect& f = fxAdd(T_LEVELBUMP, b.objs[(size_t)e.a].pos.x, b.objs[(size_t)e.a].pos.y, 0);
+      f.life = 40;
+      f.i30 = e.a;
+      break;
+    }
     case Event::PegLit: {
       if (e.a < 0 || e.a >= (int)b.objs.size()) break;
       bool fever = (e.b & 0x40000000) != 0;
@@ -636,8 +650,12 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
       break;
     }
     case Event::LevelDone: {
-      if (e.a == 1 && !(b.cfg.duel && b.players > 1)) {
-        FxEffect& r = fxAdd(7, 325.0f, 320.0f, 0);
+      if (S.badge) {
+        FxEffect& r = fxAdd(0x21, (float)b.W / 2.0f, 275.0f, 0);
+        r.age = -130;
+        r.life = 0;
+      } else if (b.result.cleared) {
+        FxEffect& r = fxAdd(7, (float)b.W / 2.0f, 320.0f, 0);
         r.age = -130;
         r.life = 0;
       }
@@ -659,7 +677,7 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
       break;
     }
     case Event::CoinSpin: {
-      FxEffect& c = fxAdd(T_COIN, 325.0f, 280.0f, 0);
+      FxEffect& c = fxAdd(T_COIN, (float)b.W / 2.0f, 280.0f, 0);
       c.life = 250;
       c.i30 = e.b;
       c.i34 = e.a;
@@ -866,6 +884,7 @@ void Renderer::fxSpawn(const Board& b, const Board::FxRec& r) {
 }
 
 void Renderer::masterBadge() {
+  fx_.badge = true;
   for (auto& v : fx_.eff)
     for (auto& e : v)
       if (e.type == 7 && e.age < 0) { e.type = 0x21; e.y = 275.0f; }
@@ -907,8 +926,10 @@ void Renderer::advance(const Board& b) {
     if (chCountBlink_) chCountBlink_--;
     if (chPowerBlink_) chPowerBlink_--;
     chTick_++;
+    shotMeterTick(b);
   }
   if (fresh) {
+    shotMeter_ = shotMeterTarget_ = 0;
     for (int& c : chLastCount_) c = -2;
     chCountBlink_ = chPowerBlink_ = 0;
   }
@@ -1087,7 +1108,7 @@ void Renderer::fxFeverTally(const Board& b) {
     if (!first || first->age >= first->life - 30) {
       S.rainbowWait = false;
       S.rainbowAge = 0;
-      fxAdd(0x18, 325.0f, 500.0f, 0).life = 100000;
+      fxAdd(0x18, (float)b.W / 2.0f, 500.0f, 0).life = 100000;
       S.sound("RAINBOW");
     }
   }
@@ -1097,7 +1118,7 @@ void Renderer::fxFeverTally(const Board& b) {
     FxEffect& f = fxAdd(0x15, 400.0f, 300.0f, 0);
     f.life = 100000;
     f.i38 = 3;
-    FxText& t = fxText("", 325.0f, 205.0f, 0x26);
+    FxText& t = fxText("", (float)b.W / 2.0f, 205.0f, 0x26);
     t.vy = 0;
     t.life = 100000;
     t.scales = {{5.0f, 0}, {1.0f, 30}};
@@ -1247,18 +1268,18 @@ void Renderer::fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& o
       if (e.i3c == 1) {
         if (e.age == 15) {
           S.shake = 10;
-          S.sound("FEVERHIT");
+          S.sound("FEVERHIT", 0, 1, 1);
         } else if (e.age == 0) {
-          S.sound("WHISTLE");
+          S.sound("WHISTLE", 0, 1, 1);
         }
       } else if (e.i3c > 1 && e.age == 20) {
-        S.sound("WOOSH");
+        S.sound("WOOSH", 0, 1, 1);
       }
       bool behind = false;
       if (e.age >= 50)
         for (const Ball& bl : b.balls)
           if (bl.pos.x >= e.x - 40 && bl.pos.x < e.x + 40 && bl.pos.y >= e.y - 40 && bl.pos.y < e.y + 40) { behind = true; break; }
-      if (e.life - e.age == 20 && e.i3c > 1) S.sound("WOOSH");
+      if (e.life - e.age == 20 && e.i3c > 1) S.sound("WOOSH", 0, 1, 1);
       if (!behind) {
         if (e.i34 > 0 && e.i34 < 255) {
           e.i34 += 5;
@@ -1366,7 +1387,7 @@ void Renderer::fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& o
       if (e.y > 630.0f) e.life = e.age;
       break;
     case 0x11:
-      if (e.x < 0 || e.x > 650) e.vx = -e.vx;
+      if (e.x < 0 || e.x > (float)b.W) e.vx = -e.vx;
       if (e.y > 630) e.life = e.age;
       break;
     default: break;
@@ -1378,6 +1399,16 @@ void Renderer::fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& o
 void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
   const float X = BX + e.x, Y = BY + e.y;
   switch (e.type) {
+    case T_LEVELBUMP: {
+      const int tail = 10;
+      const int a = e.age <= e.life - tail ? 200 : (e.life - e.age) * 200 / tail;
+      if (a <= 0) break;
+      const Obj* src = nullptr;
+      for (const Obj& o : b.objs)
+        if (o.id == "lbump" && o.subId == 0 && !o.image.empty()) src = &o;
+      if (Tex* t = src ? objImage(src->image) : nullptr) putCentered(t, X, Y, {rgbaOf(0xffffff, a), Blend::Normal});
+      break;
+    }
     case 0x50: {
       Tex* t = img("IMAGE_SPACESTAR");
       if (!t) break;
@@ -1710,22 +1741,35 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
         segs = n - 1;
       }
       if (segs <= s0) break;
+      SDL_Rect keepClip{0, 0, 0, 0};
+      const bool inFrame = BX > 75.0f && SDL_GetRenderClipRect(r_, &keepClip);
+      if (inFrame) {
+        SDL_Rect field{(int)px(BX), (int)py(BY), (int)std::ceil((float)b.W * s_), (int)std::ceil(560.0f * s_)}, both;
+        if (keepClip.w > 0 && keepClip.h > 0) {
+          if (!SDL_GetRectIntersection(&keepClip, &field, &both)) both = SDL_Rect{0, 0, 0, 0};
+        } else {
+          both = field;
+        }
+        SDL_SetRenderClipRect(r_, &both);
+      }
       float u = ((float)((e.age / 2) % 50) + 0.5f) / 50.0f, v0 = 0.5f / (float)t->h, v1 = 1.0f - v0;
       SDL_FColor col{1, 1, 1, alpha};
       std::vector<SDL_Vertex> vs;
       std::vector<int> idx;
+      const float k = b.W > 650 ? (560.0f - e.y + 400.0f) / 400.0f : 1.0f;
+      const float cy = Y + 400.0f * (k - 1.0f);
       float th = 0.025f * (float)s0;
       for (int i = s0; i <= segs; i++, th += 0.025f) {
         float c = std::cos(th), sn = std::sin(th);
-        vs.push_back({{px(X + c * 420.0f), py(Y - sn * 400.0f)}, col, {u, v0}});
-        vs.push_back({{px(X + c * 320.0f), py(Y - sn * 300.0f)}, col, {u, v1}});
+        vs.push_back({{px(X + c * 420.0f * k), py(cy - sn * 400.0f * k)}, col, {u, v0}});
+        vs.push_back({{px(X + c * 320.0f * k), py(cy - sn * 300.0f * k)}, col, {u, v1}});
       }
       for (int i = 0; i < segs - s0; i++) { int q = i * 2; idx.insert(idx.end(), {q, q + 1, q + 2, q + 1, q + 3, q + 2}); }
       SDL_SetTextureBlendMode(t->t, SDL_BLENDMODE_BLEND);
       SDL_RenderGeometry(r_, t->t, vs.data(), (int)vs.size(), idx.data(), (int)idx.size());
       if (segs < 122 && !(e.life > 0 && e.life - 40 < e.age)) {
         float hth = 0.025f * (float)segs, hc = std::cos(hth), hs = std::sin(hth);
-        V2 outer{X + hc * 420.0f, Y - hs * 400.0f}, inner{X + hc * 320.0f, Y - hs * 300.0f};
+        V2 outer{X + hc * 420.0f * k, cy - hs * 400.0f * k}, inner{X + hc * 320.0f * k, cy - hs * 300.0f * k};
         float rot = PI / 2.1f - std::atan2(inner.y - outer.y, inner.x - outer.x);
         auto mix = [&](float wi) { return V2{inner.x * wi + outer.x * (1.0f - wi), inner.y * wi + outer.y * (1.0f - wi)}; };
         if (Tex* ss = img("IMAGE_STAR_STREAK"))
@@ -1741,6 +1785,7 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
             put(st, {0, 0, st->lw(), st->lh()}, c.x - 30.0f, c.y - 30.0f, {0xffffffffu, Blend::Normal}, 60.0f, 60.0f);
           }
       }
+      if (inFrame) SDL_SetRenderClipRect(r_, keepClip.w > 0 && keepClip.h > 0 ? &keepClip : nullptr);
       break;
     }
     case 0x15: {
@@ -1750,7 +1795,7 @@ void Renderer::fxDrawOne(const Board& b, const FxEffect& e) {
       float ang = 0;
       if (e.age < 20) ang = (1.0f - (float)e.age / 20.0f) * -1.5707964f;
       else if (e.life - 20 < e.age) ang = (1.0f - (float)(e.life - e.age) / 20.0f) * 1.5707964f;
-      float bx = BX + 325.0f - (float)(int)(a->lw() / 2), by = BY + 105.0f;
+      float bx = BX + (float)b.W / 2.0f - (float)(int)(a->lw() / 2), by = BY + 105.0f;
       put(a, {0, 0, a->lw(), a->lh()}, bx, by, {0xffffffffu, Blend::Add}, a->lw(), a->lh(), ang, 225.0f, 420.0f);
       if (tp) put(tp, {0, 0, tp->lw(), tp->lh()}, bx, by, {0xffffffffu, Blend::Normal}, tp->lw(), tp->lh(), ang, 225.0f, 420.0f);
       break;

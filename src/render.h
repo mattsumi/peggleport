@@ -32,11 +32,16 @@ struct Hud {
   bool showGuide = true;
   bool menuOver = false, replayOver = false;
   bool clearedBefore = false;
-  enum Mode { ModeStage = 0, ModeQuick = 1, ModeChallenge = 2, ModeDemo = 3, ModeDuel = 4 } mode = ModeStage;
+  enum Mode { ModeStage = 0, ModeQuick = 1, ModeChallenge = 2, ModeDemo = 3, ModeDuel = 4, ModeParty = 5 } mode = ModeStage;
   int topScore = 0, totalScore = 0;
   std::string topName, challengeText, challengeRight;
   float alpha = 1.0f;
   int stageNo = -1, levelNo = -1;
+  struct Seat {
+    std::string name;
+    int score = 0;
+  };
+  std::vector<Seat> party;
 };
 
 struct EmitFx;
@@ -55,6 +60,8 @@ class Renderer {
   void setVisualOptions(const VisualOptions& v) { vis_ = v; }
   const VisualOptions& visualOptions() const { return vis_; }
   int canvasWidth() const { return canvasW_; }
+  float boardLeft() const { return BX; }
+  void setFrameCanvas(int w) { frameCanvas_ = w; }
   V2 toBoard(float px, float py) const;
   void advance(const Board& b);
   std::vector<FxSound> takeSounds() { return std::exchange(fx_.sounds, {}); }
@@ -80,6 +87,7 @@ class Renderer {
     float ch() const { return lh() / rows; }
   };
   Tex* tex(const std::string& path, int rows = 1, int cols = 1, const std::string& mask = "", int alphaColor = -1);
+  Tex* tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor, bool limited);
   Tex* img(const std::string& resId);
   Tex* grayImg(const std::string& resId);
   void put(Tex* t, SDL_FRect srcLogical, float x, float y, Paint p = {}, float w = -1, float h = -1, float rotRad = 0, float pivotX = 0, float pivotY = 0);
@@ -135,6 +143,8 @@ class Renderer {
   bool zenOn_ = false;
   int guideAge_ = 1, guideRack_ = 0;
   void drawBoardShadow();
+  void drawWallMarks(float padL);
+  void drawBoardShadowBottom(float rows, float top);
   void drawZoomFrame(const Board& b);
   void brickMesh(const Obj& o, Tex* t, int row, float dx, float dy, uint32_t rgba, Blend mode, float inflate = 0);
   void drawHud(const Board& b, const Hud& hud);
@@ -175,6 +185,8 @@ class Renderer {
   void fxStyleText(const Board& b, const std::string& name, int pts, float x, float y, bool big);
   void fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& out);
   void drawBallColumn(const Board& b);
+  void drawShotMeter();
+  void shotMeterTick(const Board& b);
   void drawOrbBack(const Board& b, const Hud& hud, int dw);
   void drawOrangeMeter(const Board& b, int dw);
   float BX = 75;
@@ -195,17 +207,18 @@ class Renderer {
   };
   struct BlinkReq { int type = 0, n = 0, tick = -1; } blinkReq_;
   int shotsFired0_ = 0;
+  int shotMeter_ = 0, shotMeterTarget_ = 0;
   std::vector<ObjViz> viz_;
   int lastTick_ = -1;
   size_t lastObjs_ = 0;
   SDL_Renderer* r_;
   const Vfs& vfs_;
-  std::map<std::string, Tex> cache_;
+  std::map<std::string, Tex> cache_, modCache_;
   FontManager fonts_{vfs_};
   ImageManifest man_{vfs_};
   std::map<const Image*, SDL_Texture*> fontTex_;
   float s_ = 1, ox_ = 0, oy_ = 0;
-  int canvasW_ = 800, boardW_ = 650;
+  int canvasW_ = 800, boardW_ = 650, frameCanvas_ = 0;
 };
 
 inline void (*g_modOverlay)(Renderer&, const Board&) = nullptr;

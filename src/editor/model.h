@@ -98,6 +98,7 @@ std::string getStr(const Node& n, const PropDef& d);
 std::string propText(const Level& L, const Node& n, const PropDef& d);
 bool setNum(Level& L, Node& n, const PropDef& d, double v);
 bool setStr(Node& n, const PropDef& d, const std::string& s);
+void holdToPanelRanges(Level& L);
 bool setPropText(Level& L, Node& n, const PropDef& d, const std::string& text);
 bool attachMover(Level& L, Node& obj, int moverType);
 void detachMover(Level& L, Node& obj);

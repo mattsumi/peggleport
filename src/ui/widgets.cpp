@@ -47,6 +47,52 @@ bool Button::mouseUp(float lx, float ly, int button) {
   return true;
 }
 
+static void drawStyledLabel(Gfx& g, const std::string& font, float x, float y, const std::string& text, uint32_t rgb, float alpha, float styleAlpha, uint32_t outline, uint32_t main, uint32_t gradient, bool fullGradient) {
+  FontProvider& fp = g.fontProvider();
+  uint32_t mult[3] = {0, 0, 0}, add[3] = {0, 0, 0};
+  bool have = true;
+  for (size_t i = 0; i < 3; i++) have = fp.layerColors(font, i, mult[i], add[i]) && have;
+  if (have) {
+    fp.setLayerColors(font, 0, outline, add[0]);
+    fp.setLayerColors(font, 1, main, add[1]);
+    if (fullGradient) fp.setLayerColors(font, 2, mult[2], gradient | 0xffu);
+    else fp.setLayerColors(font, 2, mult[2] & 0xffffff00u, gradient | (uint32_t)std::clamp((int)(90.0f * styleAlpha), 0, 255));
+  }
+  g.drawString(font, x, y, text, rgb, alpha);
+  if (have)
+    for (size_t i = 0; i < 3; i++) fp.setLayerColors(font, i, mult[i], add[i]);
+}
+
+static void drawControlLabel(Gfx& g, const Widget& w, const std::string& font, float x, float y, const std::string& text, float styleAlpha, int bar = -1) {
+  if (font != "BUTTON") {
+    g.drawString(font, x, y, text, 0xffffff, w.alpha);
+    return;
+  }
+  if (bar >= 0) {
+    static const uint32_t kBar[3][3] = {{0x1333d8ffu, 0x65f3f8ffu, 0x4cc4f700u}, {0x0a5dccffu, 0xc2f6ffffu, 0x7ffaff00u}, {0x006a29ffu, 0xfffde4ffu, 0xf6ff0000u}};
+    drawStyledLabel(g, font, x, y, text, 0xffffff, w.alpha, styleAlpha, kBar[bar][0], kBar[bar][1], kBar[bar][2], w.host && w.host->labelFullGradient());
+    return;
+  }
+  drawStyledLabel(g, font, x, y, text, 0xffffff, w.alpha, styleAlpha, w.down ? 0x1a3bd6ffu : 0x1333d8ffu, w.down ? 0xffffffffu : 0x65f3f8ffu, w.down ? 0xd2f7ff00u : 0x4cc4f700u, w.host && w.host->labelFullGradient());
+}
+
+static void drawButtonLabel(Gfx& g, const Button& b, float x, float y) {
+  const uint32_t rgb = b.over ? b.labelOver : b.labelColor;
+  if ((b.labelStyle != 0 && b.labelStyle != 6 && b.labelStyle != 9 && b.labelStyle != 16) || b.font != "BUTTON") {
+    g.drawString(b.font, x, y, b.label, rgb, b.alpha);
+    return;
+  }
+  static const uint32_t kOutlines[4][3] = {{0x00264cccu, 0x003366ccu, 0x003f7fccu}, {0x5b1e54ffu, 0x600256ffu, 0xe533ccffu}, {0x560700ccu, 0x4c000cccu, 0xc41400ccu}, {0x821c01ffu, 0xb32702ffu, 0xe55e04ffu}};
+  static const uint32_t kMains[4][3] = {{0xe7fff3ffu, 0xffff00ffu, 0xffff00ffu}, {0xfb54eaffu, 0xfe94e7ffu, 0xfdb6f7ffu}, {0xffba02ffu, 0xfac841ffu, 0xf6fd42ffu}, {0xfff3a3ffu, 0xfffadaffu, 0xffffffffu}};
+  static const uint32_t kGradients[4][3] = {{0x19b24c00u, 0x33d86600u, 0x4cff7f00u}, {0xcc2bb700u, 0xe08cef00u, 0xff99ff00u}, {0xfc5e0000u, 0xffaf0000u, 0xf4b21400u}, {0xffcc0000u, 0xffe40000u, 0xfffeac00u}};
+  const size_t set = b.labelStyle == 16 ? 1 : (b.labelStyle == 6 ? 2 : (b.labelStyle == 9 ? 3 : 0));
+  const uint32_t* kOutline = kOutlines[set];
+  const uint32_t* kMain = kMains[set];
+  const uint32_t* kGradient = kGradients[set];
+  const int state = (b.down && b.over) ? 2 : ((b.down || b.over) ? 1 : 0);
+  drawStyledLabel(g, b.font, x, y, b.label, rgb, b.alpha, b.alpha, kOutline[state], kMain[state], kGradient[state], b.labelFullGradient);
+}
+
 void Button::draw(Gfx& g) {
   if (!visible || (!image && kind != Kind::Link)) return;
   Mode full(alpha);
@@ -60,16 +106,14 @@ void Button::draw(Gfx& g) {
         g.drawCel(image, 0, 0, 0, 0, full);
         if (pressed) g.drawCel(image, 0, 0, 0, 1, full);
         else if (a > 0) g.drawCel(image, 0, 0, 0, 1, Mode(alpha * a));
-        return;
-      }
-      if (pressed) {
+      } else if (pressed) {
         g.drawCel(image, 0, 0, 0, additiveDown ? 0 : 1, Mode(alpha));
         if (additiveDown) g.drawCel(image, 0, 0, 0, 0, Mode(alpha * 0.25f, 0xffffff, true));
       } else if (a > 0) {
         g.drawCel(image, 0, 0, 0, 0, Mode(alpha * a));
       }
       if (labelOnEmbedded && !label.empty())
-        g.drawString(font, (w - g.textWidth(font, label)) / 2, (h + g.fontAscent(font) - g.fontAscent(font) / 6 - 1) / 2 + textOffY + 4, label, over ? labelOver : labelColor, alpha);
+        drawButtonLabel(g, *this, (w - g.textWidth(font, label)) / 2, (h + g.fontAscent(font) - g.fontAscent(font) / 6 - 1) / 2 + textOffY + 4);
       return;
     }
     case Kind::Simple:
@@ -83,7 +127,7 @@ void Button::draw(Gfx& g) {
     }
     case Kind::Patch: {
       float ch = image->lh() / 3;
-      float row = pressed ? 2 : 0;
+      float row = pressed ? 2.0f : 0.0f;
       if (!pressed && overAlpha > 0) {
         if (overAlpha < 1) g.drawBoxSrc(image, 0, 0, image->lw(), ch, 0, 0, w, h, full);
         g.drawBoxSrc(image, 0, ch, image->lw(), ch, 0, 0, w, h, Mode(alpha * overAlpha));
@@ -91,10 +135,10 @@ void Button::draw(Gfx& g) {
         g.drawBoxSrc(image, 0, ch * row, image->lw(), ch, dx, dy, w, h, full);
       }
       if (!label.empty()) {
-        float asc = g.fontAscent(font);
-        float ty = (h + asc - asc / 6 - 1) / 2 + textOffY;
+        const int asc = (int)g.fontAscent(font);
+        float ty = (float)(((int)h + asc - (int)g.fontAscentPadding(font) - asc / 6 - 1) / 2) + textOffY;
         float tw = g.textWidth(font, label);
-        g.drawString(font, (w - tw) / 2 + textOffX + dx, ty + dy, label, over ? labelOver : labelColor, alpha);
+        drawButtonLabel(g, *this, (w - tw) / 2 + textOffX + dx, ty + dy);
       }
       return;
     }
@@ -104,12 +148,16 @@ void Button::draw(Gfx& g) {
 
 void Checkbox::draw(Gfx& g) {
   if (!image) return;
-  float rows = style == 0 ? 4.0f : 3.0f, ch = image->lh() / rows;
+  const bool pill = style == 0 || style == 2;
+  float rows = pill ? 4.0f : 3.0f, ch = image->lh() / rows;
   int row;
-  if (style == 0) row = checked ? (over ? 3 : 0) : (over ? 1 : 2);
-  else row = checked ? 0 : (over ? 1 : 2);
+  if (pill) row = checked ? (over ? 3 : 2) : (over ? 1 : 0);
+  else row = checked ? 2 : (over ? 1 : 0);
   g.drawBoxSrc(image, 0, ch * row, image->lw(), ch, 0, 0, w, h, Mode(alpha));
-  if (!label.empty()) g.drawString(font, labelX, (h + g.fontAscent(font) * 0.8f) / 2 + labelY, label, 0xffffff, alpha);
+  if (label.empty()) return;
+  const float ty = style == 0 ? (float)(((int)h - (int)g.fontHeight(font)) / 2 + (int)g.fontAscent(font)) + labelY : (h + g.fontAscent(font) * 0.8f) / 2 + labelY;
+  const int bar = pill ? -1 : (checked || (down && over) ? 2 : (down || over ? 1 : 0));
+  drawControlLabel(g, *this, font, labelX, ty, label, alpha, bar);
 }
 bool Checkbox::mouseDown(float lx, float ly, int button, int clicks) {
   if (!enabled || button != 1) return false;
@@ -136,6 +184,7 @@ bool Slider::mouseDown(float lx, float ly, int button, int clicks) {
 bool Slider::mouseUp(float lx, float ly, int button) {
   if (!dragging) return false;
   dragging = false;
+  if (host) host->sliderChanged(id, value);
   return true;
 }
 void Slider::mouseMove(float lx, float ly) {
@@ -147,10 +196,10 @@ void Slider::draw(Gfx& g) {
   Tex* orb = thumb ? thumb : g.img("IMAGE_DLG_SLIDERORB");
   float bx = -170, by = -2;
   if (bar) g.draw(bar, bx, by);
-  if (!label.empty()) g.drawString("BUTTON", bx + 18, by + 31, label, 0xffffff, alpha);
+  if (!label.empty()) drawControlLabel(g, *this, "BUTTON", bx + 18, by + 31, label, 1.0f);
   if (hi && orb) {
     float tw = orb->lw();
-    float cw = std::clamp((float)((hi->lw() + tw) * value), 0.0f, hi->lw());
+    float cw = std::clamp((float)(int)(value * (w - tw) + 2), 0.0f, hi->lw());
     g.drawSrc(hi, 0, 0, cw, hi->lh(), 0, 9);
     float ox = (float)(value * (w - tw));
     g.draw(orb, ox, (h - orb->lh()) / 2);
@@ -159,8 +208,18 @@ void Slider::draw(Gfx& g) {
 
 
 bool EditBox::text(const std::string& t) {
-  for (unsigned char c : t) {
-    if (c < 32 || c == 127) continue;
+  if (selectAll && !t.empty()) { value.clear(); caret = 0; selectAll = false; }
+  for (size_t i = 0; i < t.size();) {
+    const unsigned char lead = (unsigned char)t[i++];
+    unsigned cp = lead;
+    size_t more = 0;
+    if (lead >= 0xF0) { cp = lead & 0x07u; more = 3; }
+    else if (lead >= 0xE0) { cp = lead & 0x0Fu; more = 2; }
+    else if (lead >= 0xC0) { cp = lead & 0x1Fu; more = 1; }
+    else if (lead >= 0x80) continue;
+    for (; more > 0 && i < t.size(); more--) cp = (cp << 6) | ((unsigned char)t[i++] & 0x3Fu);
+    if (cp < 32 || (cp >= 127 && cp < 160) || cp > 255) continue;
+    const unsigned char c = (unsigned char)cp;
     if (value.size() >= maxChars) break;
     std::string tryv = value;
     tryv.insert(tryv.begin() + caret, (char)c);
@@ -171,6 +230,8 @@ bool EditBox::text(const std::string& t) {
   return true;
 }
 bool EditBox::key(int k, int mod) {
+  if (selectAll && (k == SDLK_BACKSPACE || k == SDLK_DELETE)) { value.clear(); caret = 0; selectAll = false; return true; }
+  if (k == SDLK_LEFT || k == SDLK_RIGHT || k == SDLK_HOME || k == SDLK_END) selectAll = false;
   if (k == SDLK_BACKSPACE) {
     if (caret > 0) { value.erase(value.begin() + caret - 1); caret--; }
     return true;
@@ -197,11 +258,21 @@ void EditBox::draw(Gfx& g) {
   }
   float asc = g.fontAscent(font);
   float ty = (h + asc * 0.8f) / 2;
-  g.drawString(font, 4, ty, value, ink);
+  const float shift = textShift(g);
+  if (clipText) g.pushClip(textPad - 1, 0, w - 2 * textPad + 2, h);
+  if (selectAll && !value.empty()) g.fill(textPad - shift, 0, g.textWidth(font, value) + 2, h, 0x000080);
+  g.drawString(font, textPad - shift, ty, value, selectAll ? 0xffffff : ink);
   if (focused && (tick / 40) % 2 == 0) {
-    float cx = 4 + g.textWidth(font, value.substr(0, caret));
+    float cx = textPad - shift + g.textWidth(font, value.substr(0, caret));
     g.fill(cx, 3, 1, h - 6, ink);
   }
+  if (clipText) g.popClip();
+}
+float EditBox::textShift(Gfx& g) const {
+  if (!clipText) return 0;
+  const float room = w - 2 * textPad, all = g.textWidth(font, value);
+  if (all <= room) return 0;
+  return std::clamp(g.textWidth(font, value.substr(0, (size_t)std::max(0, caret))) - room, 0.0f, all - room);
 }
 
 }

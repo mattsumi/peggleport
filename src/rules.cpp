@@ -237,7 +237,9 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
   const std::string k = lc(key);
   const std::string v = trim(value);
   const bool flag = lc(v) == "true";
-  const int n = std::atoi(v.c_str());
+  const long long raw = std::strtoll(v.c_str(), nullptr, 10);
+  const int n = (int)std::clamp(raw, 0LL, 1000000000LL);
+  const int count = (int)std::clamp(raw, 0LL, 1000000LL);
   if (k == "nofreeballs") noFreeballs = flag;
   else if (k == "nogreens") noGreens = flag;
   else if (k == "noforcewin") noForceWin = flag;
@@ -246,7 +248,7 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
   else if (k == "scorereq") scoreReq = n;
   else if (k == "scoreceil") scoreCeil = n;
   else if (k == "stylescorereq") styleScoreReq = n;
-  else if (k == "uniquestyleshotsreq") uniqueStyleReq = n;
+  else if (k == "uniquestyleshotsreq") uniqueStyleReq = count;
   else if (k == "gravitymod") gravityMod = (float)std::atof(v.c_str());
   else if (k == "projspeedmod") projSpeedMod = (float)std::atof(v.c_str());
   else if (k == "stylershots" || k == "styleshots") {
@@ -256,13 +258,13 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
       std::string nm = trim(v.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
       int cnt = 1;
       size_t eq = nm.find('=');
-      if (eq != std::string::npos) { cnt = std::atoi(nm.c_str() + eq + 1); nm = trim(nm.substr(0, eq)); }
+      if (eq != std::string::npos) { cnt = (int)std::clamp(std::strtoll(nm.c_str() + eq + 1, nullptr, 10), 0LL, 1000000LL); nm = trim(nm.substr(0, eq)); }
       std::string want;
       for (char ch : lc(nm)) if (ch != ' ') want.push_back(ch);
       for (int i = 0; i < 24 && !want.empty(); i++) {
         std::string nn;
         for (char ch : lc(kStyle[i].name)) if (ch != ' ') nn.push_back(ch);
-        if (nn == want) styleShots[i] += cnt;
+        if (nn == want) styleShots[i] = std::min(styleShots[i] + cnt, 1000000);
       }
       if (e == std::string::npos) break;
       pos = e + 1;
@@ -276,13 +278,13 @@ bool ChallengeRules::set(const std::string& key, const std::string& value) {
       std::string nm = trim(v.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
       int cnt = 1;
       size_t eq = nm.find('=');
-      if (eq != std::string::npos) { cnt = std::atoi(nm.c_str() + eq + 1); nm = trim(nm.substr(0, eq)); }
+      if (eq != std::string::npos) { cnt = (int)std::clamp(std::strtoll(nm.c_str() + eq + 1, nullptr, 10), 0LL, 1000000LL); nm = trim(nm.substr(0, eq)); }
       const std::string ln = lc(nm);
       if (ln == "magichat") magicHat = cnt;
       else if (ln == "triplescore") tripleScore = cnt;
       else
         for (int i = 1; i < 15; i++)
-          if (ln == names[i]) powerups[i] += cnt + 1;
+          if (ln == names[i]) powerups[i] = std::min(powerups[i] + cnt + 1, 1000000);
       if (e == std::string::npos) break;
       pos = e + 1;
     }
@@ -347,10 +349,7 @@ int Board::multiplier(int n) {
 void Board::addBalls(int n, bool fromBucket) {
   ballsLeft[cur] += n;
   if (ballsLeft[cur] < 0) ballsLeft[cur] = 0;
-  if (n > 0) {
-    result.freeBalls += n;
-    (void)fromBucket;
-  }
+  (void)fromBucket;
 }
 
 void Board::incShotScore(int n) {
@@ -367,8 +366,11 @@ void Board::incShotScore(int n) {
       } else {
         awardStyle(19);
       }
-      ev(Event::ExtraBall, i);
-      extraFlag = true;
+      if (!(cfg.ch.active && cfg.ch.noFreeballs)) {
+        result.freeBalls[1 + i]++;
+        ev(Event::ExtraBall, i);
+        extraFlag = true;
+      }
     }
 }
 
@@ -474,6 +476,7 @@ void Board::pegHit(int oi, bool byPower) {
   o.litAge = 1;
   o.flash = 1;
   if (ball && ball->fire) o.collidable = o.visible = false;
+  result.pegsCleared++;
   eraseFromSets(oi);
   if (o.pegType == 2) {
     orangeHit = true;
@@ -727,6 +730,7 @@ void Board::freeBallHit(Ball& b, const Obj& h) {
   }
   if (plain) say(b.touchedBumper ? "Free Ball! (bumper)" : "Free Ball!", 120);
   bucketShot = true;
+  result.freeBalls[0]++;
   if (!duel) addBalls(1, true);
   ev(Event::FreeBall, plain ? 1 : 0);
   (void)h;
@@ -763,7 +767,11 @@ void Board::startFever() {
     if (o.id == "fever") {
       o.collidable = true;
       o.visible = true;
-      o.canMove = true;
+      const int n = o.hasMover ? updatesToPhase(o.mv, o.mtick, 0.5f) : 0;
+      if (n > 0) {
+        o.canMove = true;
+        o.moveCount = n;
+      }
     } else if (o.id == "freeball" || o.id == "freeballcover" || o.id == "bumperhole") {
       o.collidable = false;
       o.visible = false;
@@ -839,6 +847,9 @@ void Board::endShot() {
   }
   setLState(3);
   endText = (pegSum != 0 || (cfg.duel && players > 1)) && !fever;
+  result.pegsCleared = 0;
+  for (const Obj& o : objs)
+    if (o.pegType != 0 && (o.lit || !o.visible)) result.pegsCleared++;
   if (clearedLevel()) {
     for (int i : otherSet_) hitList_.push_back(i);
     otherSet_.clear();
@@ -935,9 +946,13 @@ void Board::updatePostShot() {
   shotBanked = true;
   lastShotScore = shotScore;
   lastShotPegs = pegsHitShot;
-  if (fever) result.feverPoints = shotScore;
-  else result.shotPoints += shotScore;
-  result.bestShot = std::max(result.bestShot, shotScore);
+  if (fever) {
+    result.feverPoints = shotScore;
+    result.bestFever = shotScore;
+  } else {
+    result.shotPoints += shotScore;
+    result.bestShot = std::max(result.bestShot, shotScore);
+  }
   ev(Event::ShotEnd, shotScore, style[cur]);
   setLState(6);
 }
@@ -1009,9 +1024,6 @@ void Board::levelDone() {
   result.totalScore = score[0];
   result.ballsLeft = ballsLeft[cur];
   result.ticks = tick;
-  int cl = 0;
-  for (auto& o : objs) cl += o.pegType != 0 && (o.lit || o.gone);
-  result.pegsCleared = won && !cfg.clearLevel ? result.pegsTotal : cl;
   if (won) say("LEVEL CLEARED", 100000);
   else say(cfg.duel && players > 1 ? "GAME OVER" : "OUT OF BALLS", 100000);
   ev(Event::LevelDone, won ? 1 : 0);
@@ -1173,10 +1185,11 @@ static bool inPolyN(const float (*pt)[2], int n, float px, float py) {
 bool Board::inFlipperZone(const Obj& o) const {
   if (o.zoneMode == 1) return true;
   if (o.zoneMode == 2) return false;
+  const float x = o.fromBase ? o.pos.x : o.pos.x - (float)(W - 650) * 0.5f;
+  const float y = o.pos.y;
   if (cfg.nights) {
     static const float NA[5][2] = {{0, 448}, {50, 460}, {92, 470}, {95, 523}, {0, 530}};
     static const float NB[5][2] = {{644, 450}, {600, 455}, {558, 460}, {555, 523}, {644, 530}};
-    const float x = o.pos.x, y = o.pos.y;
     if (400.0 <= (double)y) {
       if (x < 150.0f && inPolyN(NA, 5, x, y)) return true;
       if (500.0 < (double)x && inPolyN(NB, 5, x, y)) return true;
@@ -1185,7 +1198,6 @@ bool Board::inFlipperZone(const Obj& o) const {
   }
   static const float A[4][2] = {{0, 380}, {110, 470}, {110, 600}, {0, 600}};
   static const float B[4][2] = {{650, 380}, {540, 470}, {540, 600}, {650, 600}};
-  float x = o.pos.x, y = o.pos.y;
   if (400.0f <= y) {
     if (x < 150.0f && (x < 80.0f || inPoly4(A, x, y))) return true;
     if (500.0f < x && (570.0f < x || inPoly4(B, x, y))) return true;
@@ -1352,7 +1364,7 @@ void Board::finishSlotMachine(int outcome, Ball* ball, int pegIdx) {
     say("Magic Hat!", 120);
   } else if (outcome == 3) {
     addBalls(1, false);
-    result.styleCount[0] += 0;
+    result.freeBalls[0]++;
     say("Extra Ball!", 120);
   } else if (outcome == 2) {
     say("Score Tripler!", 120);

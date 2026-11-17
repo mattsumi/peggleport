@@ -8,14 +8,16 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 option(PP_FETCH_DEPS "Download and build SDL3, OpenJPEG, Ogg and Vorbis instead of using system copies" OFF)
 
 add_library(pp_flags INTERFACE)
 if(MSVC)
-  target_compile_options(pp_flags INTERFACE /fp:strict /W3 /utf-8)
+  target_compile_options(pp_flags INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:/fp:strict;/W3;/utf-8>")
   target_compile_definitions(pp_flags INTERFACE _CRT_SECURE_NO_WARNINGS NOMINMAX _USE_MATH_DEFINES)
 else()
-  target_compile_options(pp_flags INTERFACE -ffp-contract=off -fno-fast-math -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare)
+  target_compile_options(pp_flags INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off;-fno-fast-math;-Wall;-Wextra;-Wno-unused-parameter;-Wno-sign-compare>")
 endif()
 
 if(PP_FETCH_DEPS)
@@ -54,6 +56,8 @@ endif()
 
 add_library(pp_core STATIC
   src/log.cpp
+  src/gamefind.cpp
+  src/gamecopy.cpp
   src/vfs.cpp
   src/level.cpp
   src/sim.cpp
@@ -79,6 +83,7 @@ add_library(pp_core STATIC
   src/online/rudp.cpp
   src/online/rendezvous.cpp
   src/online/direct.cpp
+  src/online/endpoint.cpp
   src/online/invite.cpp
   src/online/content_hash.cpp
   src/online/steam.cpp
@@ -95,7 +100,7 @@ if(WIN32)
   target_link_libraries(pp_core PUBLIC ws2_32 advapi32)
 endif()
 
-option(PP_STEAM "Steam Rich Presence and friend invites (needs the Steamworks SDK)" OFF)
+option(PP_STEAM "Steam presence, lobbies and peer networking (needs the Steamworks SDK)" OFF)
 set(STEAMWORKS_SDK_DIR "" CACHE PATH "Steamworks SDK root (contains public/steam/steam_api.h)")
 if(PP_STEAM)
   if(NOT EXISTS "${STEAMWORKS_SDK_DIR}/public/steam/steam_api.h")
@@ -111,7 +116,7 @@ if(PP_STEAM)
     find_library(PP_STEAM_API steam_api PATHS "${STEAMWORKS_SDK_DIR}/redistributable_bin/linux64" REQUIRED NO_DEFAULT_PATH)
   endif()
   target_link_libraries(pp_core PUBLIC "${PP_STEAM_API}")
-  message(STATUS "Steam Rich Presence: ${PP_STEAM_API}")
+  message(STATUS "Steam connectivity: ${PP_STEAM_API}")
 endif()
 
 include(FetchContent)
@@ -163,15 +168,18 @@ else()
 endif()
 add_library(pp_mods STATIC
   src/mods/json.cpp src/mods/manifest.cpp src/mods/zip.cpp src/mods/scanner.cpp
-  src/mods/luamod.cpp src/mods/tls.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp ${PP_HOSTPROC_SOURCE})
+  src/mods/luamod.cpp src/mods/netapi.cpp src/mods/native.cpp src/mods/manager.cpp ${PP_HOSTPROC_SOURCE})
 target_include_directories(pp_mods PUBLIC src third_party include)
 target_link_libraries(pp_mods PUBLIC pp_core pp_flags pp_lua SDL3::SDL3 ${CMAKE_DL_LIBS} Threads::Threads)
-target_link_libraries(pp_mods PRIVATE mbedtls mbedx509 mbedcrypto)
+add_library(pp_tls STATIC src/mods/tls.cpp src/online/websocket.cpp)
+target_include_directories(pp_tls PUBLIC src)
+target_link_libraries(pp_tls PUBLIC pp_flags PRIVATE mbedtls mbedx509 mbedcrypto)
+target_link_libraries(pp_core PUBLIC pp_tls Threads::Threads)
 if(WIN32)
-  target_link_libraries(pp_mods PUBLIC ws2_32 crypt32 bcrypt)
+  target_link_libraries(pp_tls PUBLIC ws2_32 crypt32 bcrypt)
 endif()
 if(APPLE)
-  target_link_libraries(pp_mods PUBLIC "-framework Security" "-framework CoreFoundation")
+  target_link_libraries(pp_tls PUBLIC "-framework Security" "-framework CoreFoundation")
 endif()
 
 add_library(pp_editor_core STATIC src/editor/model.cpp src/editor/json.cpp src/editor/editor.cpp)
@@ -181,10 +189,10 @@ target_link_libraries(pp_editor_core PUBLIC pp_core)
 add_library(pp_ui STATIC
   src/profile.cpp src/profile_import.cpp
   src/ui/res.cpp src/ui/text.cpp src/ui/text_font.cpp src/ui/gfx.cpp src/ui/widgets.cpp src/ui/dialog.cpp src/ui/dialogs.cpp
-  src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/launcher.cpp src/ui/nights.cpp src/ui/sparkle.cpp src/ui/fireworks.cpp src/ui/fairies.cpp src/ui/nights_loading.cpp src/ui/storywin.cpp
-  src/ui/character_dialog.cpp src/ui/slot_dialog.cpp src/ui/replay.cpp src/ui/replay_ui.cpp src/ui/import_dialog.cpp src/ui/hooks.cpp src/ui/visuals_dialog.cpp
+  src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/other_game.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/start.cpp src/ui/nights.cpp src/ui/sparkle.cpp src/ui/fireworks.cpp src/ui/fairies.cpp src/ui/nights_loading.cpp src/ui/storywin.cpp
+  src/ui/character_dialog.cpp src/ui/slot_dialog.cpp src/ui/replay.cpp src/ui/replay_ui.cpp src/ui/session.cpp src/ui/import_dialog.cpp src/ui/hooks.cpp src/ui/visuals_dialog.cpp
   src/ui/mods_screen.cpp src/ui/mod_apply.cpp src/ui/consent_dialog.cpp src/ui/log_view.cpp
-  src/online/online_ui.cpp src/online/online_match.cpp)
+  src/online/discord.cpp src/online/online_ui.cpp src/online/online_match.cpp src/online/level_names.cpp src/online/online_text.cpp)
 target_include_directories(pp_ui PUBLIC src third_party)
 target_compile_definitions(pp_ui PUBLIC PP_UI_HAVE_FONT)
 target_link_libraries(pp_ui PUBLIC pp_core pp_audio pp_mods SDL3::SDL3)
@@ -193,6 +201,20 @@ add_executable(peggleport WIN32
   src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
+if(WIN32)
+  enable_language(RC)
+  target_sources(peggleport PRIVATE packaging/windows/peggleport.rc)
+  target_include_directories(peggleport PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows")
+  if(PP_STEAM)
+    set(PP_STEAM_RUNTIME "${STEAMWORKS_SDK_DIR}/redistributable_bin/win64/steam_api64.dll")
+    if(NOT EXISTS "${PP_STEAM_RUNTIME}")
+      message(FATAL_ERROR "Steam runtime not found: ${PP_STEAM_RUNTIME}")
+    endif()
+    add_custom_command(TARGET peggleport POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PP_STEAM_RUNTIME}" "$<TARGET_FILE_DIR:peggleport>/steam_api64.dll"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/steam_appid.txt" "$<TARGET_FILE_DIR:peggleport>/steam_appid.txt")
+  endif()
+endif()
 
 add_executable(pp_lobbyd src/lobbyd.cpp)
 target_link_libraries(pp_lobbyd PRIVATE pp_core)

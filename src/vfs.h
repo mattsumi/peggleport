@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -12,6 +13,7 @@
 namespace pp {
 
 std::string normKey(std::string_view path);
+std::string genericUtf8(const std::filesystem::path& p);
 std::map<std::string, std::string> readIni(const std::string& text);
 
 struct PakEntry {
@@ -62,6 +64,7 @@ class Vfs {
   std::string modSignature() const;
   void modKeys(std::set<std::string>& out) const;
   std::optional<VfsHit> read(std::string_view path) const;
+  std::optional<VfsHit> read(std::string_view path, std::size_t maxBytes) const;
   bool exists(std::string_view path) const;
   std::vector<std::string> keys() const;
   const std::vector<Layer>& layers() const { return layers_; }

@@ -7,6 +7,20 @@
 #include <string>
 #include <optional>
 #include <cctype>
+#include <cstddef>
+#include <cstdlib>
+#include <limits>
+
+namespace {
+thread_local bool boundedImage = false;
+#ifndef STBI_MALLOC
+void* imageMalloc(size_t n) { return boundedImage && n > 33554432 ? nullptr : std::malloc(n); }
+void* imageRealloc(void* p, size_t n) { return boundedImage && n > 33554432 ? nullptr : std::realloc(p, n); }
+#define STBI_MALLOC(n) imageMalloc(n)
+#define STBI_REALLOC(p,n) imageRealloc(p,n)
+#define STBI_FREE(p) std::free(p)
+#endif
+}
 
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -29,6 +43,131 @@
 namespace pp {
 
 namespace {
+bool imageSize(uint64_t w, uint64_t h) {
+  return w > 0 && h > 0 && w <= 2048 && h <= 2048 && w * h <= 1048576;
+}
+bool j2kSize(const std::vector<uint8_t>& b) {
+  size_t pos = 0, end = b.size();
+  auto u16 = [&](size_t p) { return (uint32_t)b[p] * 256 + b[p + 1]; };
+  auto u32 = [&](size_t p) { return ((uint64_t)u16(p) << 16) | u16(p + 2); };
+  auto box = [&](size_t at, size_t stop, size_t& body, size_t& next) {
+    if (stop - at < 8) return false;
+    uint64_t len = u32(at), head = 8;
+    if (len == 1) {
+      if (stop - at < 16) return false;
+      len = (u32(at + 8) << 32) | u32(at + 12);
+      head = 16;
+    } else if (len == 0) len = stop - at;
+    if (len < head || len > stop - at) return false;
+    body = at + (size_t)head;
+    next = at + (size_t)len;
+    return true;
+  };
+  if (b.size() >= 12 && b[0] == 0) {
+    size_t stream = 0, streamEnd = 0;
+    while (pos < end) {
+      size_t body, next;
+      if (!box(pos, end, body, next)) return false;
+      const auto* type = b.data() + pos + 4;
+      if (std::memcmp(type, "ihdr", 4) == 0 || std::memcmp(type, "bpcc", 4) == 0 ||
+          std::memcmp(type, "pclr", 4) == 0 || std::memcmp(type, "cmap", 4) == 0 || std::memcmp(type, "cdef", 4) == 0) return false;
+      if (std::memcmp(type, "jp2h", 4) == 0) {
+        for (size_t p = body; p < next;) {
+          size_t data, stop;
+          if (!box(p, next, data, stop)) return false;
+          size_t len = stop - data;
+          const auto* type = b.data() + p + 4;
+          if (std::memcmp(type, "ihdr", 4) == 0) {
+            if (len != 14 || !imageSize(u32(data + 4), u32(data)) || u16(data + 8) == 0 || u16(data + 8) > 4 ||
+                (b[data + 10] != 255 && (b[data + 10] & 127) > 15)) return false;
+          } else if (std::memcmp(type, "bpcc", 4) == 0) {
+            if (len == 0 || len > 4) return false;
+            for (size_t i = data; i < stop; i++) if ((b[i] & 127) > 15) return false;
+          } else if (std::memcmp(type, "pclr", 4) == 0) {
+            if (len < 3 || b[data + 2] == 0 || b[data + 2] > 4 || len < 3 + b[data + 2]) return false;
+            for (size_t i = 0; i < b[data + 2]; i++) if ((b[data + 3 + i] & 127) > 15) return false;
+          } else if (std::memcmp(type, "cdef", 4) == 0) {
+            if (len < 2 || u16(data) > 4 || len != 2 + 6 * u16(data)) return false;
+          } else if (std::memcmp(type, "cmap", 4) == 0) {
+            if (len == 0 || len > 16 || len % 4 != 0) return false;
+          }
+          p = stop;
+        }
+      }
+      if (std::memcmp(type, "jp2c", 4) == 0) {
+        if (streamEnd != 0) return false;
+        stream = body;
+        streamEnd = next;
+      }
+      pos = next;
+    }
+    if (streamEnd == 0) return false;
+    pos = stream;
+    end = streamEnd;
+  }
+  if (end - pos < 42 || u16(pos) != 0xff4f || u16(pos + 2) != 0xff51) return false;
+  uint64_t x = u32(pos + 8), y = u32(pos + 12), x0 = u32(pos + 16), y0 = u32(pos + 20);
+  uint64_t tw = u32(pos + 24), th = u32(pos + 28), tx = u32(pos + 32), ty = u32(pos + 36);
+  uint32_t nc = u16(pos + 40);
+  if (x <= x0 || y <= y0 || x > 2048 || y > 2048 || !imageSize(x - x0, y - y0) ||
+      tw == 0 || th == 0 || tw > 2048 || th > 2048 || tx > x0 || ty > y0 || tx + tw <= x0 || ty + th <= y0 ||
+      ((x - tx + tw - 1) / tw) * ((y - ty + th - 1) / th) > 256 || nc == 0 || nc > 4 ||
+      u16(pos + 4) != 38 + 3 * nc || end - pos < 42 + 3 * nc) return false;
+  for (uint32_t c = 0; c < nc; c++) {
+    size_t p = pos + 42 + 3 * c;
+    if ((b[p] & 127) > 15 || b[p + 1] == 0 || b[p + 2] == 0) return false;
+  }
+  size_t first = pos + 2, tileEnd = 0;
+  unsigned parts = 0;
+  pos += 2;
+  while (pos < end) {
+    if (end - pos < 2) return false;
+    size_t markerStart = pos;
+    uint32_t marker = u16(pos);
+    pos += 2;
+    if (marker == 0xffd9) return pos == end;
+    if (marker == 0xff93) {
+      if (tileEnd < pos || tileEnd > end) return false;
+      pos = tileEnd;
+      tileEnd = 0;
+      continue;
+    }
+    if (end - pos < 2) return false;
+    size_t len = u16(pos);
+    if (len < 2 || len > end - pos) return false;
+    size_t data = pos + 2, count = len - 2;
+    if (marker == 0xff51) {
+      if (markerStart != first) return false;
+    } else if (marker == 0xff90) {
+      if (len != 10 || ++parts > 256 || tileEnd != 0) return false;
+      uint64_t length = u32(data + 2);
+      if (length == 0) {
+        if (end < 2 || u16(end - 2) != 0xffd9) return false;
+        tileEnd = end - 2;
+      } else {
+        if (length < 14 || length > end - markerStart) return false;
+        tileEnd = markerStart + (size_t)length;
+      }
+    } else if (marker == 0xff52 || marker == 0xff53) {
+      bool cod = marker == 0xff52;
+      size_t offset = cod ? 5 : 2;
+      if (count < offset + 5) return false;
+      uint32_t flags = b[data + (cod ? 0 : 1)], levels = b[data + offset] + 1;
+      if ((cod && (u16(data + 2) == 0 || u16(data + 2) > 16)) || levels > 8 ||
+          b[data + offset + 1] < 2 || b[data + offset + 2] < 2) return false;
+      if (flags & 1) {
+        if (count != offset + 5 + levels) return false;
+        for (uint32_t i = 0; i < levels; i++) {
+          uint8_t precinct = b[data + offset + 5 + i];
+          if ((precinct & 15) < 4 || (precinct >> 4) < 4) return false;
+        }
+      }
+    } else if (marker != 0xff5c && marker != 0xff5d && marker != 0xff64) return false;
+    pos += len;
+    if (tileEnd != 0 && pos > tileEnd) return false;
+  }
+  return false;
+}
 struct MemSrc {
   const uint8_t* d;
   size_t n, pos;
@@ -56,7 +195,8 @@ OPJ_BOOL se(OPJ_OFF_T nb, void* u) {
 }
 void quiet(const char*, void*) {}
 
-bool decodeJ2K(const std::vector<uint8_t>& b, Image& out, std::string* err) {
+bool decodeJ2K(const std::vector<uint8_t>& b, Image& out, std::string* err, bool limited) {
+  if (limited && !j2kSize(b)) return false;
   static const uint8_t jp2sig[12] = {0, 0, 0, 0x0c, 'j', 'P', ' ', ' ', 0x0d, 0x0a, 0x87, 0x0a};
   bool jp2 = b.size() >= 12 && std::memcmp(b.data(), jp2sig, 12) == 0;
   opj_codec_t* codec = opj_create_decompress(jp2 ? OPJ_CODEC_JP2 : OPJ_CODEC_J2K);
@@ -74,7 +214,13 @@ bool decodeJ2K(const std::vector<uint8_t>& b, Image& out, std::string* err) {
   opj_stream_set_skip_function(st, sk);
   opj_stream_set_seek_function(st, se);
   opj_image_t* img = nullptr;
-  bool ok = opj_read_header(st, codec, &img) && opj_decode(codec, st, img) && opj_end_decompress(codec, st);
+  bool ok = opj_read_header(st, codec, &img);
+  if (ok && limited) {
+    ok = img && img->numcomps > 0 && img->numcomps <= 4;
+    for (uint32_t c = 0; ok && c < img->numcomps; c++)
+      ok = imageSize(img->comps[c].w, img->comps[c].h) && img->comps[c].prec > 0 && img->comps[c].prec <= 16;
+  }
+  ok = ok && opj_decode(codec, st, img) && opj_end_decompress(codec, st);
   if (ok && img && img->numcomps > 0) {
     int W = (int)img->comps[0].w, H = (int)img->comps[0].h;
     int nc = (int)img->numcomps;
@@ -124,10 +270,10 @@ bool hasKnownExt(const std::string& p) {
   return false;
 }
 
-bool tryLoad(const Vfs& vfs, const std::string& base, Image& im) {
+bool tryLoad(const Vfs& vfs, const std::string& base, Image& im, bool limited) {
   for (auto e : EXTS) {
-    auto h = vfs.read(base + e);
-    if (h && decodeImage(h->bytes, im)) {
+    auto h = vfs.read(base + e, limited ? 8388608 : std::numeric_limits<size_t>::max());
+    if (h && decodeImage(h->bytes, im, nullptr, limited)) {
       im.scale = h->layer ? h->layer->imageScale : 1.0f;
       im.layer = h->layer ? h->layer->label : "";
       return true;
@@ -137,10 +283,17 @@ bool tryLoad(const Vfs& vfs, const std::string& base, Image& im) {
 }
 }
 
-bool decodeImage(const std::vector<uint8_t>& b, Image& out, std::string* err) {
-  if (b.size() >= 4 && ((b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 0x0c) || (b[0] == 0xff && b[1] == 0x4f))) return decodeJ2K(b, out, err);
+bool decodeImage(const std::vector<uint8_t>& b, Image& out, std::string* err) { return decodeImage(b, out, err, false); }
+
+bool decodeImage(const std::vector<uint8_t>& b, Image& out, std::string* err, bool limited) {
+  if (limited && b.size() > 8388608) return false;
+  if (b.size() >= 4 && ((b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 0x0c) || (b[0] == 0xff && b[1] == 0x4f))) return decodeJ2K(b, out, err, limited);
   int w, h, n;
+  if (limited && (!stbi_info_from_memory(b.data(), (int)b.size(), &w, &h, &n) || !imageSize(w, h))) return false;
+  bool previous = boundedImage;
+  boundedImage = limited;
   stbi_uc* px = stbi_load_from_memory(b.data(), (int)b.size(), &w, &h, &n, 4);
+  boundedImage = previous;
   if (!px) {
     if (err) *err = stbi_failure_reason();
     return false;
@@ -152,19 +305,21 @@ bool decodeImage(const std::vector<uint8_t>& b, Image& out, std::string* err) {
   return true;
 }
 
-std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path0, const std::string& explicitMask) {
+std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path, const std::string& explicitMask) { return loadGameImage(vfs, path, explicitMask, false); }
+
+std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path0, const std::string& explicitMask, bool limited) {
   std::string path = path0;
   Image col;
   bool haveCol = false;
   if (hasKnownExt(path)) {
-    if (auto h = vfs.read(path); h && decodeImage(h->bytes, col)) {
+    if (auto h = vfs.read(path, limited ? 8388608 : std::numeric_limits<size_t>::max()); h && decodeImage(h->bytes, col, nullptr, limited)) {
       haveCol = true;
       col.scale = h->layer ? h->layer->imageScale : 1.0f;
       col.layer = h->layer ? h->layer->label : "";
     }
     path = path.substr(0, path.find_last_of('.'));
   }
-  if (!haveCol) haveCol = tryLoad(vfs, path, col);
+  if (!haveCol) haveCol = tryLoad(vfs, path, col, limited);
   auto sl = path.find_last_of("/\\");
   std::string dir = sl == std::string::npos ? "" : path.substr(0, sl + 1);
   std::string file = sl == std::string::npos ? path : path.substr(sl + 1);
@@ -172,9 +327,9 @@ std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path0, con
   bool haveMask = false;
   if (!explicitMask.empty()) {
     std::string mp = explicitMask.find('/') == std::string::npos && explicitMask.find('\\') == std::string::npos ? dir + explicitMask : explicitMask;
-    haveMask = hasKnownExt(mp) ? (tryLoad(vfs, mp.substr(0, mp.find_last_of('.')), mask)) : tryLoad(vfs, mp, mask);
+    haveMask = hasKnownExt(mp) ? (tryLoad(vfs, mp.substr(0, mp.find_last_of('.')), mask, limited)) : tryLoad(vfs, mp, mask, limited);
   }
-  if (!haveMask) haveMask = tryLoad(vfs, dir + "_" + file, mask) || tryLoad(vfs, path + "_", mask);
+  if (!haveMask) haveMask = tryLoad(vfs, dir + "_" + file, mask, limited) || tryLoad(vfs, path + "_", mask, limited);
   if (!haveCol && !haveMask) return std::nullopt;
   if (!haveCol) {
     col.w = mask.w;

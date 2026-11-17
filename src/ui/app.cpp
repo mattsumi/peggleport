@@ -1,4 +1,5 @@
 #include "ui/app.h"
+#include "ui/session.h"
 
 #include <SDL3/SDL.h>
 #include <cstdint>
@@ -12,19 +13,26 @@
 #include <cstdio>
 
 #include "log.h"
+#include "online/invite.h"
+#include "online/steam.h"
+#include "online/online_ui.h"
 #include "render.h"
 #include "ui/dialog.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
+#include "ui/other_game.h"
+#include "ui/character_dialog.h"
 #include "ui/screens.h"
+#include "gamefind.h"
+#include "gamepaths.h"
 
 namespace fs = std::filesystem;
 
 namespace pp {
 std::filesystem::path defaultUserDir(Game g) {
   char* p = SDL_GetPrefPath("PopCap Games", g == Game::Deluxe ? "Peggle" : "PeggleNights");
-  fs::path r = p ? fs::path(p) / "userdata" : fs::path("userdata");
+  fs::path r = p ? pathFromUtf8(p) / "userdata" : fs::path("userdata");
   if (p) SDL_free(p);
   return r;
 }
@@ -95,6 +103,12 @@ Button* Panel::patchButton(int id, const std::string& label, const std::string& 
   b->x = bx;
   b->y = by;
   b->textOffY = 5;
+  if (app.game == Game::Nights) {
+    b->labelStyle = imageId == "IMAGE_DLG_PURPLEBUTTON" ? 16 : 0;
+  } else {
+    b->labelStyle = imageId == "IMAGE_DLG_PURPLEBUTTON" ? 16 : ((imageId == "IMAGE_DLG_BROWNBUTTON1" || imageId == "IMAGE_DLG_BROWNBUTTON2") ? 6 : 9);
+    b->labelFullGradient = true;
+  }
   return b;
 }
 
@@ -105,6 +119,8 @@ Widget* Panel::findWidget(int id) {
 }
 
 void Panel::playSound(const std::string& id, float pitch) { app.playSample(id, pitch); }
+
+bool Panel::labelFullGradient() const { return app.game != Game::Nights; }
 
 void Panel::update() {
   updateCount++;
@@ -189,8 +205,9 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
   rng_ ^= cfg.seed * 2654435761u;
   crt_.seed(cfg.seed ? cfg.seed : (uint32_t)SDL_GetTicks());
   userDir = cfg.userDir.empty() ? defaultUserDir(game) : cfg.userDir;
-  log::info("game", titleText() + ": saved games are kept in " + userDir.string());
+  log::info("game", titleText() + ": saved games are kept in " + pathToUtf8(userDir));
   stages.load(vfs);
+  highScores.setTops([this](const std::string& key) { return stages.scoreListTop(key); });
   PlayerInfo::advStages = stages.numStages() > 0 ? stages.numStages() : 11;
   trophies.load(vfs);
   profiles.setDir(userDir);
@@ -198,6 +215,9 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
     profiles.load();
     highScores.load(userDir / "highscores.dat");
     settings.load(userDir.parent_path() / "settings.ini");
+    online::Prefs prefs;
+    prefs.load(userDir.parent_path() / "online.ini");
+    setDiscordEnabled(prefs.discord);
   }
   if (cfg.widescreen >= 0) settings.widescreen = std::clamp(cfg.widescreen, 0, kWidescreenModes - 1);
   maxStage = settings.maxStage;
@@ -207,9 +227,291 @@ App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), aud
   if (curProfile) colorblind = curProfile->colorblind;
   checkMaxStage();
   applySettings();
+  bothGames = cfg.bothGames;
+  homeGame = bothGames ? cfg.home : game;
 }
 
-App::~App() = default;
+App::~App() {
+  pp::online::steam::shutdown();
+  clearDiscord();
+  if (discord_) discord_->stop();
+}
+
+void App::setDiscordEnabled(bool enabled) {
+  if (enabled == discordEnabled_) return;
+  clearDiscord();
+  if (discord_) discord_->stop();
+  discord_.reset();
+  discordEnabled_ = enabled;
+  if (enabled) discord_ = std::make_unique<pp::online::Discord>("1571022918392225882");
+}
+
+void App::clearDiscord() {
+  discordInvite_.clear();
+  discordInviteUntil_ = 0;
+  if (discord_) discord_->clear();
+}
+
+std::string App::takeDiscordInvite() {
+  if (!discordEnabled_ || SDL_GetTicks() >= discordInviteUntil_) discordInvite_.clear();
+  std::string invite = std::move(discordInvite_);
+  discordInvite_.clear();
+  return invite;
+}
+
+namespace {
+
+class LastPicture : public Screen {
+ public:
+  LastPicture(App& a, SDL_Surface* picture, bool fillsWindow) : Screen(a), fillsWindow_(fillsWindow) {
+    SDL_Renderer* r = a.gfx.renderer();
+    if (!r || !picture) return;
+    SDL_Surface* opaque = SDL_ConvertSurface(picture, SDL_PIXELFORMAT_XRGB8888);
+    if (!opaque) return;
+    tex_.t = SDL_CreateTextureFromSurface(r, opaque);
+    if (tex_.t) {
+      tex_.w = opaque->w;
+      tex_.h = opaque->h;
+    }
+    SDL_DestroySurface(opaque);
+  }
+  ~LastPicture() override {
+    if (tex_.t) SDL_DestroyTexture(tex_.t);
+  }
+  const char* name() const override { return "lastpicture"; }
+  void drawOverWindow() {
+    SDL_Renderer* r = app.gfx.renderer();
+    if (!fillsWindow_ || !tex_.t || !r) return;
+    int ow = 0, oh = 0;
+    app.gfx.outputSize(ow, oh);
+    SDL_FRect to{std::round(x / 800.0f * (float)ow), std::round(y / 600.0f * (float)oh), (float)ow, (float)oh};
+    SDL_SetTextureAlphaMod(tex_.t, 255);
+    SDL_SetTextureColorMod(tex_.t, 255, 255, 255);
+    SDL_SetTextureBlendMode(tex_.t, SDL_BLENDMODE_NONE);
+    SDL_RenderTexture(r, tex_.t, nullptr, &to);
+  }
+  void drawLayer(Gfx& g) override {
+    if (fillsWindow_ && tex_.t) return;
+    if (!tex_.t) {
+      g.fill(0, 0, 800, 600, 0x000000);
+      return;
+    }
+    int ow = 0, oh = 0;
+    g.outputSize(ow, oh);
+    const float k = g.scale();
+    if (ow == tex_.w && oh == tex_.h && k > 0) {
+      float left = g.offX(), top = g.offY();
+      const float wide = std::round(800.0f * k);
+      if (left == 0 && top == 0 && (float)tex_.w > wide) left = std::floor(((float)tex_.w - wide) * 0.5f);
+      g.drawStretch(&tex_, -left / k, -top / k, (float)tex_.w / k, (float)tex_.h / k);
+      return;
+    }
+    const float fit = std::min((float)tex_.w / 800.0f, (float)tex_.h / 600.0f);
+    const float pw = std::round(800.0f * fit), ph = std::round(600.0f * fit);
+    g.drawStretchSrc(&tex_, std::floor(((float)tex_.w - pw) * 0.5f), std::floor(((float)tex_.h - ph) * 0.5f), pw, ph, 0, 0, 800, 600);
+  }
+
+ private:
+  Tex tex_;
+  bool fillsWindow_ = false;
+};
+
+}
+
+void App::requestGameSwitch(Game g, StartTarget start) {
+  start.handOver = true;
+  start.player = curProfile ? curProfile->name : std::string();
+  start.colorblind = colorblind;
+  start.askedAt = SDL_GetTicksNS();
+  switchTo_.game = g;
+  switchTo_.start = start;
+  switchWanted_ = true;
+  switchHome_ = false;
+  switchWait_ = 0;
+}
+
+bool App::takeGameSwitchRequest(GameRequest& r) {
+  if (!switchWanted_) return false;
+  if (anyDialog() && switchWait_ < 40) return false;
+  switchWanted_ = false;
+  r = switchTo_;
+  return true;
+}
+
+void App::gameSwitchRefused(const GameRequest& r) {
+  if (r.start.place == StartPlace::Level && dynamic_cast<GameScreen*>(cur_.get())) {
+    cfg.otherDir.clear();
+    if (!playNewLevel()) static_cast<GameScreen*>(cur_.get())->restartLevel(false);
+    return;
+  }
+  if (game == homeGame || r.game != homeGame) return;
+  bothGames = false;
+  homeGame = game;
+  showMainMenu();
+}
+
+void App::setHomeGame(Game g) {
+  homeGame = g;
+  if (homeHook) homeHook(g);
+}
+
+bool App::goHome() {
+  if (!bothGames || homeGame == game) return false;
+  if (!switchWanted_) {
+    requestGameSwitch(homeGame);
+    switchHome_ = true;
+  }
+  return true;
+}
+
+bool App::goHomeList(StartPlace place) {
+  if (!bothGames || homeGame == game) return false;
+  if (switchWanted_) return true;
+  StartTarget t;
+  t.place = place;
+  t.mode = gameMode;
+  t.duel = duelSes;
+  if (place == StartPlace::ChallengeList) {
+    if (const TrophyInfo* c = trophies.byId(curChallenge)) t.page = c->page;
+    t.newTrophies.assign(newTrophies.begin(), newTrophies.end());
+  } else {
+    t.page = curStage;
+  }
+  requestGameSwitch(homeGame, t);
+  switchHome_ = true;
+  return true;
+}
+
+OtherGame* App::otherLevels() { return game == homeGame ? otherFiles() : nullptr; }
+
+OtherGame* App::otherFiles() {
+  if (!bothGames || cfg.otherDir.empty()) return nullptr;
+  if (!other_) {
+    const Game theirs = otherGame(game);
+    auto o = std::make_unique<OtherGame>(theirs);
+    std::string err;
+    if (!o->load(cfg.otherDir, cfg.otherUserDir.empty() ? defaultUserDir(theirs) : cfg.otherUserDir, gfx.renderer(), &err)) {
+      log::warn("game", std::string(gameTitle(theirs)) + ": its levels cannot be listed: " + err);
+      cfg.otherDir.clear();
+      return nullptr;
+    }
+    for (int id : cfg.start.newTrophies) o->newTrophies.insert(id);
+    other_ = std::move(o);
+  }
+  other_->choosePlayer(curProfile ? curProfile->name : std::string());
+  return other_.get();
+}
+
+bool App::modeOpen(GameMode mode) const {
+  if (!curProfile) return true;
+  if (mode == GameMode::Duel) return curProfile->maxStage >= 1;
+  if (mode == GameMode::Challenge) return challengesOpenFor(game, *curProfile);
+  return true;
+}
+
+bool App::otherOpen(GameMode mode) {
+  OtherGame* o = otherLevels();
+  if (!o) return false;
+  return mode == GameMode::Duel ? o->duelOpen() : mode == GameMode::Challenge ? o->challengesOpen() : true;
+}
+
+void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictureFillsWindow) {
+  if (!start.player.empty()) {
+    PlayerInfo* p = profiles.get(start.player);
+    if (!p) p = profiles.add(start.player);
+    if (p) {
+      if (curProfile && curProfile != p) saveProfile();
+      curProfile = p;
+      if (p->colorblind != start.colorblind) {
+        p->colorblind = start.colorblind;
+        p->dirty = true;
+      }
+      colorblind = p->colorblind;
+      checkMaxStage();
+      saveAll();
+    }
+  }
+  stopMusic();
+  cur_ = std::make_unique<LastPicture>(*this, lastPicture, pictureFillsWindow);
+  scrollDir = 0;
+  if (start.place == StartPlace::Adventure && curProfile) enterAdventure();
+  else if (!startInList(start)) showMainMenu();
+}
+
+bool App::startInList(const StartTarget& start) {
+  if (!curProfile || !bothGames) return false;
+  const bool list = start.place == StartPlace::LevelList || start.place == StartPlace::ChallengeList;
+  if (list != (game == homeGame) && start.place != StartPlace::Level) return false;
+  if (start.place == StartPlace::Level) {
+    const StageInfo* s = stages.stage(start.stage);
+    if (!s || !s->level(start.level) || (start.mode != GameMode::QuickPlay && start.mode != GameMode::Duel)) return false;
+    gameMode = start.mode;
+    curStage = start.stage;
+    curLevel = start.level;
+    packStage = s->pack ? start.stage : -1;
+    duelSes = start.duel;
+    if (game == homeGame && !s->pack) {
+      curProfile->levelSelectStage = start.stage;
+      curProfile->dirty = true;
+    }
+    stages.markUsed(curStage, curLevel);
+    showBoard(false, true);
+    return true;
+  }
+  if (start.place == StartPlace::Challenge) {
+    const TrophyInfo* t = trophies.byId(start.challenge);
+    if (!t || t->levels.empty()) return false;
+    gameMode = GameMode::Challenge;
+    curChallenge = t->id;
+    challengeStep = std::clamp(start.step, 0, (int)t->levels.size() - 1);
+    challengeMore = false;
+    challengeKeepLives = false;
+    if (t->levels[(size_t)challengeStep] == "pick") {
+      const LevelInfo* li = stages.levelByName(start.challengeLevel);
+      if (!li) return false;
+      curStage = li->stage;
+      curLevel = li->index;
+      challengeLevel = li->file;
+    } else {
+      challengeLevel = resolveChallengeLevel(t->levels[(size_t)challengeStep]);
+    }
+    showBoard(false, true);
+    return true;
+  }
+  if (start.place == StartPlace::LevelList && (start.mode == GameMode::QuickPlay || start.mode == GameMode::Duel)) {
+    if (!otherLevels()) return false;
+    gameMode = start.mode;
+    duelSes = start.duel;
+    packStage = -1;
+    listPage = start.page;
+    showLevelScreen(false);
+    return true;
+  }
+  if (start.place == StartPlace::ChallengeList) {
+    if (!otherLevels()) return false;
+    gameMode = GameMode::Challenge;
+    listPage = start.page;
+    showTrophyScreen();
+    return true;
+  }
+  return false;
+}
+
+void App::enterAdventure() {
+  PlayerInfo* p = curProfile;
+  gameMode = GameMode::Adventure;
+  curStage = p ? std::max(0, p->advStage) : 0;
+  curLevel = p ? std::max(0, p->advLevel) : 0;
+  if (sessionsOf(*this).askToContinue(true)) return;
+  if (p && p->advCompletions > 0) {
+    if (p->justBeatAdventure()) p->restartAdventure();
+    if (game != Game::Nights) {
+      showAdventureScreen();
+      return;
+    }
+  }
+  startAdventureGame();
+}
 
 std::string App::titleText() const { return game == Game::Deluxe ? "Peggle Deluxe" : "Peggle Nights"; }
 
@@ -261,9 +563,27 @@ void App::saveAll() {
   settings.maxStage = maxStage;
   settings.maxLevel = maxLevel;
   settings.save(userDir.parent_path() / "settings.ini");
+  if (bothGames && cfg.userDir.empty()) {
+    const fs::path file = defaultUserDir(otherGame(game)).parent_path() / "settings.ini";
+    Settings theirs;
+    theirs.load(file);
+    Settings shared = settings;
+    shared.curUser = theirs.curUser;
+    shared.maxStage = theirs.maxStage;
+    shared.maxLevel = theirs.maxLevel;
+    shared.save(file);
+  }
 }
 
-void App::shutdown() { saveAll(); }
+void App::shutdown() {
+  clearDiscord();
+  if (discord_) discord_->stop();
+  discord_.reset();
+  if (cur_) cur_->onLeave();
+  pp::online::steam::shutdown();
+  if (audio) audio->stopLoops();
+  saveAll();
+}
 
 void App::incLevel(int delta) {
   const StageInfo* st = stages.stage(curStage);
@@ -296,7 +616,7 @@ void App::incLevel(int delta) {
       if (game == Game::Nights && p.maxStage < 3 && curStage >= 3) menuUnlocked = true;
       p.maxStage = curStage;
       p.maxLevel = 0;
-      if (gameMode == GameMode::Adventure) p.char1 = curStage;
+      if (gameMode == GameMode::Adventure) p.char1 = CharacterDialog::masterMetAt(game, curStage);
     }
     if (numStages() <= curStage && p.advCompletions < 1000000) p.advCompletions++;
     if (curStage == p.maxStage && p.maxLevel < curLevel) p.maxLevel = curLevel;
@@ -308,18 +628,18 @@ void App::incLevel(int delta) {
   }
 }
 
-int App::tryShowNewTrophy() {
-  if (!curProfile) return 0;
+bool App::tryShowNewTrophy() {
+  if (!curProfile) return false;
   int old = curProfile->trophyLevelSeen, tier = 0;
   if (curProfile->advCompletions > 0) {
     tier = 1;
-    if ((int)curProfile->trophies.size() >= (int)trophies.numTrophies()) {
+    if ((int)trophies.numHeld(curProfile->trophies) >= (int)trophies.numTrophies()) {
       tier = 2;
-      if (curProfile->clearedLevels.size() >= stages.numLevels()) tier = 3;
+      if (stages.numClearedOwn(curProfile->clearedLevels) >= stages.numLevels()) tier = 3;
     }
   }
   if (old < tier) showStoryScreen(true, false);
-  return tier;
+  return old < tier;
 }
 
 void App::toggleLogView() {
@@ -385,9 +705,14 @@ void App::scrollOn(Panel* l) {
 }
 
 void App::setScreen(std::unique_ptr<Screen> s, Dir offDir) {
+  clearDiscord();
+  if (switchWanted_ && switchHome_) switchWanted_ = false;
+  if (audio && game == Game::Nights && (dynamic_cast<LevelScreen*>(s.get()) || dynamic_cast<TrophyScreen*>(s.get()))) audio->stopSounds();
   scrollDir = 0;
   if (cur_) {
     Screen* old = cur_.get();
+    old->onLeave();
+    if (audio) audio->stopLoops();
     scrollOff(old, offDir, true);
     movers_.back().owned = std::move(cur_);
   } else if (offDir == Down) {
@@ -426,6 +751,8 @@ void App::showMainMenu() {
   duelSes = DuelSession{};
   killDialog(D_Options);
   if (cur_ && std::string(cur_->name()) == "mainmenu") return;
+  if (audio) audio->stopSounds();
+  if (goHome()) return;
   playMusic("fadeout");
   Dir leave = Right;
   if (cur_ && std::string(cur_->name()) == "loading") leave = Left;
@@ -433,17 +760,30 @@ void App::showMainMenu() {
   (void)old;
   setScreen(std::make_unique<MainMenu>(*this), leave);
   if (leave == Right) {   }
+  keepFaeries();
   if (!curProfile) doCreateUserDialog();
   else offerModConsent();
+}
+
+void App::keepFaeries() {
+  if (!curProfile || faeriesCaught <= 0) return;
+  curProfile->faeries = (int)((uint32_t)curProfile->faeries + (uint32_t)faeriesCaught);
+  curProfile->dirty = true;
+  faeriesCaught = 0;
+  saveProfile();
 }
 
 void App::showAdventureScreen() {
   setScreen(std::make_unique<AdventureScreen>(*this), Left);
 }
 void App::showLevelScreen(bool fromTrophy) {
+  if (goHomeList(fromTrophy || gameMode == GameMode::Challenge ? StartPlace::ChallengeList : StartPlace::LevelList)) return;
   setScreen(std::make_unique<LevelScreen>(*this), Left);
 }
-void App::showTrophyScreen() { setScreen(std::make_unique<TrophyScreen>(*this), Left); }
+void App::showTrophyScreen() {
+  if (goHomeList(StartPlace::ChallengeList)) return;
+  setScreen(std::make_unique<TrophyScreen>(*this), Left);
+}
 void App::showStoryScreen(bool reveal, bool easter) {
   if (curProfile) {
     curProfile->storyPending = false;
@@ -455,6 +795,19 @@ void App::showStoryScreen(bool reveal, bool easter) {
 void App::showBoard(bool fromAdventure, bool newLevel) {
   if (curProfile) applyColorblind(curProfile->colorblind);
   setScreen(std::make_unique<GameScreen>(*this, fromAdventure, newLevel), Left);
+}
+
+void App::startDemo() {
+  const PlayerInfo* p = curProfile;
+  if (p && p->maxStage < 2) {
+    doNotYet("^FFFF00^DEMO MODE LOCKED!^oldclr^\nThis mode shows how the Masters play.\n\n^FFFF00^To Unlock:^oldclr^\nFinish Stage 2 of Adventure Mode!");
+    return;
+  }
+  finishOptionsDialog(true, true);
+  gameMode = GameMode::Demo;
+  curStage = (int)(rand() % (unsigned)(std::min(p ? p->maxStage : 0, numStages() - 1) + 1));
+  curLevel = (int)(rand() % 5u);
+  showBoard(true, true);
 }
 
 void App::startAdventureGame() {
@@ -495,6 +848,17 @@ bool App::anyDialog() const {
   return false;
 }
 
+void App::releaseCovered() {
+  bool covered = false;
+  for (size_t i = dialogs_.size(); i-- > 0;) {
+    Dialog* d = dialogs_[i].get();
+    if (d->gone) continue;
+    if (covered) d->releaseHover();
+    else if (d->modal) covered = true;
+  }
+  if (covered && cur_ && !cur_->isGame()) cur_->releaseHover();
+}
+
 bool App::boardPaused() const {
   auto* gs = dynamic_cast<GameScreen*>(cur_.get());
   return gs && gs->paused();
@@ -529,11 +893,11 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
   float minW = gfx.textWidth(d->headerFont, d->header) + d->insL + d->insR + 0x14;
   if (width < minW) width = minW;
   float hgt = d->preferredHeight(width);
-  float y = 0x96 - d->insT;
+  float y = 0x96;
   if (y + hgt > 0x244 && (y = 0x244 - hgt) < 10) y = 10;
   Dialog* other = nullptr;
   for (auto& o : dialogs_)
-    if (!o->gone && o.get() != d) other = o.get();
+    if (!o->gone && !o->scrollingOff && o.get() != d) other = o.get();
   float x;
   if (!other) {
     bool menuUp = cur_ && std::string(cur_->name()) == "mainmenu";
@@ -541,14 +905,14 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
       x = 400 - width / 2;
     } else if (hgt >= 300) {
       x = 0x226 - width;
-      y = 0x32;
+      y = std::min(50.0f, 600.0f - hgt);
     } else {
       x = 0x122 - width / 2;
     }
   } else {
     bool cert = other->dialogId == D_CreateUser && dynamic_cast<NewUserDialog*>(other) && static_cast<NewUserDialog*>(other)->certificate;
     y = (cert ? 0x8c : 0) + other->y;
-    x = (other->w - width) / 2 + other->x;
+    x = std::trunc((other->w - width) / 2) + other->x;
   }
   d->resize(x, y, width, hgt);
 }
@@ -564,37 +928,63 @@ void App::doNotYet(const std::string& text) {
 }
 
 void App::doConfirmQuitDialog() {
-  Dialog* d = doDialog(D_Quit, true, "Quit Peggle?", "Are you sure you want to\nquit the game?", "", BUTTONS_OK_CANCEL);
-  d->resize(d->x, d->y, 235, 280);
+  Dialog* d = doDialog(D_Quit, true, game == Game::Nights ? "Quit?" : "Quit Peggle?", "Are you sure you want to\nquit the game?", "", BUTTONS_YES_NO);
+  d->x = 235;
+  d->scrollTarget = 280;
 }
 void App::doConfirmNewChallengeDialog() {
   Dialog* d = doDialog(D_NewChallenge, true, "New Challenge?", "Are you sure that you want to choose a new challenge? Your progress on this challenge will be lost.", "", BUTTONS_YES_NO);
-  d->setYesNo("New Challenge", "NO");
+  d->setYesNo("New Challenge", "CANCEL");
   positionDialog(d, 400);
 }
 void App::doConfirmRestartAdventureDialog() {
   Dialog* d = doDialog(D_RestartAdventure, true, "Restart Adventure?",
                        "Are you sure that you want to ^00FF00^RESTART ADVENTURE?^oldclr^\n\nThis will put you all the way back to the first level and reset your score to zero.", "", BUTTONS_YES_NO);
   d->textAlign = -1;
-  d->setYesNo("Restart Adventure", "NO");
+  d->setYesNo("Restart Adventure", "CANCEL");
   positionDialog(d, 460);
 }
 
 
 void App::tick() {
   updates_++;
+  if (switchWanted_) switchWait_++;
   if (audio) audio->tickMusic();
   serviceModApply();
   updateMovers();
+  releaseCovered();
   for (auto& d : dialogs_) d->update();
   if (logView_ && logView_->visible()) logView_->update();
   if (cur_) cur_->update();
   if (overlay_) overlay_->update();
+  if (audio) audio->setBoardLeaving(true);
   for (auto& m : movers_)
     if (m.owned) m.owned->update();
+  if (audio) audio->setBoardLeaving(false);
   for (size_t i = 0; i < dialogs_.size();)
     if (dialogs_[i]->gone) dialogs_.erase(dialogs_.begin() + (long)i);
     else i++;
+  pp::online::steam::ensureInit();
+  pp::online::steam::pump();
+  if (discord_) {
+    pp::online::Discord::Presence presence;
+    presence.details = titleText();
+    presence.state = cur_ && cur_->isGame() ? "Playing a level" : "In menus";
+    if (cur_) cur_->discordPresence(presence);
+    if (!discord_->update(presence)) clearDiscord();
+    discord_->pump();
+    const auto status = discord_->status();
+    if (status.state != pp::online::Discord::State::Ready || SDL_GetTicks() >= discordInviteUntil_) discordInvite_.clear();
+    if (status.state == pp::online::Discord::State::Failed) {
+      log::warn("net", "Discord activity stopped: " + std::to_string(status.errorCode) + " " + status.errorCommand + " " + status.error);
+      discord_->stop();
+    }
+    std::string invite = discord_->takeJoinRequest();
+    if (!invite.empty() && pp::online::parseInvite(invite, nullptr)) {
+      discordInvite_ = std::move(invite);
+      discordInviteUntil_ = SDL_GetTicks() + 5000;
+    }
+  }
 }
 
 void App::input(const Input& in) {
@@ -606,10 +996,16 @@ void App::input(const Input& in) {
   if (logView_ && logView_->handle(in)) return;
   if (in.type == Input::FocusLost) {
     windowFocused = false;
+    if (audio) audio->setFocusMuted(true);
     if (cur_) cur_->lostFocus();
     return;
   }
-  if (in.type == Input::FocusGained) { windowFocused = true; return; }
+  if (in.type == Input::FocusGained) {
+    windowFocused = true;
+    if (audio) audio->setFocusMuted(false);
+    return;
+  }
+  if (switchWanted_) return;
   Input din = in;
   din.x -= (canvasW_ - 800) * 0.5f;
   if (overlay_ && overlay_->mouseVisible) {
@@ -620,7 +1016,11 @@ void App::input(const Input& in) {
     Dialog* d = dialogs_[i].get();
     if (d->gone) continue;
     d->input(din);
-    if (d->modal) return;
+    if (d->modal) {
+      if (d->dialogId == D_Character)
+        if (auto* gs = dynamic_cast<GameScreen*>(cur_.get())) gs->menuThroughDialog(in);
+      return;
+    }
   }
   if (!cur_) return;
   if (in.type == Input::MouseDown && !cur_->mouseVisible) return;
@@ -629,13 +1029,21 @@ void App::input(const Input& in) {
 
 WidescreenMode App::widescreenMode() const { return (WidescreenMode)std::clamp(settings.widescreen, 0, kWidescreenModes - 1); }
 
-int App::boardWidthForNewBoard() const {
-  if (cfg.boardWidth >= 650) return cfg.boardWidth;
+int App::boardWidthForNewBoard() const { return cfg.boardWidth >= 650 ? cfg.boardWidth : 650; }
+
+float App::pointerOnCanvas(int canvasW) const {
+  if (canvasW == (int)gfx.canvasW()) return mouseX;
   int ow = 800, oh = 600;
   gfx.outputSize(ow, oh);
-  WidescreenMode m = widescreenMode();
-  if (gfx.headless() && m == WidescreenMode::Auto) return 650;
-  return widescreenBoardWidth(m, ow, oh);
+  const float wx = gfx.offX() + mouseX * gfx.scale();
+  const float s = std::min((float)ow / (float)canvasW, (float)oh / 600.0f);
+  return (wx - ((float)ow - (float)canvasW * s) * 0.5f) / s;
+}
+
+int App::frameCanvasWidth(int boardCanvas) const {
+  int ow = 800, oh = 600;
+  gfx.outputSize(ow, oh);
+  return widescreenFrameWidth(boardCanvas, ow, oh, widescreenCanvasWidth(widescreenMode(), ow, oh), settings.vis.ultraWideHud);
 }
 
 void App::frame(int canvasW) {
@@ -644,6 +1052,7 @@ void App::frame(int canvasW) {
   gfx.setBackdropEnabled(widescreenMode() != WidescreenMode::Classic4x3);
   const bool backdrop = !(cur_ && cur_->isGame()) && gfx.beginBackdrop();
   gfx.clear(0);
+  if (!backdrop) gfx.clipToCanvas();
   for (auto& m : movers_)
     if (m.owned) m.owned->draw(gfx);
   if (cur_) cur_->draw(gfx);
@@ -654,6 +1063,10 @@ void App::frame(int canvasW) {
   gfx.popOrigin();
   if (logView_) logView_->drawView(gfx);
   if (backdrop) gfx.endBackdrop();
+  else gfx.popClip();
+  for (auto& m : movers_)
+    if (auto* last = dynamic_cast<LastPicture*>(m.owned.get())) last->drawOverWindow();
+  if (auto* last = dynamic_cast<LastPicture*>(cur_.get())) last->drawOverWindow();
 }
 
 }

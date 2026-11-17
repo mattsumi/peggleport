@@ -10,6 +10,16 @@
 #include <set>
 #include <system_error>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace pp {
@@ -84,15 +94,15 @@ bool readVecInt(DataReader& r) {
 
 bool readStats(DataReader& r, GameStats& g, uint32_t styleCount) {
   g.version = r.u8();
-  g.a0 = r.i32();
+  g.shots = r.i32();
   g.bestShot = r.i32();
-  g.a8 = r.i32();
+  g.bestFever = r.i32();
   for (int& v : g.freeBalls) v = r.i32();
   uint32_t count = r.u32();
   if (!r.ok() || count != styleCount) return false;
   for (uint32_t i = 0; i < count; i++) {
     int v = r.i32();
-    if (i < 20) g.styleShots[i] = v;
+    if (i < 24) g.styleShots[i] = v;
   }
   return r.ok();
 }
@@ -206,7 +216,7 @@ bool parseNights(DataReader& r, PlayerInfo& p, std::string& why) {
   p.advCompletions = r.i32();
   p.b58 = r.u8();
   p.tipsMask = r.i32();
-  r.i32();
+  p.faeries = r.i32();
   p.advScore = r.i32();
   p.advLevelAttempts = r.i32();
   p.advRetries = r.i32();
@@ -542,29 +552,45 @@ ImportScan scanOriginalSaves(const fs::path& chosen) {
 std::vector<fs::path> originalSaveFolders(Game g) {
   std::vector<fs::path> cand;
   const char* product = g == Game::Nights ? "PeggleNights" : "Peggle";
-  const char* steamId = g == Game::Nights ? "3540" : "3480";
+#ifdef _WIN32
+  auto env = [](const wchar_t* n) -> fs::path {
+    DWORD need = GetEnvironmentVariableW(n, nullptr, 0);
+    if (need == 0) return {};
+    std::wstring s((size_t)need, L'\0');
+    DWORD got = GetEnvironmentVariableW(n, s.data(), need);
+    if (got == 0 || got >= need) return {};
+    s.resize((size_t)got);
+    return fs::path(s);
+  };
+#else
   auto env = [](const char* n) -> std::string {
     const char* v = std::getenv(n);
     return v ? v : "";
   };
+#endif
   auto tail = [&](const fs::path& root) { return root / "PopCap Games" / product / "userdata"; };
+  auto shared = [&](const fs::path& root) {
+    cand.push_back(tail(root));
+    cand.push_back(root / "Steam" / product / "userdata");
+  };
 #ifdef _WIN32
-  for (const char* v : {"ProgramData", "ALLUSERSPROFILE", "PUBLIC"})
-    if (auto e = env(v); !e.empty()) cand.push_back(tail(fs::path(e)));
-  cand.push_back(tail(fs::path("C:/ProgramData")));
-  if (auto e = env("APPDATA"); !e.empty()) cand.push_back(tail(fs::path(e)));
+  for (const wchar_t* v : {L"ProgramData", L"ALLUSERSPROFILE", L"PUBLIC"})
+    if (fs::path e = env(v); !e.empty()) shared(e);
+  shared(fs::path("C:/ProgramData"));
+  if (fs::path e = env(L"APPDATA"); !e.empty()) cand.push_back(tail(e));
 #else
+  const char* steamId = g == Game::Nights ? "3540" : "3480";
   std::string home = env("HOME");
   if (!home.empty()) {
     fs::path h(home);
-    auto prefixTail = [&](const fs::path& drive) { return tail(drive / "ProgramData"); };
-    cand.push_back(prefixTail(h / ".wine" / "drive_c"));
+    auto prefix = [&](const fs::path& drive) { shared(drive / "ProgramData"); };
+    prefix(h / ".wine" / "drive_c");
     std::vector<fs::path> steam = {h / ".steam" / "steam", h / ".local" / "share" / "Steam", h / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam",
                                    h / "Library" / "Application Support" / "Steam"};
-    for (auto& s : steam) cand.push_back(prefixTail(s / "steamapps" / "compatdata" / steamId / "pfx" / "drive_c"));
+    for (auto& s : steam) prefix(s / "steamapps" / "compatdata" / steamId / "pfx" / "drive_c");
     std::error_code ec;
     fs::path bottles = h / "Library" / "Application Support" / "CrossOver" / "Bottles";
-    for (fs::directory_iterator it(bottles, ec), end; !ec && it != end; it.increment(ec)) cand.push_back(prefixTail(it->path() / "drive_c"));
+    for (fs::directory_iterator it(bottles, ec), end; !ec && it != end; it.increment(ec)) prefix(it->path() / "drive_c");
     cand.push_back(h / "Library" / "Application Support" / "PopCap Games" / product / "userdata");
   }
 #endif

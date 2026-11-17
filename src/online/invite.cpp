@@ -1,4 +1,5 @@
 #include "online/invite.h"
+#include "online/endpoint.h"
 
 #include <algorithm>
 #include <cctype>
@@ -40,16 +41,58 @@ static std::string pctDecode(const std::string& s) {
   return o;
 }
 
-static bool hostOk(const std::string& h) {
-  if (h.empty() || h.size() > 253) return false;
-  for (unsigned char c : h)
-    if (!(std::isalnum(c) || c == '.' || c == '-' || c == '_' || c == ':')) return false;
-  return true;
+static std::string pctEncode(const std::string& s) {
+  static const char* hex = "0123456789ABCDEF";
+  std::string out;
+  for (unsigned char c : s) {
+    if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~') out.push_back((char)c);
+    else { out.push_back('%'); out.push_back(hex[c >> 4]); out.push_back(hex[c & 15]); }
+  }
+  return out;
 }
 
-bool isInviteLike(const std::string& s) { return lower(s).rfind("peggleport://", 0) == 0; }
+static const std::string kDiscordScheme = "discord-1571022918392225882://";
+
+static bool discordInvite(const std::string& url, Invite* out);
+
+bool isInviteLike(const std::string& s) {
+  const std::string value = lower(s);
+  return value.rfind("peggleport://", 0) == 0 || (value.rfind(kDiscordScheme, 0) == 0 && discordInvite(s, nullptr));
+}
+
+static bool discordInvite(const std::string& url, Invite* out) {
+  if (url.size() > 2048 || lower(url).rfind(kDiscordScheme + "join?", 0) != 0) return false;
+  for (size_t i = 0; i < url.size(); ++i) {
+    const unsigned char c = url[i];
+    if (c <= 32 || c >= 127 || c == '#' || c == '\x22' || c == '\x27' || c == '<' || c == '>' || c == '\\') return false;
+    if (c == '%') {
+      if (i + 2 >= url.size() || !std::isxdigit((unsigned char)url[i + 1]) || !std::isxdigit((unsigned char)url[i + 2])) return false;
+      const int decoded = std::stoi(url.substr(i + 1, 2), nullptr, 16);
+      if (decoded <= 32 || decoded >= 127 || decoded == '#' || decoded == 34 || decoded == 39 || decoded == '<' || decoded == '>' || decoded == '\\' || decoded == '%') return false;
+      i += 2;
+    }
+  }
+  const std::string query = url.substr(kDiscordScheme.size() + 5);
+  bool lobby = false, code = false;
+  for (size_t p = 0; p <= query.size();) {
+    const size_t amp = query.find('&', p);
+    const std::string field = query.substr(p, amp == std::string::npos ? std::string::npos : amp - p);
+    const size_t eq = field.find('=');
+    if (eq == std::string::npos || eq + 1 == field.size() || field.find('=', eq + 1) != std::string::npos) return false;
+    const std::string key = field.substr(0, eq);
+    if (key == "lobby" && !lobby) lobby = true;
+    else if (key == "code" && !code) code = true;
+    else return false;
+    if (amp == std::string::npos) break;
+    p = amp + 1;
+  }
+  return lobby && code && parseInvite("peggleport://join?" + query, out);
+}
 
 bool parseInvite(const std::string& url0, Invite* out) {
+  if (url0.size() > 4096) return false;
+  for (unsigned char c : url0) if (c < 32 || c == 127) return false;
+  if (lower(url0).rfind(kDiscordScheme, 0) == 0) return discordInvite(url0, out);
   size_t b = url0.find_first_not_of(" \t\r\n\"'<");
   size_t e = url0.find_last_not_of(" \t\r\n\"'>");
   if (b == std::string::npos) return false;
@@ -70,8 +113,8 @@ bool parseInvite(const std::string& url0, Invite* out) {
     size_t eq = kv.find('=');
     if (eq != std::string::npos) {
       std::string k = lower(kv.substr(0, eq)), v = pctDecode(kv.substr(eq + 1));
-      if (k == "lobby") lobby = v;
-      else if (k == "code") code = v;
+      if (k == "lobby") { if (!lobby.empty()) return false; lobby = v; }
+      else if (k == "code") { if (!code.empty()) return false; code = v; }
     }
     if (amp == std::string::npos) break;
     p = amp + 1;
@@ -80,40 +123,21 @@ bool parseInvite(const std::string& url0, Invite* out) {
   if (code.size() != 5) return false;
   for (char c : code)
     if (!std::strchr(kAlphabet, c)) return false;
-  std::string host;
-  int port = 7770;
-  if (lobby.empty()) return false;
-  if (lobby[0] == '[') {
-    size_t rb = lobby.find(']');
-    if (rb == std::string::npos) return false;
-    host = lobby.substr(1, rb - 1);
-    if (rb + 1 < lobby.size()) {
-      if (lobby[rb + 1] != ':') return false;
-      port = std::atoi(lobby.c_str() + rb + 2);
-      if (lobby.size() == rb + 2) return false;
-    }
-  } else if (std::count(lobby.begin(), lobby.end(), ':') == 1) {
-    size_t c = lobby.find(':');
-    host = lobby.substr(0, c);
-    if (c + 1 >= lobby.size()) return false;
-    for (size_t i = c + 1; i < lobby.size(); i++)
-      if (!std::isdigit((unsigned char)lobby[i])) return false;
-    port = std::atoi(lobby.c_str() + c + 1);
-  } else {
-    host = lobby;
-  }
-  if (!hostOk(host) || port < 1 || port > 65535) return false;
+  LobbyEndpoint ep;
+  if (!parseEndpoint(lobby, &ep)) return false;
   if (out) {
-    out->host = host;
-    out->port = port;
+    out->host = ep.secure ? ep.address() : ep.host;
+    out->port = ep.port;
     out->code = code;
   }
   return true;
 }
 
 std::string makeInvite(const std::string& host, int port, const std::string& code) {
-  std::string h = host.find(':') != std::string::npos ? "[" + host + "]" : host;
-  return "peggleport://join?lobby=" + h + ":" + std::to_string(port) + "&code=" + code;
+  const std::string address = endpointAddress(host, port);
+  if (address.empty()) return {};
+  const bool escaped = address.rfind("wss://", 0) == 0 || address.find('%') != std::string::npos;
+  return "peggleport://join?lobby=" + (escaped ? pctEncode(address) : address) + "&code=" + code;
 }
 
 bool findInviteArg(const std::vector<std::string>& args, Invite* out) {
@@ -124,22 +148,44 @@ bool findInviteArg(const std::vector<std::string>& args, Invite* out) {
 
 bool extractInvite(const std::string& text, Invite* out) {
   std::string low = lower(text);
+  if (low.rfind(kDiscordScheme, 0) == 0) return discordInvite(text, out);
   size_t from = 0;
   while (true) {
     size_t at = low.find("peggleport://", from);
+    const size_t discord = low.find(kDiscordScheme, from);
+    if (discord != std::string::npos && (at == std::string::npos || discord < at)) at = discord;
     if (at == std::string::npos) return false;
-    size_t end = text.find_first_of(" \t\r\n\"'<>", at);
+    size_t end = text.find_first_of(discord == at ? " " : " \t\r\n\"'<>", at);
     if (parseInvite(text.substr(at, end == std::string::npos ? std::string::npos : end - at), out)) return true;
-    from = at + 1;
+    from = discord == at ? (end == std::string::npos ? text.size() : end) : at + 1;
   }
 }
+
+#ifdef _WIN32
+static std::string utf8Text(const std::wstring& w) {
+  if (w.empty()) return {};
+  int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+  if (n <= 0) return {};
+  std::string s((size_t)n, '\0');
+  WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
+  return s;
+}
+static std::wstring wideText(const std::string& s) {
+  if (s.empty()) return {};
+  int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+  if (n <= 0) return {};
+  std::wstring w((size_t)n, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+  return w;
+}
+#endif
 
 std::string selfExePath(const char* argv0) {
   std::error_code ec;
 #ifdef _WIN32
-  char b[MAX_PATH * 2];
-  DWORD n = GetModuleFileNameA(nullptr, b, sizeof b);
-  if (n > 0 && n < sizeof b) return std::string(b, n);
+  wchar_t b[MAX_PATH * 2];
+  DWORD n = GetModuleFileNameW(nullptr, b, MAX_PATH * 2);
+  if (n > 0 && n < MAX_PATH * 2) return utf8Text(std::wstring(b, n));
 #elif defined(__APPLE__)
   char b[4096];
   uint32_t n = sizeof b;
@@ -160,7 +206,7 @@ std::string macInfoPlistSnippet() {
          "    <dict>\n"
          "      <key>CFBundleURLName</key><string>PegglePort invite</string>\n"
          "      <key>CFBundleURLSchemes</key>\n"
-         "      <array><string>peggleport</string></array>\n"
+         "      <array><string>peggleport</string><string>discord-1571022918392225882</string></array>\n"
          "    </dict>\n"
          "  </array>\n"
          "macOS then starts the app with the link as an Apple Event (SDL3 delivers it as SDL_EVENT_DROP_FILE / the first argument);\n"
@@ -174,19 +220,27 @@ bool registerUrlHandler(const std::string& exe, std::string* report) {
   auto set = [&](const char* path, const char* name, const std::string& v) {
     HKEY h;
     if (RegCreateKeyExA(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_WRITE, nullptr, &h, nullptr) != ERROR_SUCCESS) return false;
-    LONG r = RegSetValueExA(h, name, 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)v.size() + 1);
+    const std::wstring wn = name ? wideText(name) : std::wstring();
+    const std::wstring wv = wideText(v);
+    LONG r = RegSetValueExW(h, name ? wn.c_str() : nullptr, 0, REG_SZ, (const BYTE*)wv.c_str(), (DWORD)((wv.size() + 1) * sizeof(wchar_t)));
     RegCloseKey(h);
     return r == ERROR_SUCCESS;
   };
   (void)k;
-  bool ok = set("Software\\Classes\\peggleport", nullptr, "URL:PegglePort invite") && set("Software\\Classes\\peggleport", "URL Protocol", "") &&
-            set("Software\\Classes\\peggleport\\shell\\open\\command", nullptr, cmd);
-  if (report) *report = ok ? "registered peggleport:// for the current user (HKCU\\Software\\Classes\\peggleport)\n  " + cmd : "could not write the registry";
+  bool ok = true;
+  for (const std::string& scheme : {std::string("peggleport"), std::string("discord-1571022918392225882")}) {
+    const std::string path = "Software\\Classes\\" + scheme;
+    const bool written = set(path.c_str(), nullptr, "URL:PegglePort invite") && set(path.c_str(), "URL Protocol", "") && set((path + "\\shell\\open\\command").c_str(), nullptr, cmd);
+    ok = written && ok;
+  }
+  if (report) *report = ok ? "registered PegglePort and Discord invite links for the current user\n  " + cmd : "could not write the registry";
   return ok;
 }
 bool unregisterUrlHandler(std::string* report) {
   LONG r = RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\Classes\\peggleport");
-  if (report) *report = r == ERROR_SUCCESS ? "removed the peggleport:// registration" : "nothing to remove";
+  LONG discord = RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\Classes\\discord-1571022918392225882");
+  if (r == ERROR_FILE_NOT_FOUND || (r == ERROR_SUCCESS && discord != ERROR_SUCCESS && discord != ERROR_FILE_NOT_FOUND)) r = discord;
+  if (report) *report = r == ERROR_SUCCESS ? "removed the invite link registrations" : "nothing to remove";
   return r == ERROR_SUCCESS;
 }
 #elif defined(__APPLE__)
@@ -212,11 +266,11 @@ bool registerUrlHandler(const std::string& exe, std::string* report) {
   std::ofstream o(f);
   if (!o) { if (report) *report = "cannot write " + f.string(); return false; }
   o << "[Desktop Entry]\nType=Application\nName=PegglePort (invite handler)\nExec=\"" << exe << "\" %u\nNoDisplay=true\nTerminal=false\n"
-    << "MimeType=x-scheme-handler/peggleport;\nCategories=Game;\n";
+    << "MimeType=x-scheme-handler/peggleport;x-scheme-handler/discord-1571022918392225882;\nCategories=Game;\n";
   o.close();
-  int a = std::system(("xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport >/dev/null 2>&1"));
+  int a = std::system(("xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport x-scheme-handler/discord-1571022918392225882 >/dev/null 2>&1"));
   std::system(("update-desktop-database \"" + f.parent_path().string() + "\" >/dev/null 2>&1").c_str());
-  if (report) *report = "wrote " + f.string() + (a == 0 ? " and set it as the peggleport:// handler (xdg-mime)" : "; xdg-mime was not available, run: xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport");
+  if (report) *report = "wrote " + f.string() + (a == 0 ? " and set it as the peggleport:// handler (xdg-mime)" : "; xdg-mime was not available, run: xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport x-scheme-handler/discord-1571022918392225882");
   return true;
 }
 bool unregisterUrlHandler(std::string* report) {

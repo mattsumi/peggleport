@@ -4,6 +4,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <sddl.h>
 
 #include <string>
 #include <vector>
@@ -31,14 +32,29 @@ bool tokenInfo(TOKEN_INFORMATION_CLASS cls, std::vector<BYTE>& out) {
   return ok != 0;
 }
 
-bool integrityIsLow() {
+bool integrityRid(DWORD* rid) {
   std::vector<BYTE> buf;
   if (!tokenInfo(TokenIntegrityLevel, buf)) return false;
   TOKEN_MANDATORY_LABEL* l = (TOKEN_MANDATORY_LABEL*)buf.data();
   DWORD n = *GetSidSubAuthorityCount(l->Label.Sid);
   if (n == 0) return false;
-  DWORD rid = *GetSidSubAuthority(l->Label.Sid, n - 1);
-  return rid <= SECURITY_MANDATORY_LOW_RID;
+  *rid = *GetSidSubAuthority(l->Label.Sid, n - 1);
+  return true;
+}
+
+void dropToUntrusted() {
+  HANDLE tok = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_DEFAULT | TOKEN_QUERY, &tok)) return;
+  PSID sid = nullptr;
+  if (ConvertStringSidToSidW(L"S-1-16-0", &sid)) {
+    TOKEN_MANDATORY_LABEL tml;
+    ZeroMemory(&tml, sizeof tml);
+    tml.Label.Attributes = SE_GROUP_INTEGRITY;
+    tml.Label.Sid = sid;
+    SetTokenInformation(tok, TokenIntegrityLevel, &tml, (DWORD)(sizeof tml + GetLengthSid(sid)));
+    LocalFree(sid);
+  }
+  CloseHandle(tok);
 }
 
 bool isAppContainer() {
@@ -85,12 +101,16 @@ bool noFileWrite(const std::string& pluginDir) {
 
 SandboxReport applySandbox(const std::string& pluginDir) {
   SandboxReport r;
-  const bool low = integrityIsLow();
+  dropToUntrusted();
+  DWORD rid = SECURITY_MANDATORY_MEDIUM_RID;
+  const bool known = integrityRid(&rid);
+  const bool untrusted = known && rid < SECURITY_MANDATORY_LOW_RID;
+  const bool low = known && rid <= SECURITY_MANDATORY_LOW_RID;
   const bool job = jobLimited();
   const bool app = isAppContainer();
   if (job) r.protections |= kNoSpawn;
-  if ((low || app) && noFileWrite(pluginDir)) r.protections |= kNoFileWrite;
-  r.detail = std::string("Windows token: ") + (app ? "app container" : low ? "low integrity" : "normal integrity") + ", job limit " + (job ? "on" : "off");
+  if ((untrusted || app) && noFileWrite(pluginDir)) r.protections |= kNoFileWrite;
+  r.detail = std::string("Windows token: ") + (app ? "app container" : untrusted ? "untrusted integrity" : low ? "low integrity" : "normal integrity") + ", job limit " + (job ? "on" : "off");
   return r;
 }
 

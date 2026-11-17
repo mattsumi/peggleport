@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <utility>
 
 #include "visopts.h"
 
@@ -58,11 +59,13 @@ class DataReader {
 
 struct GameStats {
   uint8_t version = 1;
-  int32_t a0 = 0, bestShot = 0, a8 = 0;
+  int32_t shots = 0, bestShot = 0, bestFever = 0;
   int32_t freeBalls[4]{};
-  int32_t styleShots[20]{};
+  int32_t styleShots[24]{};
   void reset() { *this = GameStats(); }
   void add(const GameStats& o);
+  int totalFreeBalls() const { return freeBalls[0] + freeBalls[1] + freeBalls[2] + freeBalls[3]; }
+  int totalStyleShots() const;
   void write(DataWriter& w) const;
   bool read(DataReader& r);
 };
@@ -79,7 +82,7 @@ struct PlayerInfo {
   int i38 = 0;
   std::set<int> trophies;
   std::multiset<int> advScores;
-  std::map<int, int, std::greater<int>> trophyTop;
+  std::map<int, int> trophyTop;
   bool fEd = true, computerPlayer = true, fEe = true, colorblind = false, storyPending = true, fEf = false;
   int computerSkill = -1;
   uint8_t b54 = 0, b124 = 0, b128 = 0;
@@ -92,6 +95,7 @@ struct PlayerInfo {
   uint8_t tipCounts[10]{};
   uint16_t tipOther = 0, trophyLevelSeen = 0;
   std::set<std::string> acedLevels;
+  int faeries = 0;
   std::set<std::string> mantelSeen;
   bool mantelSeenKnown = false;
   bool dirty = false;
@@ -106,12 +110,16 @@ struct PlayerInfo {
   bool justBeatAdventure() const { return advCompletions > 0 && advStage == advStages && advLevel == 0 && advLevelAttempts == 0; }
   bool justStartingAdventure() const { return advStage <= 0 && advLevel == 0 && advLevelAttempts == 0; }
   void restartAdventure();
+  void countLevelStart();
+  void uncountLevelStart();
+  void countFailedTry();
+  int tryNumber(bool nights) const { return nights ? advLevelAttempts + 1 : (advLevelAttempts < 1 ? 1 : advLevelAttempts); }
   int efficiencyBonus() const;
   void awardTrophy(int id) { if (trophies.insert(id).second) dirty = true; }
-  void checkTrophyTopScore(int id, int score);
+  void checkTrophyTopScore(int id, int score, bool lowerIsBetter = false);
   int trophyTopScore(int id) const { auto it = trophyTop.find(id); return it == trophyTop.end() ? 0 : it->second; }
   void submitAdventureScore(int score);
-  void addTotalStats(const GameStats& s) { statsA.add(s); statsB.add(s); dirty = true; }
+  void addTotalStats(const GameStats& s, bool current);
   bool tipSet(int id) const { return (tipsMask & (1 << (id & 31))) != 0; }
   void setTip(int id) { tipsMask |= 1 << (id & 31); dirty = true; }
   void incTip(int id);
@@ -131,6 +139,7 @@ class HighScoreMgr {
   int submit(const std::string& key, const std::string& name, int score);
   bool wouldRank(const std::string& key, int score);
   void setSeed(uint32_t s) { rng_ = s; }
+  void setTops(std::function<int(const std::string&)> f) { tops_ = std::move(f); }
   std::vector<uint8_t> serialize() const;
   bool deserialize(const std::vector<uint8_t>& d);
   const std::map<std::string, std::vector<HighScoreEntry>>& all() const { return tables_; }
@@ -138,6 +147,7 @@ class HighScoreMgr {
  private:
   Game game_;
   std::map<std::string, std::vector<HighScoreEntry>> tables_;
+  std::function<int(const std::string&)> tops_;
   uint32_t rng_ = 0x1234567;
 };
 
@@ -181,12 +191,11 @@ class ProfileMgr {
 
 struct Settings {
   VisualOptions vis;
-  float music = 0.7f, sfx = 0.85f, fever = 0.85f;
+  float music = 0.85f, sfx = 0.85f, fever = 0.85f;
   bool muted = false, fullscreen = false, customCursors = true, vsync = true;
   std::string curUser;
   int maxStage = 0, maxLevel = 0;
   int winW = 0, winH = 0;
-  bool separateWideScores = false;
   int widescreen = 0;
   bool load(const std::filesystem::path& file);
   bool save(const std::filesystem::path& file) const;

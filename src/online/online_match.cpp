@@ -1,11 +1,10 @@
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
 #include <utility>
 #include <memory>
 #include <string>
-#include <cctype>
+#include <vector>
 
 #include "audio.h"
 #include "log.h"
@@ -17,6 +16,8 @@ namespace pp::ui::online {
 
 namespace {
 
+constexpr const char* kCardFont = "PLAIN2";
+constexpr float kCardW = 480, kCardPad = 24, kCardBodyTop = 62;
 
 class OnlineGameScreen : public Screen {
  public:
@@ -25,33 +26,60 @@ class OnlineGameScreen : public Screen {
     bRematch_ = patchButton(1, "Rematch", "IMAGE_DLG_BUTTON3", 0, 0);
     bLeave_ = patchButton(2, "Leave", "IMAGE_DLG_BUTTON3", 0, 0);
     bKeep_ = patchButton(3, "Keep Playing", "IMAGE_DLG_BUTTON3", 0, 0);
-    for (Button* b : {bRematch_, bLeave_, bKeep_}) { b->w = 150; b->visible = false; }
+    for (Button* b : {bRematch_, bLeave_, bKeep_}) { b->w = std::max(150.0f, b->image ? 2.0f * std::floor(b->image->lw() / 3.0f) : 0.0f); b->visible = false; }
     startMatch(info_.seed);
     app.playMusic("level");
   }
 
   const char* name() const override { return "onlinematch"; }
   bool isGame() const override { return true; }
-  int canvasWidth() const override { return ready_ ? 800 + (match_.boards[0].W - 650) : 800; }
+  void discordPresence(pp::online::Discord::Presence& presence) const override {
+    presence.state = !ready_ || net_->failed() ? "Online match ended" : state_ == Playing ? "Playing online" : state_ == Over ? "Online match finished" : "Online match paused";
+  }
+  int boardExtra() const { return ready_ ? match_.boards[0].W - 650 : 0; }
+  int canvasWidth() const override { return app.frameCanvasWidth(800 + boardExtra()); }
+  int boardLeft() const { return 75 + (canvasWidth() - 800 - boardExtra()) / 2; }
 
   void startMatch(uint32_t seed) {
     BoardConfig cfg = lb_.cfg;
     cfg.seed = seed;
     cfg.boardWidth = info_.boardWidth;
     for (int i = 0; i < 4; i++) cfg.master[i] = info_.master[i];
+    if (app.audio) app.audio->dropQueued();
     match_ = Match();
     std::string err;
     ready_ = match_.init(lb_.base, lb_.level, cfg, info_.players, info_.party, &err);
     if (!ready_) {
-      loadError_ = err;
-      pp::log::error("net", "cannot start the online match on level " + lb_.name + ": " + err);
+      pp::log::error("net", "cannot start the online match on the level " + levelLogName(app, lb_.name) + ": " + err);
     } else {
-      pp::log::info("net", "online match started on level " + lb_.name + " (" + std::to_string(info_.players) + " player(s), seed " + std::to_string(seed) + ")");
+      pp::log::info("net", "online match started on the level " + levelLogName(app, lb_.name) + ": " + std::to_string(info_.players) + " player(s), seed " + std::to_string(seed));
     }
     state_ = Playing;
     wantFire_ = false;
     rematchAsked_ = false;
     wheelNudge_ = 0;
+    statusKey_.clear();
+    turnNoted_ = -1;
+    if (ready_) noteStatus();
+  }
+
+  void noteStatus() {
+    const std::string note = net_->linkNote();
+    const std::string checked = std::to_string(net_->hashesCompared), rollbacks = std::to_string(match_.rollbacks);
+    const std::string key = (note.rfind("Direct UDP link", 0) == 0 ? std::string("Direct UDP link") : note) + "|" + checked + "|" + rollbacks;
+    if (key == statusKey_) return;
+    statusKey_ = key;
+    std::string line = std::string(info_.party ? "Peg Party" : "Online Duel") + " | you are " + rawName(local_);
+    if (!note.empty()) line += " | " + linkText(note, false);
+    pp::log::info("net", line + " | checked by host: " + checked + " | rollbacks: " + rollbacks);
+  }
+
+  void noteTurn() {
+    if (info_.party || !ready_ || state_ != Playing || match_.over()) return;
+    const int cur = match_.boards[0].cur;
+    if (cur == turnNoted_) return;
+    turnNoted_ = cur;
+    pp::log::info("net", "Online Duel | turn: " + cleanText(rawName(cur), 48) + (cur == local_ ? " (you)" : ""));
   }
 
   std::string rawName(int p) const {
@@ -59,28 +87,103 @@ class OnlineGameScreen : public Screen {
     return p < (int)r.size() && !r[p].name.empty() ? r[p].name : "Player " + std::to_string(p + 1);
   }
   std::string nameOf(int p) const { return p == local_ ? rawName(p) + " (you)" : rawName(p); }
+  std::string shownName(int p) const { return drawableText(nameOf(p)); }
   int scoreOf(int p) const {
     const Board& b = match_.boards[match_.boardOf(p)];
     return b.score[match_.playerSlot(p)];
   }
 
+  struct Card {
+    bool shown = false;
+    std::string title, body;
+    uint32_t color = 0xffd605;
+  };
+
+  Card card() const {
+    Card c;
+    if (!ready_) {
+      c.title = "No match";
+      c.body = "The match could not start on this level. Press F10 for the details.";
+      c.color = 0xff8080;
+    } else if (state_ == Lost) {
+      c.title = "Disconnected";
+      c.body = message_;
+      c.color = 0xff8080;
+    } else if (state_ == Desynced) {
+      c.title = "Desync detected";
+      c.body = "The two games no longer agree, so the match cannot continue. Please report this with the level, both game versions and the log (F10).";
+      c.color = 0xff8080;
+    } else if (state_ == Playing && menu_) {
+      c.title = "Leave the match?";
+      c.body = "Leaving ends the game for everybody in the room.";
+    } else if (state_ == Over) {
+      int best = -1, bestScore = -1;
+      bool tie = false;
+      for (int p = 0; p < info_.players; p++) {
+        int s = scoreOf(p);
+        if (s > bestScore) { bestScore = s; best = p; tie = false; }
+        else if (s == bestScore) tie = true;
+      }
+      c.title = tie ? "It's a Tie!" : best == local_ ? "You Win!" : shownName(best) + " Wins!";
+      for (int p = 0; p < info_.players; p++) c.body += shownName(p) + ":  " + std::to_string(scoreOf(p)) + "\n";
+      if (peerGone_) c.body += "\n" + message_;
+      else if (rematchAsked_) c.body += "\nWaiting for the others to accept a rematch (" + std::to_string(net_->rematchVotes()) + "/" + std::to_string(info_.players) + ")";
+    } else {
+      return c;
+    }
+    c.shown = true;
+    return c;
+  }
+
+  void arrange() {
+    card_ = card();
+    const bool over = ready_ && state_ == Over, asking = ready_ && state_ == Playing && menu_;
+    bRematch_->visible = over && !peerGone_;
+    bRematch_->enabled = !rematchAsked_;
+    bRematch_->label = rematchAsked_ ? "Waiting..." : "Rematch";
+    bLeave_->visible = card_.shown;
+    bKeep_->visible = asking;
+    if (!card_.shown) return;
+    Gfx& g = app.gfx;
+    const float cx = (float)canvasWidth() / 2.0f;
+    const float bodyH = g.fontLineSpacing(kCardFont) * (float)g.wrap(kCardFont, kCardW - 2 * kCardPad, card_.body).size();
+    const float buttonTop = std::max(170.0f, kCardBodyTop + bodyH + 12);
+    cardH_ = std::max(250.0f, buttonTop + bLeave_->h + 24);
+    cardY_ = cardH_ > 250 ? std::max(8.0f, (600 - cardH_) / 2) : 170.0f;
+    bRematch_->x = cx - 10 - bRematch_->w;
+    bLeave_->x = cx + 10;
+    if (asking) { bLeave_->x = cx - 10 - bLeave_->w; bKeep_->x = cx + 10; }
+    else if (!bRematch_->visible) bLeave_->x = cx - bLeave_->w / 2;
+    bRematch_->y = bLeave_->y = bKeep_->y = cardY_ + buttonTop;
+  }
+
+  void fail() {
+    if (reason_ == net_->error) return;
+    reason_ = net_->error;
+    bool known = true;
+    message_ = troubleText(net_->error, Where::Match, net_->isHost(), std::string(), std::string(), &known);
+    if (!known) pp::log::warn("net", "no plain message for this answer: " + cleanText(net_->error, 240));
+  }
+
   void update() override {
     Panel::update();
-    if (!ready_) return;
+    if (!ready_) { arrange(); return; }
     net_->poll();
     for (auto& s : net_->takeShots())
       if (s.player != local_) match_.submit(s);
     uint32_t seed;
-    if (net_->takeRematch(&seed) && !peerGone_) {
+    if (net_->takeRematch(&seed) && !peerGone_ && !net_->failed()) {
       info_.seed = seed;
       startMatch(seed);
       return;
     }
-    if (net_->failed() && state_ != Lost) {
+    if (net_->failed()) {
+      fail();
       if (state_ == Over) peerGone_ = true;
-      else { state_ = Lost; message_ = net_->error; if (!message_.empty()) message_[0] = (char)std::toupper((unsigned char)message_[0]); }
+      else state_ = Lost;
     }
-    if (net_->desynced() && state_ == Playing) { state_ = Desynced; message_ = net_->desyncMsg; }
+    if (net_->desynced() && state_ == Playing) state_ = Desynced;
+    if (state_ != Playing && app.audio) app.audio->stopLoops();
     if (state_ == Playing || state_ == Over) {
       Board& vb = match_.boards[match_.boardOf(local_)];
       if (state_ == Playing) {
@@ -105,15 +208,9 @@ class OnlineGameScreen : public Screen {
         if (match_.over()) state_ = Over;
       }
     }
-    bRematch_->visible = state_ == Over && !peerGone_;
-    bRematch_->enabled = !rematchAsked_;
-    bRematch_->label = rematchAsked_ ? "Waiting..." : "Rematch";
-    bLeave_->visible = state_ == Over || state_ == Lost || state_ == Desynced || menu_;
-    bKeep_->visible = menu_ && state_ == Playing;
-    float cx = canvasWidth() / 2.0f;
-    bRematch_->x = cx - 160; bLeave_->x = cx + 10; bRematch_->y = bLeave_->y = 340;
-    if (menu_ && state_ == Playing) { bLeave_->x = cx - 160; bKeep_->x = cx + 10; bLeave_->y = bKeep_->y = 340; }
-    if (state_ == Lost || state_ == Desynced || peerGone_) bLeave_->x = cx - 75;
+    noteTurn();
+    noteStatus();
+    arrange();
   }
 
   void onButton(int id) override {
@@ -125,7 +222,7 @@ class OnlineGameScreen : public Screen {
   bool input(const Input& in) override {
     switch (in.type) {
       case Input::MouseMove:
-        mx_ = std::floor(in.x) - 75;
+        mx_ = std::floor(in.x) - (float)boardLeft();
         my_ = std::floor(in.y) - 40;
         wheelNudge_ = 0;
         break;
@@ -138,7 +235,7 @@ class OnlineGameScreen : public Screen {
     }
     bool used = Panel::input(in);
     if (in.type == Input::MouseDown && in.button == 1 && !used && state_ == Playing && !menu_) {
-      mx_ = std::floor(in.x) - 75;
+      mx_ = std::floor(in.x) - (float)boardLeft();
       my_ = std::floor(in.y) - 40;
       wantFire_ = true;
     }
@@ -147,11 +244,20 @@ class OnlineGameScreen : public Screen {
 
   void lostFocus() override {}
 
+  void drawCard(Gfx& g, float cw) {
+    const float px = (cw - kCardW) / 2;
+    g.fill(0, 0, cw, 600, 0x000000, 0.55f);
+    g.fill(px, cardY_, kCardW, cardH_, 0x101830, 0.92f);
+    g.frame(px, cardY_, kCardW, cardH_, 0xffd605, 0.85f);
+    g.drawString("OVERLOAD24GRAD1", cw / 2, cardY_ + 42, card_.title, card_.color, 1, Align::Center);
+    g.drawWrapped(kCardFont, {px + kCardPad, cardY_ + kCardBodyTop, kCardW - 2 * kCardPad, cardH_ - kCardBodyTop}, card_.body, 0xffffff, 1, Align::Center);
+  }
+
   void drawLayer(Gfx& g) override {
     float cw = (float)canvasWidth();
     if (!ready_) {
       g.fill(0, 0, cw, 600, 0x101030);
-      g.drawString("PLAIN", cw / 2, 300, "Could not start the match: " + loadError_, 0xff8080, 1, Align::Center);
+      drawCard(g, cw);
       return;
     }
     if (app.boardRenderer) {
@@ -165,69 +271,16 @@ class OnlineGameScreen : public Screen {
         hud.topName = nameOf(1 - vb.cur);
         hud.topScore = vb.score[1 - vb.cur];
       } else {
-        hud.mode = Hud::ModeQuick;
-        int best = 0, who = -1;
+        hud.mode = Hud::ModeParty;
+        hud.party.push_back({rawName(local_), scoreOf(local_)});
         for (int p = 0; p < info_.players; p++)
-          if (p != local_ && (who < 0 || scoreOf(p) > best)) { best = scoreOf(p); who = p; }
-        if (who >= 0) { hud.topScore = best; hud.topName = nameOf(who); }
+          if (p != local_) hud.party.push_back({rawName(p), scoreOf(p)});
       }
+      app.boardRenderer->setFrameCanvas(canvasWidth());
       app.boardRenderer->draw(vb, lb_, hud);
     }
-    char st[200];
-    std::snprintf(st, sizeof st, "%s | you are %s | %s | checked by host: %d | rollbacks: %d", info_.party ? "Peg Party" : "Online Duel", rawName(local_).c_str(),
-                  net_->linkNote().c_str(), net_->hashesCompared, match_.rollbacks);
-    g.fill(0, 584, cw, 16, 0x000000, 0.55f);
-    g.drawString("PLAIN", 6, 596, st, 0xdddddd, 1, Align::Left);
-    if (info_.party) {
-      float y = 104;
-      for (int p = 0; p < info_.players; p++) {
-        char row[96];
-        std::snprintf(row, sizeof row, "%s: %d", nameOf(p).c_str(), scoreOf(p));
-        g.drawString("PLAIN", 6, y, row, p == local_ ? 0xffff88 : 0xffffff, 0.9f, Align::Left);
-        y += 14;
-      }
-    }
-    if (state_ == Playing && !menu_) {
-      bool turn = match_.canFire(local_);
-      if (!info_.party && !turn && !match_.boards[0].result.finished) {
-        std::string t = "Waiting for " + nameOf(match_.boards[0].cur) + "...";
-        g.fill(0, 548, cw, 22, 0x000000, 0.45f);
-        g.drawString("OVERLOAD16OUTLINE", cw / 2, 565, t, 0xffe070, 0.95f, Align::Center);
-      }
-      return;
-    }
-    g.fill(0, 0, cw, 600, 0x000000, 0.55f);
-    float pw = 480, ph = 250, px = (cw - pw) / 2, py = 170;
-    g.fill(px, py, pw, ph, 0x101830, 0.92f);
-    g.frame(px, py, pw, ph, 0xffd605, 0.85f);
-    std::string title, body;
-    uint32_t tcol = 0xffd605;
-    if (state_ == Lost) {
-      title = "Disconnected";
-      body = message_.empty() ? "The connection was lost." : message_;
-      tcol = 0xff8080;
-    } else if (state_ == Desynced) {
-      title = "Desync detected";
-      body = message_ + "\nThe two games no longer agree, so the match cannot continue. Please report this with the level and both game versions.";
-      tcol = 0xff8080;
-    } else if (menu_) {
-      title = "Leave the match?";
-      body = "Leaving ends the game for everybody in the room.";
-    } else {
-      int best = -1, bestScore = -1;
-      bool tie = false;
-      for (int p = 0; p < info_.players; p++) {
-        int s = scoreOf(p);
-        if (s > bestScore) { bestScore = s; best = p; tie = false; }
-        else if (s == bestScore) tie = true;
-      }
-      title = tie ? "It's a Tie!" : best == local_ ? "You Win!" : nameOf(best) + " Wins!";
-      for (int p = 0; p < info_.players; p++) body += nameOf(p) + ":  " + std::to_string(scoreOf(p)) + "\n";
-      if (peerGone_) { std::string e = net_->error; if (!e.empty()) e[0] = (char)std::toupper((unsigned char)e[0]); body += "\n" + e; }
-      else if (rematchAsked_) body += "\nWaiting for the others to accept a rematch (" + std::to_string(net_->rematchVotes()) + "/" + std::to_string(info_.players) + ")";
-    }
-    g.drawString("OVERLOAD24GRAD1", cw / 2, py + 42, title, tcol, 1, Align::Center);
-    g.drawWrapped("PLAIN2", {px + 24, py + 62, pw - 48, 120}, body, 0xffffff, 1, Align::Center);
+    if (state_ == Playing && !menu_) return;
+    if (card_.shown) drawCard(g, cw);
   }
 
  private:
@@ -240,7 +293,10 @@ class OnlineGameScreen : public Screen {
   int local_ = 0;
   bool ready_ = false, wantFire_ = false, menu_ = false, rematchAsked_ = false, peerGone_ = false;
   float mx_ = 325, my_ = 300, wheelNudge_ = 0;
-  std::string loadError_, message_;
+  std::string message_, reason_, statusKey_;
+  int turnNoted_ = -1;
+  Card card_;
+  float cardY_ = 170, cardH_ = 250;
   Button *bRematch_, *bLeave_, *bKeep_;
 };
 

@@ -58,6 +58,8 @@ class Font {
   int wrap(std::string_view s, int wrapWidth, int lineSpacing, std::vector<Line>& lines, int* maxWidth = nullptr) const;
 
   size_t layerCount() const;
+  bool layerColors(size_t layer, uint32_t& mult, uint32_t& add) const;
+  void setLayerColors(size_t layer, uint32_t mult, uint32_t add) const;
   size_t activeLayerCount() const;
   const FontData* fontData() const { return data_.get(); }
 

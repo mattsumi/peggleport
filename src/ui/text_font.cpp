@@ -30,8 +30,11 @@ class PopcapFonts : public FontProvider {
   }
   float height(const std::string& n) override { Font* f = get(n); return f ? (float)f->height() : 12.0f; }
   float ascent(const std::string& n) override { Font* f = get(n); return f ? (float)f->ascent() : 10.0f; }
+  float ascentPadding(const std::string& n) override { Font* f = get(n); return f ? (float)f->ascentPadding() : 0.0f; }
   float lineSpacing(const std::string& n) override { Font* f = get(n); return f ? (float)f->lineSpacing() : 14.0f; }
   float width(const std::string& n, const std::string& s) override { Font* f = get(n); return f ? (float)f->width(s) : (float)s.size() * 6; }
+  bool layerColors(const std::string& n, size_t layer, uint32_t& mult, uint32_t& add) override { Font* f = get(n); return f && f->layerColors(layer, mult, add); }
+  void setLayerColors(const std::string& n, size_t layer, uint32_t mult, uint32_t add) override { if (Font* f = get(n)) f->setLayerColors(layer, mult, add); }
   void draw(const std::string& n, float x, float y, const std::string& s, uint32_t rgb, float alpha) override {
     Font* f = get(n);
     if (!f || !r_ || s.empty()) return;

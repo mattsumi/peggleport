@@ -1,4 +1,6 @@
 #include "ui/game_screen.h"
+#include "gamepaths.h"
+#include "ui/session.h"
 #include "ui/screens.h"
 #include "log.h"
 #include <ctime>
@@ -18,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace pp::ui {
 
@@ -53,9 +56,10 @@ GameScreen::GameScreen(App& a, bool fromAdventure, bool newLevel) : Screen(a) {
     return;
   }
   levelFile_ = name;
-  mouseBx_ = (int)std::floor(a.mouseX) - 75;
+  mouseBx_ = (int)std::floor(a.pointerOnCanvas(canvasWidth())) - boardLeft();
   mouseBy_ = (int)std::floor(a.mouseY) - 40;
   haveMouse_ = true;
+  countLevelStart();
   ready_ = startLevel(name);
   guide = true;
 }
@@ -80,6 +84,7 @@ template <class C>
 static void setRuleInputs(C&, const PlayerInfo*, int, bool, int, long) {}
 
 bool GameScreen::startLevel(const std::string& name) {
+  submitStats();
   if (app.game == Game::Nights) {
     app.mantelBefore = 0;
     for (int i = 0; i < 4; i++) app.mantelBefore |= MainMenu::mantelEarned(app, i) ? 1 << i : 0;
@@ -95,31 +100,61 @@ bool GameScreen::startLevel(const std::string& name) {
   BoardConfig cfg = lb_.cfg;
   cfg.seed = seed;
   int stage = app.curStage;
-  auto randomMaster = [&](int c) {
-    if (app.game != Game::Deluxe || c != 10) return c;
-    return (int)(app.rand() % (unsigned)(std::min(app.curProfile ? app.curProfile->maxStage : 0, 9) + 1));
+  const TrophyInfo* ctr = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
+  const bool duelChallenge = ctr && !ctr->opponents.empty();
+  auto randomMaster = [&](int c, int slot) {
+    const bool remember = app.gameMode == GameMode::Duel || (duelChallenge && slot == 0);
+    int& last = slot == 0 ? app.lastRolled : app.lastOpponent;
+    if (c != CharacterDialog::randomChoice(app.game)) {
+      if (remember) last = c;
+      return c;
+    }
+    if (remember && keepRoll_ && last >= 0 && last < 10) return last;
+    const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+    int pick = 0;
+    for (int tries = remember && met > 1 ? 50 : 1; tries > 0; tries--) {
+      pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+      if (pick != last) break;
+    }
+    if (remember) last = pick;
+    return pick;
   };
-  int mi = std::clamp(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay ? stage : (app.curProfile ? randomMaster(app.curProfile->char1) : 0), 0, 10);
+  int mi = std::clamp(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay ? CharacterDialog::masterMetAt(app.game, std::clamp(stage, 0, 10)) : (app.curProfile ? randomMaster(app.curProfile->char1, 0) : 0), 0, 10);
   if (app.game == Game::Deluxe) mi = std::min(mi, 9);
-  if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack) mi = std::clamp(app.curProfile ? app.curProfile->char1 : 0, 0, 10);
-  if (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
+  const bool fixedChoice = app.curProfile && app.curProfile->char1 != CharacterDialog::randomChoice(app.game);
+  if (const StageInfo* ps = app.stages.stage(stage); ps && ps->pack && fixedChoice) mi = std::clamp(app.curProfile->char1, 0, 10);
+  if (fixedChoice && stage >= 10 + (app.game == Game::Nights ? 1 : 0)) mi = std::clamp(app.curProfile->char1, 0, app.game == Game::Nights ? 10 : 9);
+  const bool ownChoice = choosesMaster();
+  if (ownChoice) mi = chosenMaster();
+  if (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) app.lastRolled = mi;
+  if (app.gameMode == GameMode::Demo) {
+    static int lastDemoMaster = -1;
+    const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+    int pick = 0;
+    for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
+      pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+      if (pick != lastDemoMaster) break;
+    }
+    lastDemoMaster = pick;
+    mi = std::clamp(pick, 0, app.game == Game::Nights ? 10 : 9);
+  }
   cfg.master[0] = Board::masterByName(kMasterNames[mi]);
   {
     const StageInfo* sp = app.stages.stage(stage);
-    const bool char1Used = !(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) || (sp && sp->pack) ||
+    const bool char1Used = ownChoice || !(app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) || (sp && sp->pack) ||
                            (app.curProfile && stage >= 10 + (app.game == Game::Nights ? 1 : 0));
     if (char1Used)
       if (const int mp = modPowerFor(app, 0)) cfg.master[0] = mp;
   }
-  cfg.boardWidth = app.boardWidthForNewBoard();
+  cfg.boardWidth = std::max(cfg.boardWidth, app.boardWidthForNewBoard());
   bool adv = app.gameMode == GameMode::Adventure;
   setRuleInputs(cfg, app.curProfile, adv ? 5 * app.curStage + app.curLevel : -1, app.game == Game::Nights,
-                adv && app.curProfile ? app.curProfile->advLevelAttempts + 1 : 1, 0);
+                adv && app.curProfile ? app.curProfile->tryNumber(app.game == Game::Nights) : 1, 0);
   hudStage_ = app.curStage;
   hudLevel_ = app.curLevel;
   if (app.gameMode == GameMode::Challenge)
     if (const TrophyInfo* t = app.trophies.byId(app.curChallenge)) {
-      if (t->balls > 0) cfg.balls = t->balls;
+      if (t->balls > 0) cfg.balls = app.challengeStep == 0 ? t->balls : std::max(app.challengeBalls, 1);
       if (t->numOrange > 0) cfg.orange = t->numOrange;
       cfg.clearLevel = t->clearLevel;
       auto ng = t->raw.find("NoGreens");
@@ -127,42 +162,65 @@ bool GameScreen::startLevel(const std::string& name) {
         cfg.ch = ChallengeRules{};
         cfg.ch.active = true;
         for (const auto& [k, v] : t->raw) cfg.ch.set(k, v);
+        if (auto bo = t->raw.find("BackgroundOverride"); bo != t->raw.end() && bo->second.size() > 7 && bo->second.compare(0, 7, "levels/") == 0)
+          lb_.background = bo->second.substr(7);
         if (t->scoreReq > 0) cfg.ch.scoreReq = t->scoreReq;
         if (t->scoreCeil > 0) cfg.ch.scoreCeil = t->scoreCeil;
         cfg.ch.levelIndex = std::max(0, app.challengeStep);
         cfg.ch.levelCount = std::max<int>(1, (int)t->levels.size());
         if (app.challengeStep == 0 && !app.challengeKeepLives) { app.challengeLives = std::max(1, t->lives); app.challengeScore = 0; }
-        app.challengeKeepLives = false;
+        if (!ownChoice || charChosen_) app.challengeKeepLives = false;
         if (!t->scoreReset && app.challengeStep > 0) cfg.startScore = app.challengeScore;
-      } else if (ng != t->raw.end() && ng->second.find("true") != std::string::npos) cfg.greens = false;
+      } else {
+        if (ng != t->raw.end() && ng->second.find("true") != std::string::npos) cfg.greens = false;
+        if (app.challengeStep == 0) app.challengeScore = app.challengeScore2 = 0;
+        else if (!t->scoreReset) { cfg.startScore = app.challengeScore; cfg.startScore2 = app.challengeScore2; }
+      }
       auto ch = t->raw.find("Characters");
       if (ch != t->raw.end()) {
         int k = masterIndexByName(ch->second);
         if (k >= 0) cfg.master[0] = Board::masterByName(kMasterNames[k]);
       }
     }
-  const TrophyInfo* ctr = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
-  const bool duelChallenge = ctr && !ctr->opponents.empty();
   duel_ = app.gameMode == GameMode::Duel || duelChallenge;
   cfg.players = duel_ ? 2 : 1;
   cfg.duel = duel_;
   human2_ = duel_ && app.gameMode == GameMode::Duel && app.curProfile && !app.curProfile->computerPlayer;
   if (!duel_ && lb_.cfg.master[0] >= masters::kFirstPower && masters::byPower(lb_.cfg.master[0])) cfg.master[0] = lb_.cfg.master[0];
   if (duel_) {
-    cfg.master[1] = Board::masterByName(kMasterNames[std::clamp(app.curProfile ? randomMaster(app.curProfile->char2) : 1, 0, app.game == Game::Nights ? 10 : 9)]);
+    cfg.master[1] = Board::masterByName(kMasterNames[std::clamp(app.curProfile ? randomMaster(app.curProfile->char2, 1) : 1, 0, app.game == Game::Nights ? 10 : 9)]);
     if (const int mp = modPowerFor(app, 1)) cfg.master[1] = mp;
+    keepRoll_ = false;
   }
   demo_ = app.gameMode == GameMode::Demo;
   if (duelChallenge) {
     int oi = masterIndexByName(ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)]);
+    if (oi < 0) {
+      std::string low = ctr->opponents[std::min<size_t>((size_t)std::max(0, app.challengeStep), ctr->opponents.size() - 1)];
+      for (auto& ch : low) ch = (char)std::tolower((unsigned char)ch);
+      if (low == "rand") {
+        const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+        int pick = 0;
+        for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
+          pick = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+          if (pick != app.lastOpponent) break;
+        }
+        app.lastOpponent = pick;
+        oi = std::clamp(pick, 0, app.game == Game::Nights ? 10 : 9);
+      }
+    }
     if (oi >= 0) cfg.master[1] = Board::masterByName(kMasterNames[oi]);
   }
   aiWait_ = 0;
+  aiState_ = 0;
+  aiFixed_ = -100;
   cfg.liveSpin = !demo_;
+  if (app.audio) app.audio->dropQueued();
+  spinHeld_.clear();
   board_ = Board();
   cfg_ = cfg;
   log_.clear();
-  recording_ = !duel_ && !demo_ && !viewer_;
+  recording_ = !demo_ && !viewer_;
   haveSnap_ = false;
   if (!board_.load(lb_.base, lb_.level, cfg, &err)) {
     loadError = err;
@@ -170,18 +228,51 @@ bool GameScreen::startLevel(const std::string& name) {
     return false;
   }
   done_ = endShown_ = false;
+  statsSent_ = false;
+  statsMode_ = app.gameMode;
   overTicks = 0;
   pauseCount_ = pauseFade_ = 0;
+  focusPaused_ = false;
   rightDown_ = keyUp_ = keyDown_ = false;
   pushMouse();
   app.playMusic("level");
   stageDialogDelay_ = 15;
-  if (duel_ && !charChosen_ && app.gameMode == GameMode::Duel) showCharacterDialog();
+  if (!charChosen_ && ((duel_ && app.gameMode == GameMode::Duel) || ownChoice)) showCharacterDialog();
   return true;
 }
 
+bool GameScreen::choosesMaster() const {
+  if (!app.curProfile || viewer_) return false;
+  if (app.gameMode == GameMode::QuickPlay) return true;
+  if (app.gameMode == GameMode::Adventure) return app.curProfile->maxStage >= (app.game == Game::Nights ? 11 : 10);
+  if (app.gameMode == GameMode::Challenge) {
+    const TrophyInfo* t = app.trophies.byId(app.curChallenge);
+    return t && t->opponents.empty() && t->raw.find("Characters") == t->raw.end();
+  }
+  return false;
+}
+
+int GameScreen::chosenMaster() {
+  const int c = app.curProfile->char1;
+  const bool keep = keepRoll_ && rolled_ >= 0 && rolled_ < 10;
+  keepRoll_ = false;
+  if (c != CharacterDialog::randomChoice(app.game)) return std::clamp(c, 0, app.game == Game::Nights ? 10 : 9);
+  if (keep) return rolled_;
+  const int met = CharacterDialog::mastersMet(app.game, app.curProfile);
+  for (int tries = met > 1 ? 50 : 1; tries > 0; tries--) {
+    rolled_ = CharacterDialog::masterMetAt(app.game, (int)(app.rand() % (unsigned)met));
+    if (rolled_ != app.lastRolled) break;
+  }
+  app.lastRolled = rolled_;
+  return rolled_;
+}
+
+void GameScreen::masterChosen(bool picked) {
+  keepRoll_ = !picked;
+}
+
 void GameScreen::showStageDialog() {
-  if (app.gameMode != GameMode::Adventure || !app.curProfile || boardResets_ >= 1) return;
+  if (app.gameMode != GameMode::Adventure || !app.curProfile || boardResets_ >= 1 || choosesMaster()) return;
   const LevelInfo* li = app.curLevelInfo();
   if (!li || li->dialog.empty()) return;
   const std::string& t = li->dialog;
@@ -193,6 +284,7 @@ void GameScreen::showStageDialog() {
     else if (t.find("PURPLE PEG") != std::string::npos) img = 4;
   }
   Dialog* d = app.doDialog(D_Tip, true, li->dialogTitle, t, "OK", BUTTONS_FOOTER);
+  d->scrollTarget = 100;
   if (img > 0)
     d->extraDraw = [img](Dialog& dl, Gfx& g) {
       std::string id = img == 1 ? "IMAGE_DLG_INSTRUCTIONS" : "IMAGE_DLG_INSTRUCTIONS" + std::to_string(img);
@@ -209,22 +301,33 @@ void GameScreen::startChallengeLevel() {
   ready_ = startLevel(levelFile_);
 }
 
-void GameScreen::restartLevel() {
+void GameScreen::countLevelStart() {
+  if (app.game == Game::Deluxe && app.gameMode == GameMode::Adventure && app.curProfile) app.curProfile->countLevelStart();
+}
+
+void GameScreen::restartLevel(bool fromMenu) {
   boardResets_++;
-  if (app.gameMode == GameMode::Adventure && app.curProfile) {
-    app.curProfile->advLevelAttempts++;
-    app.curProfile->advRetries++;
-    app.curProfile->dirty = true;
-  }
+  if (app.game == Game::Nights && fromMenu && app.gameMode == GameMode::Adventure && app.curProfile) app.curProfile->countFailedTry();
+  countLevelStart();
   seed = app.rand();
   ready_ = startLevel(levelFile_);
 }
 
+bool GameScreen::hasProgress() const {
+  if (!ready_ || done_ || viewer_ || demo_ || !app.curProfile) return false;
+  switch (app.gameMode) {
+    case GameMode::Adventure: return board_.result.shots > 0;
+    case GameMode::QuickPlay: return board_.score[0] > 0;
+    case GameMode::Duel: return board_.score[0] > 0 || board_.score[1] > 0;
+    case GameMode::Challenge: return app.challengeStep > 0 || board_.score[0] > 0;
+    default: return false;
+  }
+}
+
 void GameScreen::showCharacterDialog() {
-  auto d = std::make_unique<CharacterDialog>(app);
+  auto d = std::make_unique<CharacterDialog>(app, duel_);
   CharacterDialog* raw = d.get();
-  float h = raw->preferredHeight(raw->w);
-  raw->resize((800 - raw->w) / 2, std::max(8.0f, (600 - h) / 2), raw->w, h);
+  raw->place();
   raw->doScroll(true);
   app.addDialog(D_Character, std::move(d));
   pause(true);
@@ -236,19 +339,19 @@ void GameScreen::recMouse(int x, int y) {
   if (!recording_) return;
   if (!log_.empty() && log_.back().kind == 0 && log_.back().a == x && log_.back().b == y) return;
   if (!log_.empty() && log_.back().kind == 0 && log_.back().tick == board_.tick) { log_.back().a = x; log_.back().b = y; return; }
-  log_.push_back({board_.tick, 0, x, y});
+  log_.push_back({board_.tick, 0, x, y, board_.frames});
 }
 void GameScreen::recClick() {
   board_.gunClick();
-  if (recording_) log_.push_back({board_.tick, 1, 0, 0});
+  if (recording_) log_.push_back({board_.tick, 1, 0, 0, board_.frames});
 }
 void GameScreen::recRelease() {
   board_.gunRelease();
-  if (recording_) log_.push_back({board_.tick, 3, 0, 0});
+  if (recording_) log_.push_back({board_.tick, 3, 0, 0, board_.frames});
 }
 void GameScreen::recWheel(int n) {
   board_.gunWheel(n);
-  if (recording_ && n != 0) log_.push_back({board_.tick, 2, n, 0});
+  if (recording_ && n != 0) log_.push_back({board_.tick, 2, n, 0, board_.frames});
 }
 
 void GameScreen::clickBoard() {
@@ -310,13 +413,82 @@ void GameScreen::replayFinished() {
     (void)d;
     return;
   }
-  Dialog* d = app.doDialog(D_Replay1, true, "Instant Replay Finished!", "Hit ^FF44FF^Done^oldclr^ to Return to Game.\nHit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "", BUTTONS_YES_NO);
-  d->setYesNo("Done", canSaveReplay() ? "Save Replay" : "Close");
-  pause(true);
-  replayDlgPaused_ = true;
+  showReplayPanel();
 }
 
-bool GameScreen::saveReplay(bool all, std::string* pathOut) {
+namespace {
+constexpr int kReplayIR = 9101, kReplaySave = 9102, kReplayDone = 9103;
+}
+
+void GameScreen::showReplayPanel() {
+  if (!rbReplay_) {
+    rbReplay_ = embeddedButton(kReplayIR, "IMAGE_DLG_INSTANTREPLAY", 0, 0);
+    rbSave_ = patchButton(kReplaySave, "Save", "IMAGE_DLG_PURPLEBUTTON", 0, 0);
+    rbDone_ = patchButton(kReplayDone, "Done", "IMAGE_DLG_PURPLEBUTTON", 0, 0);
+  }
+  replayPanel_ = true;
+  layoutReplayPanel();
+}
+
+void GameScreen::layoutReplayPanel() {
+  const float dw = (float)(canvasWidth() - 800);
+  Button* const b[3] = {rbReplay_, rbSave_, rbDone_};
+  const float top[3] = {395, 468, 539};
+  for (int i = 0; i < 3; i++) {
+    if (!b[i]) continue;
+    b[i]->x = 736 + dw;
+    b[i]->y = top[i];
+    b[i]->visible = replayPanel_;
+    b[i]->enabled = i != 1 || canSaveReplay();
+  }
+}
+
+void GameScreen::drawReplayHousing(Gfx& g) {
+  Tex* top = g.img("IMAGE_DLG_REPLAYTOP");
+  Tex* seg = g.img("IMAGE_DLG_REPLAYSEGMENT");
+  if (!top || !seg) return;
+  const float x = 726 + (float)(canvasWidth() - 800);
+  float y = 385;
+  g.draw(top, x, y);
+  y += top->lh() - 2;
+  for (int i = 0; i < 2; i++) {
+    g.draw(seg, x, y);
+    y += seg->lh() - 2;
+  }
+}
+
+void GameScreen::drawReplayText(Gfx& g) {
+  const float dw = (float)(canvasWidth() - 800);
+  const float cx = 400 + dw / 2;
+  static const int kInset[10] = {10, 7, 6, 4, 3, 3, 2, 1, 1, 1};
+  for (int r = 0; r < 81; r++) {
+    const int d = std::min(r, 80 - r);
+    const int ins = d < 10 ? kInset[d] : 0;
+    g.fill(cx - 206 + (float)ins, 157 + (float)r, 412 - 2.0f * (float)ins, 1, 0x000000, 100.0f / 255.0f);
+  }
+  const std::string font = "OVERLOAD16OUTLINE";
+  const auto centred = [&](float y, const std::string& tagged, const std::string& plain) {
+    g.drawString(font, std::floor(cx - std::floor(g.textWidth(font, plain) / 2)), y, tagged, 0xffffff, 1, Align::Left);
+  };
+  centred(189, "Instant Replay Finished!", "Instant Replay Finished!");
+  centred(213, "Hit ^FF44FF^Done Button^oldclr^ to Return to Game.", "Hit Done Button to Return to Game.");
+  centred(237, "Hit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "Hit Instant Replay Button to Watch Again.");
+  g.drawString(font, 99, 85, "Replay", 0xffff00, 1, Align::Left);
+  g.drawString(font, 637 + dw, 85, "Replay", 0xffff00, 1, Align::Left);
+}
+
+void GameScreen::onButton(int id) {
+  if (!replayPanel_) return;
+  if (id == kReplaySave) {
+    if (canSaveReplay()) app.doSaveReplayDialog();
+    return;
+  }
+  replayPanel_ = false;
+  layoutReplayPanel();
+  if (id == kReplayIR) startReplay();
+}
+
+bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut, const std::string& stem) {
   if (!canSaveReplay()) return false;
   ReplayData d;
   d.game = app.game == Game::Nights ? 1 : 0;
@@ -332,7 +504,7 @@ bool GameScreen::saveReplay(bool all, std::string* pathOut) {
   char stamp[32];
   std::time_t t = (std::time_t)d.when;
   std::strftime(stamp, sizeof stamp, "%Y%m%d_%H%M%S", std::localtime(&t));
-  std::string path = (app.userDir / "replays" / (levelFile_ + "_" + stamp + replayExt(d.game))).string();
+  const std::filesystem::path path = app.userDir / "replays" / pathFromUtf8(stem.empty() ? levelFile_ + "_" + stamp + replayExt(d.game) : stem + replayExt(d.game));
   if (!d.save(path)) return false;
   if (pathOut) *pathOut = path;
   return true;
@@ -350,6 +522,8 @@ bool GameScreen::startViewer(const ReplayData& d) {
   BoardConfig rcfg = d.cfg;
   rcfg.liveSpin = true;
   cfg_ = rcfg;
+  if (app.audio) app.audio->dropQueued();
+  spinHeld_.clear();
   board_ = Board();
   if (!board_.load(lb_.base, lb_.level, rcfg, &err)) { loadError = err; return false; }
   replay_ = board_;
@@ -370,8 +544,31 @@ bool GameScreen::startViewer(const ReplayData& d) {
 }
 
 int GameScreen::aiSkill() const {
-  int s = app.curProfile ? app.curProfile->computerSkill : 1;
-  return s == 2 ? 10 : s == 1 || s == -1 ? 1 : 0;
+  auto level = [](int s) { return s == 2 ? 10 : s == 1 ? 1 : s == -1 ? -1 : 0; };
+  if (demo_) return 10;
+  if (aiFixed_ != -100) return aiFixed_;
+  if (app.gameMode == GameMode::Challenge)
+    if (const TrophyInfo* t = app.trophies.byId(app.curChallenge))
+      if (!t->opponentDifficulty.empty())
+        return level(t->opponentDifficulty[std::min<size_t>((size_t)std::max(0, app.challengeStep), t->opponentDifficulty.size() - 1)]);
+  return level(app.curProfile ? app.curProfile->computerSkill : -1);
+}
+
+uint32_t GameScreen::aiDraw() {
+  aiDrawn_++;
+  return (uint32_t)(aiBoard_ ? aiBoard_->rng.rand() : board_.rng.rand());
+}
+
+void GameScreen::logAi(uint8_t kind, int a, int b) {
+  if (recording_) log_.push_back({board_.tick, kind, a, b, board_.frames});
+}
+
+namespace {
+int floatBits(float f) {
+  int v = 0;
+  std::memcpy(&v, &f, sizeof v);
+  return v;
+}
 }
 
 void GameScreen::aiTurn() {
@@ -380,19 +577,29 @@ void GameScreen::aiTurn() {
   if (!ai_) ai_ = std::make_unique<AIMgr>();
   if (aiState_ == 0) {
     if (aiWait_ >= (b.shotIndex > 0 ? 150 : 100)) {
-      ai_->begin(b, aiSkill(), [&b] { return (uint32_t)b.rng.rand(); });
+      aiDrawn_ = 0;
+      ai_->begin(b, aiSkill(), [this] { return aiDraw(); });
+      logAi(4, (int)aiDrawn_, 1);
+      aiDrawn_ = 0;
       aiState_ = 1;
       aiTick_ = 0;
+      aiThink_ = 0;
     }
   } else if (aiState_ == 1) {
-    if (ai_->update(10)) {
+    aiThink_++;
+    aiDrawn_ = 0;
+    const bool finished = ai_->update(10);
+    if (aiDrawn_ > 0) logAi(4, (int)aiDrawn_, 0);
+    aiDrawn_ = 0;
+    if (finished) {
+      aiChosen_ = ai_->angle();
       aiState_ = 2;
       aiTick_ = 0;
     }
   } else {
     aiTick_++;
-    if (aiTick_ >= 20 && ai_->angle() != b.gunAngle) {
-      float want = ai_->angle(), cur = b.gunAngle;
+    if (aiTick_ >= 20 && aiChosen_ != b.gunAngle) {
+      float want = aiChosen_, cur = b.gunAngle;
       if (want < 1.5707964f) want = want + 6.2831855f;
       if (cur < 1.5707964f) cur = cur + 6.2831855f;
       float rate = 0.1f * std::fabs(want - cur);
@@ -406,12 +613,14 @@ void GameScreen::aiTurn() {
       }
       gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, cur, true);
       b.lmAim = cur;
+      logAi(5, floatBits(cur), 0);
     }
     if (aiTick_ >= 100) {
-      b.lmAim = ai_->angle();
+      b.lmAim = aiChosen_;
       gun::setAngle(b.gunState, b.gunAngle, b.gunTarget, b.lmAim, true);
       b.fireHeld = true;
       b.fireCooldown = 0;
+      logAi(6, floatBits(aiChosen_), 0);
       aiState_ = 0;
       aiWait_ = 0;
     }
@@ -428,6 +637,7 @@ void GameScreen::pause(bool on) {
   } else if (pauseCount_ > 0) {
     pauseCount_--;
     if (pauseCount_ == 0) {
+      focusPaused_ = false;
       keyUp_ = keyDown_ = rightDown_ = false;
       pushMouse();
     }
@@ -435,7 +645,9 @@ void GameScreen::pause(bool on) {
 }
 
 void GameScreen::lostFocus() {
-  if (ready_ && !done_) pause(true);
+  if (!ready_ || done_ || focusPaused_) return;
+  focusPaused_ = true;
+  pause(true);
 }
 
 int GameScreen::stepsThisTick() const {
@@ -467,7 +679,7 @@ LevelOutcome GameScreen::collectOutcome() const {
   o.shotPoints = r.shotPoints;
   o.feverPoints = r.feverPoints;
   o.stylePoints = r.stylePoints;
-  o.freeBalls = r.freeBalls;
+  o.freeBalls = r.freeBallTotal();
   o.ballsLeft = r.finished ? r.ballsLeft : b.ballsLeft[0];
   o.orangeTotal = r.orangeTotal ? r.orangeTotal : b.orangeTotal;
   o.orangeHit = r.orangeTotal ? r.orangeHit : b.orangeTotal - b.orangeLeft;
@@ -500,17 +712,27 @@ void GameScreen::update() {
     }
   }
   if (stageDialogDelay_ > 0 && --stageDialogDelay_ == 0) showStageDialog();
-  if (replayDlgPaused_ && !app.getDialog(D_Replay1) && !app.getDialog(D_SaveAll)) { replayDlgPaused_ = false; pause(false); }
+  if (endPending_) {
+    endPending_ = false;
+    app.showEndLevel(pendingMode_, pendingOut_, levelFile_, pendingTitle_, pendingRank_, pendingBest_);
+    app.setRandState(randAfter_);
+  }
   if (tipPaused_ && !app.getDialog(D_Tip)) { tipPaused_ = false; pause(false); }
   if (charPaused_ && !app.getDialog(D_Character)) {
     charPaused_ = false;
     charChosen_ = true;
     pause(false);
     ready_ = startLevel(levelFile_);
+    charChosen_ = duel_;
     return;
   }
+  if (replayPanel_) return;
   if (pauseCount_ > 0) return;
   if (!app.windowFocused) return;
+  if (!spinHeld_.empty() && !app.getDialog(D_Slot)) {
+    if (app.audio) app.audio->onEvents(spinHeld_, b);
+    spinHeld_.clear();
+  }
   if (app.getDialog(D_Slot)) return;
   if (replaying_) { stepReplay(); return; }
   int n = stepsThisTick();
@@ -529,15 +751,30 @@ void GameScreen::update() {
     if (b.phase == Phase::Over) {
       if (!done_) finishLevel();
       overTicks++;
-      if (b.result.cleared && overTicks < 100) overTicks = 0;
+      if (b.result.cleared && !demo_ && overTicks < 100) overTicks = 0;
       if (demo_ && overTicks > 100 && !endShown_) { endShown_ = true; app.doToMenu(); return; }
       if (!endShown_ && overTicks > 100) {
         endShown_ = true;
-        app.showEndLevel(pendingMode_, pendingOut_, app.scoreKey(levelFile_, board_.cfg.boardWidth), pendingTitle_, pendingRank_, pendingBest_);
+        app.showEndLevel(pendingMode_, pendingOut_, levelFile_, pendingTitle_, pendingRank_, pendingBest_);
       }
     }
   }
-  if (app.audio) app.audio->onEvents(b.events, b);
+  if (app.audio && spinOutcome >= 0) {
+    std::vector<Event> heard;
+    bool afterSpin = false;
+    for (const auto& e : b.events) {
+      if (e.type == Event::LuckySpin) afterSpin = true;
+      if (e.type == Event::Power && e.a >= 200 && e.a <= 203) continue;
+      if (e.type == Event::Power && afterSpin && e.a == spinPower) {
+        spinHeld_.push_back(e);
+        continue;
+      }
+      heard.push_back(e);
+    }
+    app.audio->onEvents(heard, b);
+  } else if (app.audio) {
+    app.audio->onEvents(b.events, b);
+  }
   if (app.audio && app.boardRenderer) app.audio->playFx(app.boardRenderer->takeSounds());
   for (const auto& e : b.events)
     if (e.type == Event::CoinFlip && app.curProfile && !app.curProfile->tipSet(2)) app.curProfile->setTip(2);
@@ -551,7 +788,7 @@ void GameScreen::finishLevel() {
   bool won = o.won;
   if (app.gameMode == GameMode::Challenge)
     if (const TrophyInfo* t = app.trophies.byId(app.curChallenge))
-      if (!cfg_.ch.active && t->scoreReq > 0 && o.totalScore < t->scoreReq) { won = false; o.won = false; }
+      if (!cfg_.ch.active && t->scoreReq > 0 && app.challengeStep + 1 >= (int)t->levels.size()) { won = o.totalScore > t->scoreReq; o.won = won; }
   if (app.game == Game::Nights && app.gameMode == GameMode::Challenge && cfg_.ch.active && !won) {
     const ChallengeRules& c = cfg_.ch;
     const LevelResult& r = board_.result;
@@ -592,33 +829,87 @@ void GameScreen::finishLevel() {
   applyProgress(o, won);
 }
 
+void GameScreen::submitStats() {
+  PlayerInfo* p = app.curProfile;
+  const LevelResult& r = board_.result;
+  if (statsSent_ || !p || duel_ || demo_ || viewer_ || r.shots <= 0) return;
+  if (statsMode_ != GameMode::Adventure && statsMode_ != GameMode::QuickPlay && statsMode_ != GameMode::Challenge) return;
+  statsSent_ = true;
+  GameStats s;
+  s.shots = r.shots;
+  s.bestShot = r.bestShot;
+  s.bestFever = r.bestFever;
+  for (int i = 0; i < 4; i++) s.freeBalls[i] = r.freeBalls[i];
+  for (int i = 0; i < 24; i++) s.styleShots[i] = r.styleCount[i];
+  p->addTotalStats(s, app.game == Game::Deluxe || statsMode_ == GameMode::Adventure);
+}
+
+void GameScreen::onLeave() {
+  if (charPaused_) app.killDialog(D_Character);
+  PlayerInfo* p = app.curProfile;
+  if (sessionsOf(app).keep(*this)) {
+    app.saveProfile();
+    return;
+  }
+  if (p && ready_ && statsMode_ == GameMode::Adventure && !done_ && !viewer_ && !demo_) {
+    const bool played = board_.result.shots > 0;
+    if (app.game == Game::Deluxe && !played) p->uncountLevelStart();
+    else if (app.game == Game::Nights && played) p->countFailedTry();
+  }
+  app.saveProfile();
+}
+
 static int tryBonus(int tryNumber) {
   return tryNumber == 1 ? 100000 : tryNumber == 2 ? 50000 : tryNumber == 3 ? 25000 : 0;
 }
 
+static void keepChallengeBest(PlayerInfo& p, const TrophyInfo& t, const Board& b, bool nights, int score) {
+  if (b.cfg.players > 1 || !t.opponents.empty()) return;
+  if (!nights) {
+    if (!t.scoreReset && t.lives <= 1) p.checkTrophyTopScore(t.id, score);
+    return;
+  }
+  const ChallengeRules& c = b.cfg.ch;
+  if (!c.active || b.cfg.clearLevel) return;
+  if (t.numOrange != 0 && t.numOrange != 25) return;
+  if (t.levels.size() > 1 && !t.scoreReset) return;
+  if (!c.noForceWin && !b.levelWon(false)) return;
+  int need = 0, left = 0, unique = 0;
+  for (int i = 0; i < 24; i++) {
+    need += c.styleShots[i];
+    left += b.styleReq[i];
+    unique += b.result.styleCount[i] > 0;
+  }
+  const bool scored = c.scoreReq != 0 || c.scoreCeil != 0;
+  const int goals = (scored ? 1 : 0) + (c.styleScoreReq > 0 ? 1 : 0) + (c.uniqueStyleReq > 0 ? 1 : 0) + (need > 0 ? 1 : 0);
+  if (goals > 1) return;
+  if (scored) p.checkTrophyTopScore(t.id, score, c.scoreCeil > 0);
+  else if (c.styleScoreReq > 0) p.checkTrophyTopScore(t.id, b.result.stylePoints);
+  else if (c.uniqueStyleReq > 0) p.checkTrophyTopScore(t.id, unique);
+  else if (need > 0) p.checkTrophyTopScore(t.id, need - left);
+  else p.checkTrophyTopScore(t.id, score);
+}
+
 void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
   LevelOutcome o = oIn;
-  PlayerInfo* p = app.curProfile;
+  PlayerInfo* p = demo_ ? nullptr : app.curProfile;
   int rank = 0;
   bool newBest = false;
   EndLevelDialog::Mode mode = EndLevelDialog::QuickLose;
   const LevelInfo* li = app.curLevelInfo();
   std::string title = li ? li->title : levelFile_;
-  if (p) {
-    p->statsA.a0 += o.shots;
-    p->statsB.a0 += o.shots;
-    if (o.bestShot > p->statsB.bestShot) p->statsB.bestShot = o.bestShot;
-  }
+  if (app.game == Game::Nights && li) o.aceScore = li->ace;
+  submitStats();
   if (app.gameMode == GameMode::Adventure) {
     mode = won ? EndLevelDialog::AdventureWin : EndLevelDialog::AdventureLose;
     if (won && p) {
-      rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
+      rank = app.highScores.submit(levelFile_, p->name, o.totalScore);
       o.prevTotal = p->advScore;
-      o.tryNumber = p->advLevelAttempts + 1;
+      o.tryNumber = p->tryNumber(app.game == Game::Nights);
       o.tryBonus = tryBonus(o.tryNumber);
       p->advScore += o.totalScore + o.tryBonus;
       if (o.cleared) p->clearedLevels.insert(levelFile_);
-      if (app.game == Game::Nights && li && li->ace > 0 && o.totalScore > li->ace) p->acedLevels.insert(levelFile_);
+      if (app.game == Game::Nights && li && li->ace > 0 && o.totalScore >= li->ace) p->acedLevels.insert(levelFile_);
       if (o.cleared) for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
       app.incLevel(1);
       if (p->justBeatAdventure()) {
@@ -629,14 +920,19 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         mode = EndLevelDialog::AdventureComplete;
         if (app.boardRenderer) app.boardRenderer->masterBadge();
       }
+    } else if (!won && p && app.game == Game::Nights) {
+      p->countFailedTry();
     }
   } else {
     mode = won ? (app.gameMode == GameMode::Challenge ? EndLevelDialog::ChallengeWin : EndLevelDialog::QuickWin)
                : (app.gameMode == GameMode::Challenge ? EndLevelDialog::ChallengeLose : EndLevelDialog::QuickLose);
     if (app.gameMode == GameMode::Challenge) {
       const TrophyInfo* ct = app.trophies.byId(app.curChallenge);
+      if (p && ct) keepChallengeBest(*p, *ct, board_, app.game == Game::Nights, o.totalScore);
       const bool moreLevels = ct && app.challengeStep + 1 < (int)ct->levels.size();
       app.challengeMore = won && moreLevels;
+      app.challengeBalls = o.ballsLeft;
+      if (app.challengeMore && !ct->scoreReset && !cfg_.ch.active && !duel_) app.challengeScore = o.totalScore;
       if (app.game == Game::Nights && ct && cfg_.ch.active && !duel_) {
         if (!ct->scoreReset && moreLevels) {
           mode = EndLevelDialog::ChallengeLevelDone;
@@ -647,19 +943,50 @@ void GameScreen::applyProgress(const LevelOutcome& oIn, bool won) {
         }
         if (mode != EndLevelDialog::ChallengeLose) app.endBodyOverride.clear();
       }
+      if (app.game == Game::Deluxe && ct && !ct->scoreReset && moreLevels) {
+        mode = EndLevelDialog::ChallengeLevelDone;
+        app.challengeMore = true;
+        app.challengeScore = o.totalScore;
+        app.challengeScore2 = duel_ ? board_.score[1] : 0;
+        app.endHeaderOverride.clear();
+      }
       if (p && won && ct && !app.challengeMore) {
         p->awardTrophy(ct->id);
         app.newTrophies.insert(ct->id);
       }
     }
     if (p && won && !duel_) {
-      if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(app.scoreKey(levelFile_, board_.cfg.boardWidth), p->name, o.totalScore);
-      if (o.cleared) p->clearedLevels.insert(levelFile_);
-      if (app.game == Game::Nights && li && li->ace > 0 && o.totalScore > li->ace) p->acedLevels.insert(levelFile_);
-      if (o.cleared) for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
+      if (app.gameMode != GameMode::Challenge) rank = app.highScores.submit(levelFile_, p->name, o.totalScore);
+      if (app.game == Game::Nights && app.gameMode != GameMode::Challenge && li && li->ace > 0 && o.totalScore >= li->ace) p->acedLevels.insert(levelFile_);
+    }
+    if (p && o.cleared && !duel_ && (app.game == Game::Deluxe || (won && app.gameMode != GameMode::Challenge))) {
+      p->clearedLevels.insert(levelFile_);
+      for (auto* t : app.trophies.forClearedLevel(levelFile_)) p->awardTrophy(t->id);
     }
   }
+  if (p && app.game == Game::Deluxe && !duel_ && !demo_ && !viewer_) {
+    const TrophyInfo* ct = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
+    const bool barred = ct && ((ct->levels.size() > 1 && !ct->scoreReset) || (ct->numOrange != 0 && ct->numOrange != 25) || ct->clearLevel);
+    if (!barred) {
+      for (auto* t : app.trophies.forScoreOnLevel(levelFile_, o.totalScore)) {
+        p->awardTrophy(t->id);
+        p->checkTrophyTopScore(t->id, o.totalScore);
+      }
+      if (app.gameMode == GameMode::Challenge) app.highScores.submit(levelFile_, p->name, o.totalScore);
+    }
+  }
+  if (p && !won && !duel_ && !demo_ && !viewer_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay))
+    rank = app.highScores.submit(levelFile_, p->name, o.totalScore);
   newBest = rank == 1;
+  const bool aced = app.game == Game::Nights && won && !duel_ && (app.gameMode == GameMode::Adventure || app.gameMode == GameMode::QuickPlay) && li && li->ace > 0 && o.totalScore >= li->ace;
+  if (app.audio && !o.cleared && (mode == EndLevelDialog::AdventureComplete || aced)) {
+    app.audio->playAfter(130, "TING");
+    app.audio->playAfter(160, "APPLAUSE");
+  }
+  if (app.audio && o.cleared && aced && mode != EndLevelDialog::AdventureComplete) {
+    app.audio->playAfter(211, "TING");
+    app.audio->playAfter(211, "APPLAUSE");
+  }
   if (app.game == Game::Nights && p && won) {
     int after = 0;
     for (int i = 0; i < 4; i++) after |= MainMenu::mantelEarned(app, i) ? 1 << i : 0;
@@ -723,7 +1050,7 @@ void GameScreen::drawLayer(Gfx& g) {
       hud_.topName = board_.cur == 0 ? oppName() : me;
       hud_.topScore = board_.score[1 - board_.cur] + 0;
     }
-        const auto& hs = app.highScores.scores(app.scoreKey(levelFile_, board_.cfg.boardWidth));
+        const auto& hs = app.highScores.scores(levelFile_);
         if (!hs.empty() && !duel_) { hud_.topScore = hs[0].score; hud_.topName = hs[0].name; }
         break;
       }
@@ -739,8 +1066,13 @@ void GameScreen::drawLayer(Gfx& g) {
     hud_.menuOver = mouseOverMenu_ && pauseCount_ == 0;
     hud_.replayOver = mouseOverReplay_ && pauseCount_ == 0;
     app.boardRenderer->setVisualOptions(app.settings.vis);
+    app.boardRenderer->setFrameCanvas(canvasWidth());
     hud_.alpha = pauseCount_ == 0 && !app.anyDialog() ? app.renderAlpha : 1.0f;
     app.boardRenderer->draw(replaying_ || viewer_ ? replay_ : board_, lb_, hud_);
+  }
+  if (replayPanel_) {
+    layoutReplayPanel();
+    drawReplayHousing(g);
   }
 }
 
@@ -749,7 +1081,8 @@ void GameScreen::drawOverlay(Gfx& g) {
   float dw = (float)(canvasWidth() - 800);
   std::string corner = replaying_ ? std::string("Instant Replay") : cornerText();
   if (!corner.empty()) g.drawString("OVERLOAD16OUTLINE", 588 + dw / 2, 28, corner, 0xffffff, 1, Align::Center);
-  if (board_.phase == Phase::Over && board_.result.cleared && overTicks < 100 && !endShown_)
+  if (replayPanel_) drawReplayText(g);
+  if (board_.phase == Phase::Over && board_.result.cleared && !demo_ && overTicks < 100 && !endShown_)
     g.drawString("OVERLOAD16OUTLINE", 75 + 325 + dw / 2, 40 + 440, "Click to Continue", 0xffffff, 0.6f + 0.4f * std::sin(updateCount * 0.08f), Align::Center);
   if (pauseFade_ > 0 && !app.anyDialog()) {
     g.fill(-dw, 0, 800 + 2 * dw, 600, 0x000000, std::min(1.0f, (100 * pauseFade_ / 10) / 255.0f));
@@ -761,6 +1094,7 @@ void GameScreen::nextLevel() {
   levelFile_.clear();
   if (const LevelInfo* li = app.curLevelInfo()) levelFile_ = li->file;
   seed = app.rand();
+  countLevelStart();
   ready_ = startLevel(levelFile_);
 }
 
@@ -768,10 +1102,14 @@ static bool inReplayButton(float x, float y, float dw) { return x >= 736 + dw &&
 static bool inMenuButton(float x, float y) { return x >= 12 && x < 63 && y >= 540 && y < 591; }
 
 bool GameScreen::input(const Input& in) {
-  if (demo_ && (in.type == Input::MouseDown || in.type == Input::KeyDown)) { app.doToMenu(); return true; }
+  if (replayPanel_) return Panel::input(in);
+  const auto menuLive = [&]() { return inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0; };
+  const auto replayLive = [&]() {
+    return inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn();
+  };
   switch (in.type) {
     case Input::MouseMove:
-      mouseBx_ = (int)std::floor(in.x) - 75;
+      mouseBx_ = (int)std::floor(in.x) - boardLeft();
       mouseBy_ = (int)std::floor(in.y) - 40;
       haveMouse_ = true;
       mouseOverMenu_ = inMenuButton(in.x, in.y);
@@ -782,16 +1120,17 @@ bool GameScreen::input(const Input& in) {
       mouseOverMenu_ = false;
       break;
     case Input::MouseDown:
-      mouseBx_ = (int)std::floor(in.x) - 75;
+      mouseBx_ = (int)std::floor(in.x) - boardLeft();
       mouseBy_ = (int)std::floor(in.y) - 40;
       haveMouse_ = true;
       if (in.button == 3 && ready_ && !replaying_ && inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && canSaveReplay() && board_.shotIndex > 0 && pauseCount_ == 0 &&
           !done_ && board_.phase == Phase::Aim && humanTurn()) { startReplay(true); break; }
       if (in.button == 3) { rightDown_ = true; break; }
       if (in.button != 1 || !ready_) break;
+      heldButton_ = 0;
       if (replaying_) { stopReplay(); if (viewer_) app.doToMenu(); break; }
-      if (inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0) { app.doOptionsDialog(); break; }
-      if (inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn()) { startReplay(); break; }
+      if (menuLive()) { heldButton_ = 1; break; }
+      if (replayLive()) { heldButton_ = 2; break; }
       if (pauseCount_ > 0) { if (!app.anyDialog()) pause(false); break; }
       pushMouse();
       if (board_.phase == Phase::Over) { if (board_.result.cleared && overTicks < 100) overTicks = 100; }
@@ -799,6 +1138,12 @@ bool GameScreen::input(const Input& in) {
       break;
     case Input::MouseUp:
       if (in.button == 3) rightDown_ = false;
+      else if (in.button == 1 && heldButton_ != 0) {
+        const int held = heldButton_;
+        heldButton_ = 0;
+        if (held == 1 && menuLive()) app.doOptionsDialog();
+        else if (held == 2 && replayLive()) startReplay();
+      }
       else if (in.button == 1 && ready_ && !replaying_ && pauseCount_ == 0 && humanTurn()) recRelease();
       break;
     case Input::Wheel:
@@ -815,7 +1160,20 @@ bool GameScreen::input(const Input& in) {
   return true;
 }
 
+void GameScreen::menuThroughDialog(const Input& in) {
+  if (!charPaused_ || done_ || in.button != 1) return;
+  const bool over = inMenuButton(in.x, in.y);
+  if (in.type == Input::MouseDown) {
+    if (over) heldButton_ = 1;
+  } else if (in.type == Input::MouseUp && heldButton_ == 1) {
+    heldButton_ = 0;
+    if (over) app.doOptionsDialog();
+  }
+}
+
 void GameScreen::keyDown(int key, int) {
+  if (replayPanel_) return;
+  if (demo_ && key != SDLK_ESCAPE) return;
   if (replaying_ && key == SDLK_ESCAPE) { stopReplay(); if (viewer_) app.doToMenu(); return; }
   if (key == SDLK_ESCAPE) {
     if (!app.getDialog(D_Options) && !done_) app.doOptionsDialog();
@@ -868,9 +1226,11 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     next = m == ChallengeWin ? (a.challengeMore ? "Next Level" : "Trophy Menu") : "Replay Level";
   } else {
     header = "Try Again!";
-    next = m == ChallengeLose ? "Retry Challenge" : "Retry Level";
+    next = m == ChallengeLose ? "Retry Challenge" : m == QuickLose && !a.duelEnd.active ? "Replay Level" : "Retry Level";
   }
-  if (a.game == Game::Nights && (m == ChallengeWin || m == ChallengeLose || m == ChallengeLevelDone || m == ChallengeLives)) {
+  const bool challengeEnd = m == ChallengeWin || m == ChallengeLose || m == ChallengeLives;
+  const bool deluxeForm = a.game == Game::Deluxe && challengeEnd && a.endHeaderOverride.empty();
+  if (m == ChallengeLevelDone || deluxeForm || (a.game == Game::Nights && challengeEnd)) {
     msgMode = true;
     if (m == ChallengeLevelDone) {
       const TrophyInfo* t = a.trophies.byId(a.curChallenge);
@@ -890,7 +1250,13 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
       next = more ? "Continue Challenge" : "Trophy Menu";
     } else {
       header = "Try Again!";
-      msgBody = a.endBodyOverride + "Would you like to retry the challenge?";
+      std::string why = a.endBodyOverride;
+      if (const TrophyInfo* t = deluxeForm ? a.trophies.byId(a.curChallenge) : nullptr) {
+        if (t->scoreReq > 0) why = "You didn't get " + commas(t->scoreReq) + " points.\n\n";
+        else if (t->clearLevel) why = "You didn't clear all of the pegs on the level.\n\n";
+        else if (t->lives > 1) why = "You ran out of lives.\n\n";
+      }
+      msgBody = why + "Would you like to retry the challenge?";
       next = "Retry Challenge";
     }
     a.endBodyOverride.clear();
@@ -904,9 +1270,25 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     a.duelEnd.active = false;
   }
   (void)p;
-  bMenu = patchButton(1000, msgMode && m == ChallengeLose ? "New Challenge" : msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
+  bMenu = patchButton(1000, msgMode && (m == ChallengeLevelDone || m == ChallengeLives) ? "Restart Challenge" : "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   bNext = patchButton(1001, next, "IMAGE_DLG_BUTTON3", 0, 0);
-  if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
+  bMenu->visible = !(deluxeForm && m == ChallengeWin);
+  if (m == QuickWin || m == QuickLose) bRetry = patchButton(0, a.game == Game::Nights ? "Play New Level" : "Play Random Level", "IMAGE_DLG_BUTTON3", 0, 0);
+  else if (msgMode && m == ChallengeLose && !deluxeForm) bRetry = patchButton(0, "New Challenge", "IMAGE_DLG_BUTTON3", 0, 0);
+  if (a.game == Game::Nights && m == AdventureWin && p && p->advCompletions == 0) {
+    portraitStage = a.curStage;
+    portraitLevel = a.curLevel;
+    if (portraitLevel > 0) {
+      portraitLevel--;
+    } else {
+      portraitStage--;
+      portraitLevel = 4;
+    }
+    if (portraitStage < 0) {
+      portraitStage = 11;
+      portraitLevel = 4;
+    }
+  }
   countUp = m == AdventureWin || m == AdventureComplete;
   tgt[0] = o.shotPoints; tgt[1] = o.feverPoints; tgt[2] = o.stylePoints; tgt[3] = o.tryBonus; tgt[4] = o.effBonus;
   levelTgt = o.totalScore;
@@ -917,8 +1299,11 @@ EndLevelDialog::EndLevelDialog(App& a, Mode m, const LevelOutcome& o, const std:
     levelCur = levelTgt;
     totalCur = levelTgt;
   }
-  tip = a.stages.tip(a.rand());
-  w = 425;
+  if (p && (m == AdventureLose || (m == AdventureWin && p->advCompletions > 0) || ((m == QuickWin || m == QuickLose) && rk <= 0 && !duelEnd))) {
+    tip = a.stages.tip(p->tipOther);
+    p->incTip(-1);
+  }
+  w = 440;
   const auto& hs = a.highScores.scores(lname);
   for (auto& e : hs) table.push_back(e);
   highlight = rk > 0 ? rk - 1 : -1;
@@ -960,69 +1345,94 @@ float EndLevelDialog::paintDuel(Gfx& g, bool draw) {
   return rowTop + 4 * pitch + 12 + buttons;
 }
 
+void EndLevelDialog::paintPortrait(Gfx& g, float top) {
+  Tex* pic = g.img("IMAGE_CHR_CHARACTER_NEW" + std::to_string(CharacterDialog::masterMetAt(Game::Nights, portraitStage) + 1));
+  if (!pic) return;
+  const float x = w / 2 + 10 - pic->lw() / 2;
+  g.draw(pic, x, top);
+  if (Tex* frame = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(frame, x - 8, top - 8, pic->lw() + 16, pic->lh() + 20);
+  if (Tex* bar = g.img("IMAGE_DLG_STAGEPROGRESS")) g.draw(bar, x - 8, top + 180);
+  int lit = std::clamp(portraitLevel + 1, 1, 5);
+  if ((shownTicks / 40) % 2 == 0 && shownTicks < 800) lit--;
+  static const float kLitWidth[5] = {38, 74, 111, 148, 185};
+  if (lit > 0)
+    if (Tex* fill = g.img("IMAGE_DLG_MASTERSTAGEPROGBAR")) g.drawSrc(fill, 0, 0, kLitWidth[lit - 1], fill->ch(), x, top + 188);
+}
+
 float EndLevelDialog::paint(Gfx& g, bool draw) {
   if (duelEnd) return paintDuel(g, draw);
+  if (msgMode && app.game == Game::Deluxe) {
+    const float tw = w - insL - insR - 4;
+    if (draw) g.drawWrapped(linesFont, {insL + 2, contentTop(g), tw, 0}, msgBody, 0xffff88, 1, Align::Center);
+    return insT + insB + g.fontHeight(headerFont) + 8 + 36 + 8 + g.wrappedHeight(linesFont, tw, msgBody) + 30;
+  }
   if (msgMode) {
     float y = insT + g.fontHeight(headerFont) + 16;
     Rect r{insL, y, w - insL - insR, 400};
     float bodyH = g.wrappedHeight("PLAIN2", r.w, msgBody);
     if (draw) g.drawWrapped("PLAIN2", r, msgBody, 0xffffff, 1, Align::Center);
-    return y + bodyH + 18 + 36 + insB + 8;
+    return y + bodyH + 18 + 36 + (bRetry ? 39 : 0) + insB + 8;
   }
-  bool win = mode != AdventureLose && mode != QuickLose && mode != ChallengeLose;
-  bool list = mode == QuickWin || mode == QuickLose;
-  const float L = insL, R = 390;
+  const bool list = (mode == QuickWin || mode == QuickLose) && rank > 0;
+  const float L = 50, R = 390;
   float y = insT + g.fontHeight(headerFont) + 16;
+  if (portraitStage >= 0) {
+    if (draw) paintPortrait(g, y - 8);
+    y += 209;
+  }
   auto text = [&](const char* font, float x, float base, const std::string& s, uint32_t c, Align al = Align::Left) {
     if (draw) g.drawString(font, x, base, s, c, 1, al);
   };
-  auto bigRow = [&](const char* label, const std::string& v) {
+  const bool nights = app.game == Game::Nights;
+  const uint32_t bigLabel = nights ? 0x66ffbb : 0x66ffff, bigValue = nights ? 0xed88fe : 0xfeed00;
+  const uint32_t rowLabel = nights ? 0xed90fe : 0xe3d540, rowValue = nights ? 0x66ffaa : 0xb9f811;
+  auto bigRow = [&](const std::string& label, const std::string& v, const char* extra = nullptr) {
     float base = y + g.fontAscent(kBig);
-    text(kBig, L, base, label, 0x66ffff);
-    if (draw) g.drawString(kBig, R - g.textWidth(kBig, v), base, v, 0xfeed00);
-    y += g.fontHeight(kBig) + 4;
+    text(kBig, L, base, label, bigLabel);
+    if (extra) text(kBig, L + g.textWidth(kBig, label), base, extra, 0xffff99);
+    if (draw) g.drawString(kBig, R - g.textWidth(kBig, v), base, v, bigValue);
+    y += g.fontHeight(kBig) + (countUp ? 5 : 0);
   };
   const bool advMode = mode == AdventureWin || mode == AdventureLose || mode == AdventureComplete;
   if (mode == AdventureWin || mode == AdventureComplete) {
     bigRow("Total Score:", commas(totalCur));
     if (draw) g.fill(L, y - 3, R - L, 1, 0xffffff);
   }
-  bigRow(advMode ? "Level Score:" : "Score:", commas(levelCur));
+  const bool aceRow = nights && out.won && out.aceScore > 0;
+  if (nights) {
+    if (aceRow) bigRow("Ace Score:", commas(out.aceScore));
+    bigRow("Your Score:", commas(levelCur), aceRow && levelCur > out.aceScore ? " ACED!!" : nullptr);
+  } else {
+    bigRow(advMode ? "Level Score:" : "Score:", commas(levelCur));
+  }
   if ((mode == AdventureWin || mode == AdventureComplete) && tgt[3] > 0) {
     int t = out.tryNumber;
     bigRow(t == 1 ? "Win on 1st Try:" : t == 2 ? "Win on 2nd Try:" : t == 3 ? "Win on 3rd Try:" : "Try Bonus:", commas(cur[3]));
   }
-  y += 8;
+  y += nights ? 8 : 7;
   float sy = y;
   auto row = [&](float x0, float x1, const char* l, const std::string& v) {
     float base = sy + g.fontAscent(kPlain);
-    text(kPlain, x0, base, l, 0xe3d540);
-    if (draw) g.drawString(kPlain, x1 - g.textWidth(kPlain, v), base, v, 0xb9f811);
-    sy += g.fontHeight(kPlain) + 3;
+    text(kPlain, x0, base, l, rowLabel);
+    if (draw) g.drawString(kPlain, x1 - g.textWidth(kPlain, v), base, v, rowValue);
+    sy += g.fontHeight(kPlain) - 3;
   };
-  row(L, L + 140, "Shots:", std::to_string(out.shots));
-  row(L, L + 140, "Free Balls:", std::to_string(out.freeBalls));
-  row(L, L + 140, "% Cleared:", std::to_string(out.percentCleared()) + "%");
+  row(L, 170, "Shots:", std::to_string(out.shots));
+  row(L, 170, "Free Balls:", std::to_string(out.freeBalls));
+  row(L, 170, "% Cleared:", std::to_string(out.percentCleared()));
   sy = y;
-  row(L + 170, R, "Shot Points:", commas(out.shotPoints));
-  row(L + 170, R, "Fever Points:", commas(out.feverPoints));
-  row(L + 170, R, "Style Points:", commas(out.stylePoints));
+  row(210, R, "Shot Points:", commas(out.shotPoints));
+  row(210, R, "Fever Points:", commas(out.feverPoints));
+  row(210, R, "Style Points:", commas(out.stylePoints));
   y = sy + 10;
-  if (!win) {
-    const char* why = out.ballsLeft <= 0 ? "You ran out of balls." : "You didn't clear all of the orange pegs.";
-    float hh = g.drawWrapped("PLAINOUTLINE", {L, y, R - L, 40}, draw ? why : "", 0xffffff, 1, Align::Left);
-    y += draw ? hh : g.fontHeight("PLAINOUTLINE");
-    y += 4;
-  }
   if (list) {
     if (draw) g.fill(L, y, R - L, 1, 0xffffff);
     y += 8;
-    if (newBest) {
-      text(kBig, w / 2, y + g.fontAscent(kBig), "New High Score!", 0xffffff, Align::Center);
-      y += 24;
-    }
+    text(kBig, w / 2, y + g.fontAscent(kBig), "New High Score!", 0xffffff, Align::Center);
+    y += 24;
     float rx = L + 30, nx = rx + 40, sx = nx + 250, lh = g.fontHeight(kPlain) + 1;
     int n = std::min<int>((int)table.size(), 10);
+    if (aceRow && n > 0) lh -= (g.fontHeight(kBig) + 5) / (float)n;
     for (int i = 0; i < n && draw; i++) {
       uint32_t col = i == highlight ? hslToRgbEnd((shownTicks * 3) % 0xff, 0xff, 0x80) : 0xffffff;
       float base = y + g.fontAscent(kPlain) + i * lh;
@@ -1034,10 +1444,18 @@ float EndLevelDialog::paint(Gfx& g, bool draw) {
     y += lh * n + 6;
   }
   float buttons = (bRetry ? 2 : 1) * 36 + (bRetry ? 6 : 0) + insB + 8;
-  bool room = y + buttons + 44 <= 535;
+  const char* kTip = "PLAINOUTLINE";
+  const float tipW = w - insL - insR - 42;
+  const float tipH = tip.empty() ? 0.0f : g.wrappedHeight(kTip, tipW, tip);
+  const float slack = (nights ? 30.0f : 0.0f) + (bRetry ? 7.0f : 19.0f);
+  bool room = y + buttons + tipH + slack <= 535;
   if (!tip.empty() && room) {
-    if (draw) g.drawWrapped("PLAIN2", {insL, y, w - insL - insR, 44}, tip, 0xfdfd87, 1, Align::Center);
-    y += 52;
+    const float tipTop = sy + g.fontAscent(kPlain);
+    if (draw) {
+      g.drawWrapped(kTip, {insL + 42, tipTop, tipW, tipH}, tip, nights ? 0x87fdfd : 0xfdfd87, 1, Align::Left);
+      if (Tex* icon = g.img("IMAGE_DLG_TIP")) g.draw(icon, insL - 5, tipTop + (tipH - icon->lh()) / 2);
+    }
+    y = tipTop + tipH + 8 + slack;
   }
   return y + buttons;
 }
@@ -1048,15 +1466,20 @@ void EndLevelDialog::layout() {
   float bw = (w - insL - insR - 10) / 2, bh = bMenu->h;
   float by = h - insB - bh;
   if (bRetry) {
-    bRetry->x = insL; bRetry->w = w - insL - insR; bRetry->y = by - bh - 6;
+    bRetry->x = insL; bRetry->w = w - insL - insR; bRetry->y = by;
+    by -= bh + 5;
   }
   bMenu->x = insL; bMenu->w = bw; bMenu->y = by;
   bNext->x = insL + bw + 10; bNext->w = bw; bNext->y = by;
+  if (!bMenu->visible) { bNext->x = insL; bNext->w = w - insL - insR; }
 }
 
 void EndLevelDialog::update() {
   Dialog::update();
+  if (scrollActive) return;
   shownTicks++;
+  if (duelEnd && shownTicks <= 200 && shownTicks % 10 == 1) app.playSample("SCORECOUNTER");
+  if (tingStep > 0 && tingStep < 50 && ++tingStep == 50) app.playSample("TING");
   if (!countUp || shownTicks < 30) return;
   if (delay > 0) { delay--; return; }
   int i = 0;
@@ -1068,10 +1491,12 @@ void EndLevelDialog::update() {
   if (i < 3) {
     levelCur += step;
     if (levelCur == levelTgt) delay = 50;
-  } else if (i == 3 && cur[3] == tgt[3]) {
+  } else if ((i == 3 || i == 4) && !pauseDone && cur[3] == tgt[3]) {
+    pauseDone = true;
     delay = 100;
     pitchAcc = 0;
   }
+  if (i >= 3 && tingStep == 0 && cur[3] == tgt[3] && mode == AdventureComplete) tingStep = 1;
   if (shownTicks % 10 == 0) { pitchAcc += 1.0f; app.playSample("SCORECOUNTER", pitchAcc); }
 }
 

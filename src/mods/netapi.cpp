@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "gamepaths.h"
 #include "lauxlib.h"
 #include "log.h"
 #include "lua.h"
@@ -109,11 +110,13 @@ sock_t dial(const std::string& host, int port, std::string* err) {
     nonBlock(s);
     int r = connect(s, ai->ai_addr, (int)ai->ai_addrlen);
     if (r != 0 && !wouldBlock()) { closeSock(s); continue; }
-    fd_set w;
+    fd_set w, x;
     FD_ZERO(&w);
+    FD_ZERO(&x);
     FD_SET(s, &w);
+    FD_SET(s, &x);
     timeval tv{kTimeoutMs / 1000, (kTimeoutMs % 1000) * 1000};
-    if (select((int)s + 1, nullptr, &w, nullptr, &tv) > 0) {
+    if (select((int)s + 1, nullptr, &w, &x, &tv) > 0 && FD_ISSET(s, &w)) {
       int e = 0;
       socklen_t l = sizeof e;
       getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&e, &l);
@@ -512,7 +515,7 @@ fs::path fsPath(lua_State* L, int i) {
   if (!okName(n)) luaL_error(L, "bad file name (use A-Z a-z 0-9 _ . - , at most 64 characters)");
   std::string d = fsDir(L);
   if (d.empty()) luaL_error(L, "fs is not available");
-  return fs::path(d) / n;
+  return pathFromUtf8(d) / n;
 }
 int f_read(lua_State* L) {
   std::string t;
@@ -534,8 +537,8 @@ int f_write(lua_State* L) {
   std::ofstream f(p, std::ios::binary);
   f.write(d, (std::streamsize)n);
   if (NetState* ns = NS(L)) {
-    if (f) netLog(ns->sh, pp::log::Level::Info, "fs.write " + p.filename().string() + " (" + std::to_string(n) + " bytes)");
-    else netLog(ns->sh, pp::log::Level::Warn, "fs.write " + p.filename().string() + " failed");
+    if (f) netLog(ns->sh, pp::log::Level::Info, "fs.write " + pathToUtf8(p.filename()) + " (" + std::to_string(n) + " bytes)");
+    else netLog(ns->sh, pp::log::Level::Warn, "fs.write " + pathToUtf8(p.filename()) + " failed");
   }
   lua_pushboolean(L, (bool)f);
   return 1;
@@ -546,7 +549,7 @@ int f_remove(lua_State* L) {
   fs::path p = fsPath(L, 1);
   bool removed = fs::remove(p, ec);
   if (removed) {
-    if (NetState* ns = NS(L)) netLog(ns->sh, pp::log::Level::Info, "fs.remove " + p.filename().string());
+    if (NetState* ns = NS(L)) netLog(ns->sh, pp::log::Level::Info, "fs.remove " + pathToUtf8(p.filename()));
   }
   lua_pushboolean(L, removed);
   return 1;
@@ -555,7 +558,7 @@ int f_list(lua_State* L) {
   lua_newtable(L);
   std::error_code ec;
   int i = 0;
-  for (auto& e : fs::directory_iterator(fsDir(L), ec)) { lua_pushstring(L, e.path().filename().string().c_str()); lua_rawseti(L, -2, ++i); }
+  for (auto& e : fs::directory_iterator(pathFromUtf8(fsDir(L)), ec)) { lua_pushstring(L, pathToUtf8(e.path().filename()).c_str()); lua_rawseti(L, -2, ++i); }
   return 1;
 }
 }

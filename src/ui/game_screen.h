@@ -4,6 +4,7 @@
 #include <memory>
 #include <cstdint>
 #include <algorithm>
+#include <filesystem>
 #include <vector>
 #include <string>
 
@@ -13,6 +14,9 @@
 #include "ui/screens.h"
 
 namespace pp::ui {
+
+struct SavedSession;
+struct ReadySession;
 
 class EndLevelDialog : public Dialog {
  public:
@@ -26,7 +30,8 @@ class EndLevelDialog : public Dialog {
   int rank, shownTicks = 0, highlight = -1;
   bool countUp = false;
   float pitchAcc = 0;
-  int cur[5]{}, tgt[5]{}, levelCur = 0, levelTgt = 0, totalCur = 0, delay = 0;
+  bool pauseDone = false;
+  int cur[5]{}, tgt[5]{}, levelCur = 0, levelTgt = 0, totalCur = 0, delay = 0, tingStep = 0;
   std::vector<HighScoreEntry> table;
   bool newBest;
   int advTotal = 0, bonus = 0;
@@ -38,6 +43,8 @@ class EndLevelDialog : public Dialog {
   std::string dName[2];
   App::DuelSession dses;
   float paintDuel(Gfx& g, bool draw);
+  void paintPortrait(Gfx& g, float top);
+  int portraitStage = -1, portraitLevel = 0;
   void drawLayer(Gfx& g) override;
   void update() override;
   void onButton(int id) override;
@@ -50,32 +57,41 @@ class GameScreen : public Screen {
  public:
   GameScreen(App& a, bool fromAdventure, bool newLevel);
   GameScreen(App& a, const ReplayData& d);
+  GameScreen(App& a, const ReadySession& r);
   ~GameScreen() override;
   const char* name() const override { return "board"; }
   bool isGame() const override { return true; }
-  bool wantsMouseHidden() const override { return false; }
-  int canvasWidth() const override {
-    if (!ready_) return 800;
-    int w = 800 + (board_.W - 650);
-    if (app.settings.vis.ultraWideHud && app.boardRenderer) w = std::max(w, app.boardRenderer->canvasWidth());
-    return w;
+  void discordPresence(pp::online::Discord::Presence& presence) const override {
+    presence.state = !ready_ ? "Level unavailable" : viewer_ ? "Watching a replay" : demo_ ? "Watching Demo mode" : paused() ? "Level paused" : done_ ? "Level finished" : "Playing a level";
   }
+  bool wantsMouseHidden() const override { return false; }
+  int canvasWidth() const override { return app.frameCanvasWidth(800 + (board_.W - 650)); }
   void update() override;
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
   bool input(const Input& in) override;
+  void menuThroughDialog(const Input& in);
+  void onButton(int id) override;
   void keyDown(int key, int mod) override;
   void lostFocus() override;
+  void onLeave() override;
   void startChallengeLevel();
-  void restartLevel();
+  void restartLevel(bool fromMenu = true);
+  bool hasProgress() const;
+  bool keepsSession() const;
+  int betweenLevels() const;
+  void dropSession() { sessionOff_ = true; }
+  bool fillSession(SavedSession& s) const;
+  void masterChosen(bool picked);
   void nextLevel();
   bool ok() const { return ready_; }
   const LevelBundle& bundle() const { return lb_; }
   Board& board() { return viewer_ ? replay_ : board_; }
   LevelOutcome collectOutcome() const;
   bool levelDone() const { return done_; }
-  bool saveReplay(bool all, std::string* pathOut);
-  bool canSaveReplay() const { return recording_ && haveSnap_ && !log_.empty(); }
+  bool saveReplay(bool all, std::filesystem::path* pathOut, const std::string& stem = std::string());
+  bool replayAllShots() const { return replayAll_; }
+  bool canSaveReplay() const { return recording_ && !duel_ && haveSnap_ && !log_.empty(); }
   bool startViewer(const ReplayData& d);
   bool viewing() const { return viewer_; }
   void pause(bool on);
@@ -93,11 +109,22 @@ class GameScreen : public Screen {
   bool startLevel(const std::string& name);
   void finishLevel();
   void applyProgress(const LevelOutcome& o, bool won);
+  void submitStats();
+  bool statsSent_ = false;
+  bool sessionOff_ = false, endPending_ = false;
+  uint32_t randAfter_ = 0;
+  GameMode statsMode_ = GameMode::None;
   void pushMouse();
   bool duel_ = false;
-  int aiWait_ = 0, aiState_ = 0, aiTick_ = 0;
+  int aiWait_ = 0, aiState_ = 0, aiTick_ = 0, aiThink_ = 0, aiFixed_ = -100;
+  uint32_t aiDrawn_ = 0;
+  float aiChosen_ = 0;
   std::unique_ptr<AIMgr> ai_;
+  std::unique_ptr<Board> aiBoard_;
   int aiSkill() const;
+  uint32_t aiDraw();
+  void logAi(uint8_t kind, int a, int b);
+  void restoreAi(const ReadySession& r);
   bool demo_ = false;
   bool human2_ = false;
   std::string oppName() const { return human2_ ? "Player 2" : "Computer"; }
@@ -107,7 +134,12 @@ class GameScreen : public Screen {
   int replayTicks_ = 0;
   void clickBoard();
   std::vector<ReplayEvent> log_;
-  bool recording_ = false, viewer_ = false, replayDlgPaused_ = false;
+  bool recording_ = false, viewer_ = false, replayPanel_ = false;
+  Button *rbReplay_ = nullptr, *rbSave_ = nullptr, *rbDone_ = nullptr;
+  void showReplayPanel();
+  void layoutReplayPanel();
+  void drawReplayHousing(Gfx& g);
+  void drawReplayText(Gfx& g);
   BoardConfig cfg_;
   ReplayData view_;
   size_t viewIdx_ = 0;
@@ -121,12 +153,17 @@ class GameScreen : public Screen {
   void startReplay(bool all = false);
   void stopReplay();
   void stepReplay();
-  bool charPaused_ = false, charChosen_ = false;
+  bool charPaused_ = false, charChosen_ = false, keepRoll_ = false;
+  int rolled_ = -1;
   void showCharacterDialog();
+  bool choosesMaster() const;
+  int chosenMaster();
   int hudStage_ = 0, hudLevel_ = 0;
   int boardResets_ = 0;
+  void countLevelStart();
   int stageDialogDelay_ = 0;
   bool tipPaused_ = false;
+  bool focusPaused_ = false;
   void showStageDialog();
   void aiTurn();
   std::string cornerText() const;
@@ -135,13 +172,16 @@ class GameScreen : public Screen {
   Hud hud_;
   bool ready_ = false, done_ = false, endShown_ = false, pendingBest_ = false;
   bool rightDown_ = false, keyUp_ = false, keyDown_ = false, mouseOverMenu_ = false;
+  int heldButton_ = 0;
   int pauseCount_ = 0, pauseFade_ = 0;
   int mouseBx_ = 0, mouseBy_ = 0;
+  int boardLeft() const { return 75 + (canvasWidth() - 800 - (board_.W - 650)) / 2; }
   bool haveMouse_ = false;
   std::string levelFile_;
   int pendingMode_ = 0, pendingRank_ = 0;
   LevelOutcome pendingOut_;
   std::string pendingTitle_;
+  std::vector<Event> spinHeld_;
 };
 
 }
