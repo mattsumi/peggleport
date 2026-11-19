@@ -128,6 +128,17 @@ bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Vfs* v
   return true;
 }
 
+static std::optional<VfsHit> readLevelFile(const Vfs& vfs, const Layer& owner, const std::string& key, std::string* err) {
+  if (owner.kind != Layer::Dir) return vfs.readFrom(owner, key);
+  auto it = owner.files.find(normKey(key));
+  fs::path file;
+  if (it == owner.files.end() || !resolveDiskSpelling(it->second, file, err)) return std::nullopt;
+  VfsHit hit;
+  hit.layer = &owner;
+  if (!readFileBytes(file, hit.bytes)) return std::nullopt;
+  return hit;
+}
+
 std::optional<VfsHit> readBaseFile(const Vfs& vfs, const BaseLink& link, uint64_t& hash, std::string* err) {
   auto fail = [&](const std::string& message) { if (err) *err = message; return std::nullopt; };
   if (link.name.empty() || link.name[0] != '_' || link.name.find_first_not_of("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-") != std::string::npos)
@@ -145,7 +156,9 @@ std::optional<VfsHit> readBaseFile(const Vfs& vfs, const BaseLink& link, uint64_
       owner = &layer;
     }
   }
-  auto hit = owner ? vfs.readFrom(*owner, path) : std::nullopt;
+  std::string why;
+  auto hit = owner ? readLevelFile(vfs, *owner, path, &why) : std::nullopt;
+  if (!why.empty()) return fail(why);
   if (!hit) return fail(path + " missing or unreadable" + (link.provider.empty() ? "" : " in " + link.provider));
   hash = fnv1a(hit->bytes.data(), hit->bytes.size());
   if (!link.hash.empty() && link.hash != std::to_string(hash)) return fail(path + " differs from the linked base");
@@ -170,7 +183,9 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
   const Layer* linkOwner = nullptr;
   fs::path p = pathFromUtf8(nameOrPath);
   std::error_code ec;
-  if (p.extension() == ".dat" && fs::is_regular_file(p, ec)) {
+  const bool diskDat = normKey(genericUtf8(p.extension())) == ".DAT";
+  if (diskDat && !resolveDiskSpelling(p, p, err)) return false;
+  if (diskDat && fs::is_regular_file(p, ec)) {
     if (!readFileBytes(p, lvBytes)) {
       if (err) *err = "cannot read " + pathToUtf8(p);
       return false;
@@ -179,6 +194,7 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     out.source = pathToUtf8(p);
     fs::path side = p;
     side.replace_extension(".ini");
+    if (!resolveDiskSpelling(side, side, err)) return false;
     linkOwner = vfs.owner("levels/" + out.name + ".dat", p);
     if ((fs::exists(side, ec) && (!fs::is_regular_file(side, ec) || !readFileBytes(side, sideBytes))) || ec) {
       if (err) *err = "cannot read " + pathToUtf8(side);
@@ -188,30 +204,40 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     out.name = nameOrPath;
     const auto key = "levels/" + nameOrPath;
     const auto* boardOwner = vfs.owner(key + ".dat");
-    auto h = boardOwner ? vfs.readFrom(*boardOwner, key + ".dat") : std::nullopt;
+    std::string why;
+    auto h = boardOwner ? readLevelFile(vfs, *boardOwner, key + ".dat", &why) : std::nullopt;
     if (!h) {
-      if (err) *err = "level not found: levels/" + nameOrPath + ".dat";
+      if (err) *err = why.empty() ? "level not found: levels/" + nameOrPath + ".dat" : why;
       return false;
     }
     lvBytes = std::move(h->bytes);
     out.source = h->layer ? h->layer->label : "";
     const auto side = key + ".ini";
     const auto* sideOwner = vfs.owner(side);
-    if (sideOwner && sideOwner != boardOwner) {
-      const auto k = normKey(side);
-      if (boardOwner->files.count(k) || boardOwner->pakIndex.count(k)) {
-        auto own = vfs.readFrom(*boardOwner, side);
-        if (!own) { if (err) *err = "cannot read " + side; return false; }
-        auto declared = readIni(std::string(own->bytes.begin(), own->bytes.end()));
+    std::optional<VfsHit> own;
+    if (boardOwner->kind == Layer::Dir) {
+      auto diskSide = boardOwner->files.at(normKey(key + ".dat"));
+      diskSide.replace_extension(".ini");
+      if (!resolveDiskSpelling(diskSide, diskSide, err)) return false;
+      if (fs::exists(diskSide, ec) && !readFileBytes(diskSide, own.emplace().bytes)) {
+        if (err) *err = "cannot read " + pathToUtf8(diskSide);
+        return false;
+      }
+      if (ec) { if (err) *err = "cannot inspect " + pathToUtf8(diskSide); return false; }
+    } else if (boardOwner->pakIndex.contains(normKey(side))) own = vfs.readFrom(*boardOwner, side);
+    if (own && (!sideOwner || boardOwner <= sideOwner)) {
+      sideBytes = std::move(own->bytes);
+      linkOwner = boardOwner;
+    } else if (sideOwner) {
+      if (own) {
+        const auto declared = readIni(std::string(own->bytes.begin(), own->bytes.end()));
         if (declared.count("base") && normKey(declared.at("base")) != "_BASE") {
           if (err) *err = side + ": board's linked sidecar is shadowed by " + sideOwner->label;
           return false;
         }
       }
-    }
-    if (sideOwner) {
-      auto s = vfs.readFrom(*sideOwner, side);
-      if (!s) { if (err) *err = "cannot read " + side; return false; }
+      auto s = readLevelFile(vfs, *sideOwner, side, &why);
+      if (!s) { if (err) *err = why.empty() ? "cannot read " + side : why; return false; }
       sideBytes = std::move(s->bytes);
       linkOwner = sideOwner;
     }

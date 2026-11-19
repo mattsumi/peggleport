@@ -15,6 +15,7 @@ namespace pp {
 
 std::string normKey(std::string_view path);
 std::string genericUtf8(const std::filesystem::path& p);
+bool resolveDiskSpelling(const std::filesystem::path& requested, std::filesystem::path& actual, std::string* err);
 std::map<std::string, std::string> readIni(const std::string& text);
 
 struct PakEntry {
@@ -32,7 +33,7 @@ bool loadPak(const std::filesystem::path& p, Pak& out, std::string* err);
 struct Layer {
   enum Kind { Dir, PakFile } kind = Dir;
   std::string label, provider;
-  bool isMod = false, isLevelPack = false;
+  bool isMod = false, isLevelPack = false, fromZip = false;
   int priority = 0;
   float imageScale = 1.0f;
   std::filesystem::path root;
@@ -61,7 +62,7 @@ class Vfs {
  public:
   bool mountGame(const std::filesystem::path& gameDir, std::string* err);
   bool mountPresentation(const std::filesystem::path& dataDir);
-  bool mountMod(const std::filesystem::path& modDir, std::string* err, const std::string& modId = {});
+  bool mountMod(const std::filesystem::path& modDir, std::string* err, const std::string& modId = {}, bool fromZip = false);
   bool unmountMod(const std::filesystem::path& modDir);
   size_t unmountMods();
   std::string modSignature() const;

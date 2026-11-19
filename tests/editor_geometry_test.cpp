@@ -93,6 +93,15 @@ static void backgroundFiles(const fs::path& root) {
   const int rev = e.revision;
   check(!e.importBackground(folder / "bad.png", library, &err) && e.revision == rev && e.meta.background == b, "invalid image does not change selection or history");
   check(e.importBackground(first, library, &err) && e.meta.background == a, "same image reuses the same asset");
+  const auto managed = library / (a + ".tga"), upper = library / (a + ".TGA");
+  if (!fs::exists(upper)) {
+    fs::rename(managed, upper);
+    check(e.saveJson(folder / "mixed/Art.json", &err) && fileBytes(folder / "mixed" / (a + ".tga")) == one, "export reads uniquely spelled imported art");
+    fs::copy_file(upper, managed);
+    const auto target = folder / "ambiguous/Art.json";
+    check(!e.saveJson(target, &err) && !fs::exists(target) && fileBytes(upper) == one && fileBytes(managed) == one, "export refuses ambiguous imported art without writing");
+    fs::remove(upper);
+  }
   fs::rename(first, first.parent_path() / "moved.tga");
   fs::rename(second, second.parent_path() / "moved.tga");
   const fs::path exports = folder / "exports", dat = folder / "loose" / "Travel.dat";
@@ -112,6 +121,17 @@ static void backgroundFiles(const fs::path& root) {
   check(legacy.saveDat(loose, &err) && legacy.loadDatFile(loose, &err) && legacy.meta.background == "imported_01", "hand-named DAT save and reload");
   check(legacy.saveJson(json, &err) && legacy.loadJson(json, &err) && legacy.meta.background == "imported_01", "hand-named JSON save and reload");
   check(legacy.saveToMod(portable, &err) && legacy.loadDatFile(portable / "levels/Legacy.dat", &err) && legacy.meta.background == "imported_01" && fileBytes(portable / "levels/imported_01.tga") == one, "mod reload keeps the hand-named background and its exact bytes");
+  if (!fs::exists(portable / "levels/IMPORTED_01.TGA")) {
+    const auto twin = portable / "levels/IMPORTED_01.TGA";
+    fs::rename(portable / "levels/imported_01.tga", twin);
+    check(legacy.saveToMod(portable, &err) && !fs::exists(portable / "levels/imported_01.tga"), "To Mod does not shadow an existing case variant of copied art");
+    std::ofstream(portable / "levels/imported_01.tga") << "collision";
+    legacy.place(Tool::PegOrange, {440, 210});
+    const auto target = portable / "levels/Legacy.dat";
+    const auto before = fileBytes(target);
+    check(!legacy.saveToMod(portable, &err) && legacy.dirty() && fileBytes(target) == before && fileBytes(twin) == one &&
+          fileBytes(portable / "levels/imported_01.tga") == "collision", "To Mod refuses ambiguous copied art before publishing geometry");
+  }
   {
     const auto managed = library / (a + ".tga");
     const auto probe = folder / "damaged" / "Travel.dat";

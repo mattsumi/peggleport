@@ -55,7 +55,6 @@ class Editor {
   std::string artPath(ArtSlot slot, const std::string& value) const;
   bool artExists(ArtSlot slot, const std::string& value) const { return !artPath(slot, value).empty(); }
   bool setArt(ArtSlot slot, const std::string& value);
-  int copyArtToMod(const std::filesystem::path& modDir) const;
   std::string customType(const NodeP& n) const;
   void setCustomType(const std::string& key);
   std::string collisionRole(const NodeP& n) const;
@@ -190,12 +189,13 @@ class Editor {
   void changed() { revision++; }
   void prune();
   void resetHistory();
-  void finishLoad(const LevelBundle& lb, const Layer* owner, std::filesystem::path file);
+  void finishLoad(const LevelBundle& lb, const Layer* owner, const std::filesystem::path& file, const std::string& stage);
   bool resolveBase(BaseLink& link, std::string* err);
+  bool planArtCopies(const std::filesystem::path& modDir, std::map<std::filesystem::path, std::filesystem::path>& copies, std::string* err) const;
+  bool checkSavedSpelling(std::string* err) const;
   bool savedMod_ = false;
   std::string stageError_;
   void collectSourceStage(const std::string& text);
-  void readSourceStage(const std::filesystem::path& index);
 
   struct G {
     enum Kind { None, Move, Box, Rotate, Line, Stamp, Corner } kind = None;

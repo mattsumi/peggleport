@@ -127,8 +127,10 @@ bool loadManifest(const fs::path& dir, Manifest& m, std::string* err) {
   if (folder.empty()) folder = pathToUtf8(dir.parent_path().filename());
   std::string text;
   m = Manifest();
+  fs::path jsonPath, iniPath;
+  if (!resolveDiskSpelling(dir / "mod.json", jsonPath, err) || !resolveDiskSpelling(dir / "mod.ini", iniPath, err)) return false;
   for (bool json : {true, false}) {
-    const auto path = dir / (json ? "mod.json" : "mod.ini");
+    const auto& path = json ? jsonPath : iniPath;
     std::error_code ec;
     if (fs::symlink_status(path, ec).type() == fs::file_type::not_found) continue;
     if (ec || !fs::is_regular_file(path, ec) || !readFile(path, text, 1 << 20)) {

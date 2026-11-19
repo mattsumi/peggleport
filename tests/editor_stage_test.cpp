@@ -193,6 +193,117 @@ int main(int argc, char** argv) {
           get(pack / idx) == expected && readIni(get(pack / ini))["title"] == "Reopened" && readIni(get(pack / ini))["balls"] == "13" &&
           get(pack / ini).find("0: ice") != std::string::npos, route + " Save after Open updates the original registration and retains sidecar settings");
   }
+  for (const std::string route : {"name", "disk", "direct", "unmounted"}) {
+    const auto pack = setup("spelling-" + route, index, false);
+    const auto lv = pack / "levels", file = lv / "Board.DaT", side = lv / "bOARD.InI", stage = lv / "MOD_LEVELS.CFG";
+    fs::rename(pack / dat, file);
+    fs::rename(pack / ini, side);
+    fs::rename(pack / idx, stage);
+    Vfs v;
+    Editor e;
+    if (!v.mountMod(route == "unmounted" ? setup("basestock", index, false) : pack, &err)) throw std::runtime_error(err);
+    e.setVfs(&v);
+    const bool opened = route == "direct" ? e.loadDatFile(pack / dat, &err) : e.loadFromVfs(v, route == "name" ? "BOARD" : genericUtf8(file), &err);
+    check(opened && e.meta.title == "Sidecar" && e.savedPath == file && !e.meta.stageRows.empty(), route + " opens actual DAT, INI and CFG spellings");
+    if (!opened) continue;
+    e.setMeta("title", "Edited");
+    e.place(Tool::PegOrange, {380, 210});
+    auto expected = index;
+    expected.replace(expected.find("Old"), 3, "Edited");
+    auto output = writeLevel(*e.level);
+    const auto before = snapshot(pack).size();
+    check(e.saveCurrent(&err) && e.savedPath == file && snapshot(pack).size() == before && get(stage) == expected &&
+          readIni(get(side))["title"] == "Edited" && get(file) == std::string(output.begin(), output.end()), route + " saves to the same three actual names");
+  }
+  {
+    const auto pack = setup("target-spelling", index, false), target = pack / "levels/bOaRd.DAT", side = pack / "levels/BoArD.INI";
+    fs::rename(pack / dat, target);
+    fs::rename(pack / ini, side);
+    fs::rename(pack / idx, pack / "levels/MOD_LEVELS.CFG");
+    fs::rename(pack / "mod.ini", pack / "MOD.INI");
+    Editor e;
+    e.newLevel("Board");
+    e.setMeta("title", "On disk");
+    const auto count = snapshot(pack).size();
+    check(e.saveToMod(pack, &err) && e.savedPath == target && e.saveCurrent(&err) && snapshot(pack).size() == count &&
+          readIni(get(side))["title"] == "On disk" && get(pack / "MOD.INI") == "id = target-spelling\n", "To Mod reuses existing DAT, INI, CFG and manifest; ordinary Save remembers that target");
+    fs::remove(pack / "levels/MOD_LEVELS.CFG");
+    Editor loose;
+    check(loose.loadDatFile(target, &err) && loose.saveDat(pack / dat, &err) && loose.savedPath == target &&
+          snapshot(pack).size() == count - 1 && readIni(get(side))["title"] == "On disk", "loose DAT save uses the existing pair without registering a mod");
+  }
+  {
+    auto pack = setup("late-side", index, false);
+    fs::remove(pack / ini);
+    Vfs v;
+    Editor e;
+    if (!v.mountMod(pack, &err)) throw std::runtime_error(err);
+    put(pack / "levels/bOArD.INI", "title=Added after mount\nballs=17\n");
+    e.setVfs(&v);
+    check(e.loadFromVfs(v, "BOARD", &err) && e.meta.title == "Added after mount" && e.meta.balls == 17,
+          "by-name Open reads the only sidecar even when the mount predates its creation");
+  }
+  const auto priorDir = setup("prior", index, false);
+  if (!fs::exists(priorDir / "levels/BOARD.DAT")) {
+    const auto pack = setup("duplicates", index, false);
+    for (const auto& alias : {"levels/BOARD.DAT", "levels/BOARD.INI", "levels/MOD_LEVELS.CFG", "MOD.INI", "MOD.JSON"}) {
+      const bool manifest = alias[0] == 'M';
+      if (std::string(alias) == "MOD.JSON") put(pack / "mod.json", "{}");
+      Vfs v;
+      Editor e;
+      open(e, v, pack);
+      e.place(Tool::PegOrange, {410, 210});
+      e.setMeta("title", "Pending");
+      put(pack / alias, "collision");
+      const auto before = snapshot(pack);
+      const auto edited = writeLevel(*e.level);
+      const auto depth = e.undoDepth();
+      auto kept = [&] { return snapshot(pack) == before && e.dirty() && e.metaDirty && e.meta.title == "Pending" &&
+                               writeLevel(*e.level) == edited && e.undoDepth() == depth && e.savedPath == pack / dat; };
+      check(!e.saveCurrent(&err) && kept(), std::string("first Save refuses a new alias: ") + alias);
+      if (!manifest) {
+        const auto fresh = root / "not-created";
+        check(!e.saveToMod(fresh, &err) && !fs::exists(fresh) && kept(), std::string("export refuses source alias added after Open: ") + alias);
+      }
+      Editor prior;
+      Vfs other;
+      open(prior, other, priorDir);
+      prior.setVfs(&v);
+      prior.place(Tool::PegGreen, {290, 240});
+      prior.setMeta("title", "Previous");
+      const auto previous = writeLevel(*prior.level);
+      auto intact = [&] { return prior.savedPath == priorDir / dat && prior.meta.title == "Previous" && prior.dirty() && prior.metaDirty &&
+                                 prior.undoDepth() == 1 && writeLevel(*prior.level) == previous && snapshot(pack) == before; };
+      if (!manifest) for (const std::string route : {"name", "disk", "direct"}) {
+        bool ok = route == "direct" ? prior.loadDatFile(pack / dat, &err) : prior.loadFromVfs(v, route == "name" ? "Board" : genericUtf8(pack / dat), &err);
+        check(!ok && intact(), route + " Open refuses an exact match with a sibling alias: " + alias);
+      }
+      check(!prior.saveToMod(pack, &err) && intact(), std::string("To Mod preflights destination alias: ") + alias);
+      fs::remove(pack / alias);
+      check(e.saveCurrent(&err) && !e.dirty(), std::string("retry after removing alias: ") + alias);
+      put(pack / idx, index);
+    }
+    {
+      const auto donor = setup("BaseAliases", index, true);
+      Vfs v;
+      Editor e;
+      open(e, v, donor);
+      e.setMeta("title", "Pending");
+      put(donor / "levels/_DONOR.DAT", board);
+      const auto before = snapshot(donor);
+      check(!e.saveCurrent(&err) && e.dirty() && snapshot(donor) == before && !e.loadFromVfs(v, "Board", &err) &&
+            e.meta.title == "Pending", "two byte-identical donor base files are still ambiguous on Save and Open");
+    }
+    Editor e;
+    const auto json = root / "Exchange.JSON", lower = root / "exchange.json";
+    if (!e.saveJson(json, &err)) throw std::runtime_error(err);
+    check(e.loadJson(lower, &err), "JSON Open resolves a unique spelling");
+    e.setMeta("title", "Distinct");
+    check(e.saveJson(lower, &err) && !fs::exists(lower) && get(json).find("Distinct") != std::string::npos, "JSON export retains the unique spelling");
+    put(lower, get(json));
+    const auto before = snapshot(root);
+    check(!e.loadJson(json, &err) && !e.saveJson(json, &err) && e.dirty() && snapshot(root) == before, "ambiguous JSON import and export preserve both files and the edit");
+  }
   const std::string generated = "Stage\n{\nName: \"Tuned\"\nDesc: \"Levels made with the PegglePort level editor\"\n\t" + old + "\n}\n";
   const auto tuned = setup("Tuned", generated, true);
   Editor e;

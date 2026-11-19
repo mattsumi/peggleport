@@ -46,6 +46,28 @@ std::string genericUtf8(const fs::path& p) {
   return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
 
+bool resolveDiskSpelling(const fs::path& requested, fs::path& actual, std::string* err) {
+  const auto parent = requested.parent_path();
+  const auto key = normKey(genericUtf8(requested.filename()));
+  std::error_code ec;
+  fs::directory_iterator it(parent.empty() ? fs::path(".") : parent, ec), end;
+  if (ec == std::errc::no_such_file_or_directory) { actual = requested; return true; }
+  fs::path match;
+  for (; !ec && it != end; it.increment(ec)) {
+    const auto leaf = it->path().filename();
+    if (normKey(genericUtf8(leaf)) != key) continue;
+    if (!match.empty()) {
+      if (err) *err = "ambiguous filename: " + genericUtf8(parent / match) + " and " + genericUtf8(parent / leaf);
+      return false;
+    }
+    match = leaf;
+  }
+  if (!ec && !match.empty()) (void)fs::status(parent / match, ec);
+  if (ec) { if (err) *err = "cannot inspect " + genericUtf8(requested) + ": " + ec.message(); return false; }
+  actual = match.empty() ? requested : parent / match;
+  return true;
+}
+
 std::map<std::string, std::string> readIni(const std::string& text) {
   std::map<std::string, std::string> out;
   std::istringstream in(text);
@@ -187,7 +209,7 @@ bool Vfs::mountPresentation(const fs::path& dataDir) {
   return true;
 }
 
-bool Vfs::mountMod(const fs::path& modDir, std::string* err, const std::string& modId) {
+bool Vfs::mountMod(const fs::path& modDir, std::string* err, const std::string& modId, bool fromZip) {
   std::error_code ec;
   if (!fs::is_directory(modDir, ec)) {
     if (err) *err = "mod directory not found: " + pathToUtf8(modDir);
@@ -197,10 +219,13 @@ bool Vfs::mountMod(const fs::path& modDir, std::string* err, const std::string& 
   Layer L;
   L.kind = Layer::Dir;
   L.isMod = true;
+  L.fromZip = fromZip;
   L.root = modDir;
   L.label = "mod:" + pathToUtf8(modDir.filename());
   std::vector<uint8_t> ini;
-  const bool readManifest = readFileBytes(modDir / "mod.ini", ini);
+  fs::path manifest;
+  if (!resolveDiskSpelling(modDir / "mod.ini", manifest, err)) return false;
+  const bool readManifest = readFileBytes(manifest, ini);
   if (readManifest) {
     L.meta = readIni(std::string(ini.begin(), ini.end()));
     if (L.meta.count("name")) L.label = "mod:" + L.meta["name"];
@@ -332,7 +357,8 @@ const Layer* Vfs::owner(std::string_view path, const fs::path& diskFile) const {
       if (layer.kind == Layer::PakFile ? layer.pakIndex.count(k) : layer.files.count(k)) return &layer;
     } else if (auto it = layer.files.find(k); it != layer.files.end()) {
       std::error_code ec;
-      if (fs::equivalent(diskFile, it->second, ec)) return &layer;
+      fs::path actual;
+      if (resolveDiskSpelling(it->second, actual, nullptr) && fs::equivalent(diskFile, actual, ec)) return &layer;
     }
   }
   return nullptr;
