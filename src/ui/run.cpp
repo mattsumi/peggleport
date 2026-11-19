@@ -183,11 +183,12 @@ static bool handleGamepad(Live& L, const SDL_Event& e) {
 }
 
 static void handleEvent(Live& L, SDL_Event& e) {
-  if (handleGamepad(L, e)) return;
   App& app = *L.app;
   Gfx& gfx = *L.gfx;
   const bool mouse = e.type == SDL_EVENT_MOUSE_MOTION || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP;
-  if (mouse) app.refreshInputCanvas();
+  if (mouse || e.type == SDL_EVENT_MOUSE_WHEEL || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION ||
+      e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) app.refreshInputCanvas();
+  if (handleGamepad(L, e)) return;
   SDL_ConvertEventToRenderCoordinates(L.ren, &e);
   Input in;
   bool have = false;

@@ -302,7 +302,9 @@ class OnlineScreen : public Screen {
       if (create) w->y = base.y + (extra > 0 ? kCreateWideDown + (id == B_Go || id == B_Cancel ? kCreateFooterGap : 0) : 0);
     }
     for (auto* b : {bBack_, bCopy_, bReady_, bStart_, bLeave_}) b->y = extra > 0 ? 557.0f : 520.0f;
-    bBack_->visible = bRefresh_->visible = !room_ && !create_ && !console() && (flow_ == Flow::Browse || flow_ == Flow::Custom);
+    bBack_->visible = !room_ && !create_ && !console();
+    bRefresh_->visible = bBack_->visible && (flow_ == Flow::Browse || flow_ == Flow::Custom);
+    bCancel_->visible = create_ && !console();
     const bool roomButtons = room_ && !console();
     bCopy_->visible = bLeave_->visible = roomButtons;
     bReady_->visible = roomButtons && !isHost_;
@@ -758,11 +760,8 @@ class OnlineScreen : public Screen {
     if (codeEdit_->visible && !linksRegistered_.has_value()) startOwnerCheck();
     bRegister_->visible = codeEdit_->visible && kUrlRegistration && !linksRegistered_.value_or(false);
     discordCheck_->visible = !console || join;
-    for (Button* b : {bMode_, bLvlPrev_, bLvlNext_, bMasPrev_, bMasNext_, bGo_, bCancel_, bDestination_}) b->visible = create_;
-    if (console) {
-      bMode_->visible = create_ && party_;
-      bCancel_->visible = false;
-    }
+    for (Button* b : {bMode_, bLvlPrev_, bLvlNext_, bMasPrev_, bMasNext_, bGo_, bDestination_}) b->visible = create_;
+    if (console) bMode_->visible = create_ && party_;
     if (create_) bMode_->label = console ? (mode_ == 1 ? "3 Players" : "4 Players") : mode_ == 0 ? "Duel (2 players)" : mode_ == 1 ? "Peg Party (3 players)" : "Peg Party (4 players)";
     if (create_) bDestination_->label = hostTarget_ ? "Destination: LAN " + std::to_string(hostTarget_) : configuredLobby_ == pp::online::publicLobby ? "Destination: Global" : "Destination: Custom";
     if (codeEdit_->visible) focusW = codeEdit_, codeEdit_->focused = true;
@@ -1048,10 +1047,13 @@ class OnlineScreen : public Screen {
     return nullptr;
   }
 
-  SDL_Keycode padKey(SDL_GamepadButton button) const {
+  SDL_Keycode padKey(SDL_GamepadButton button) {
     if (!console()) return SDLK_UNKNOWN;
     switch (button) {
-      case SDL_GAMEPAD_BUTTON_SOUTH: return create_ && hostControlAtPointer() ? SDLK_SELECT : SDLK_RETURN;
+      case SDL_GAMEPAD_BUTTON_SOUTH:
+        if (!create_) return SDLK_RETURN;
+        placeWidgets(float(app.gfx.canvasW() - 800));
+        return hostControlAtPointer() ? SDLK_SELECT : SDLK_RETURN;
       case SDL_GAMEPAD_BUTTON_EAST: return SDLK_ESCAPE;
       case SDL_GAMEPAD_BUTTON_WEST: return room_ ? SDLK_C : flow_ == Flow::Custom ? SDLK_F5 : SDLK_UNKNOWN;
       case SDL_GAMEPAD_BUTTON_DPAD_UP: return SDLK_UP;
