@@ -33,8 +33,9 @@ namespace fs = std::filesystem;
 
 namespace pp {
 std::filesystem::path defaultUserDir(Game g) {
-  char* p = SDL_GetPrefPath("PopCap Games", g == Game::Deluxe ? "Peggle" : "PeggleNights");
-  fs::path r = p ? pathFromUtf8(p) / "userdata" : fs::path("userdata");
+  const char* name = g == Game::Deluxe ? "Peggle" : g == Game::Nights ? "PeggleNights" : "PeggleExtreme";
+  char* p = SDL_GetPrefPath(combinedEdition(g) ? "PopCap Games" : "PegglePort", name);
+  fs::path r = p ? pathFromUtf8(p) / "userdata" : fs::path(name) / "userdata";
   if (p) SDL_free(p);
   return r;
 }
@@ -203,10 +204,10 @@ bool Panel::input(const Input& in) {
 }
 
 
-App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), audio(a), boardRenderer(br), cfg(c), game(c.game), profiles(c.game), highScores(c.game) {
+App::App(Gfx& g, Vfs& v, Audio* a, Renderer* br, Config c) : gfx(g), vfs(v), audio(a), boardRenderer(br), cfg(c), game(c.game == Game::Extreme ? Game::Deluxe : c.game), profiles(game), highScores(game) {
   rng_ ^= cfg.seed * 2654435761u;
   crt_.seed(cfg.seed ? cfg.seed : (uint32_t)SDL_GetTicks());
-  userDir = cfg.userDir.empty() ? defaultUserDir(game) : cfg.userDir;
+  userDir = cfg.userDir.empty() ? defaultUserDir(cfg.game) : cfg.userDir;
   log::info("game", titleText() + ": saved games are kept in " + pathToUtf8(userDir));
   stages.load(vfs);
   highScores.setTops([this](const std::string& key) { return stages.scoreListTop(key); });
@@ -516,7 +517,7 @@ void App::enterAdventure() {
   startAdventureGame();
 }
 
-std::string App::titleText() const { return game == Game::Deluxe ? "Peggle Deluxe" : "Peggle Nights"; }
+std::string App::titleText() const { return gameTitle(cfg.game); }
 
 const LevelInfo* App::curLevelInfo() const {
   const StageInfo* s = stages.stage(curStage);

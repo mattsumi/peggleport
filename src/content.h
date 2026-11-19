@@ -14,12 +14,23 @@ namespace pp {
 
 uint64_t fnv1a(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
+struct BaseLink {
+  std::string name, hash, provider;
+};
+
+bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Vfs* vfs, const Layer* owner, BaseLink& link, std::string* err);
+std::optional<VfsHit> readBaseFile(const Vfs& vfs, const BaseLink& link, uint64_t& hash, std::string* err);
+bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>& level, uint64_t& hash, std::string* err);
+
 struct LevelBundle {
+  BaseLink baseLink;
   std::shared_ptr<const Level> base, level;
   std::string name, title, background, source, master;
   BoardConfig cfg;
   uint64_t contentHash = 0;
 };
+
+void readLevelSettings(LevelBundle& out, const std::map<std::string, std::string>& ini, const std::string& sidecar);
 
 struct StageLevel {
   std::string name, title, pack;
@@ -52,7 +63,7 @@ struct CharInfo {
 };
 std::vector<CharInfo> loadCharacters(const Vfs& vfs);
 
-bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err, bool checkDiskSpelling = false);
+bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err);
 std::vector<StageLevel> listStageLevels(const Vfs& vfs);
 
 }

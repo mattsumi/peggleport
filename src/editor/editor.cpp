@@ -3,6 +3,8 @@
 #include "gamepaths.h"
 #include "log.h"
 #include "image.h"
+#include "mods/manifest.h"
+#include "ui/cfg.h"
 #include "vfs.h"
 
 #include <algorithm>
@@ -11,6 +13,7 @@
 #include <charconv>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include <sstream>
 #include <cstdint>
@@ -72,7 +75,7 @@ static bool spit(const fs::path& p, const void* data, size_t n) {
 }
 static bool spit(const fs::path& p, const std::string& s) { return spit(p, s.data(), s.size()); }
 
-static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& bytes, const fs::path& ini, const std::string& text, std::string* err, const fs::path& indexPath = {}, const std::string& index = {}, const std::string* metadata = nullptr) {
+static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& bytes, const fs::path& ini, const std::string& text, std::string* err, const fs::path& indexPath = {}, const std::string* index = nullptr, const std::string* metadata = nullptr) {
   auto fail = [&](const std::string& message) { if (err) *err = message; return false; };
   if (dat == ini) return fail("DAT and INI paths must differ");
   struct Output {
@@ -83,7 +86,7 @@ static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& byte
     std::vector<uint8_t> old;
   };
   std::vector<Output> outputs = {{dat, "new.dat", "old.dat", bytes.data(), bytes.size()}, {ini, "new.ini", "old.ini", text.data(), text.size()}};
-  if (!indexPath.empty()) outputs.push_back({indexPath, "new.cfg", "old.cfg", index.data(), index.size()});
+  if (index) outputs.push_back({indexPath, "new.cfg", "old.cfg", index->data(), index->size()});
   if (metadata) outputs.push_back({dat.parent_path().parent_path() / "mod.ini", "new.mod.ini", "old.mod.ini", metadata->data(), metadata->size()});
   std::error_code ec;
   for (auto& output : outputs) {
@@ -262,25 +265,23 @@ static std::string backgroundKey(const std::vector<uint8_t>& bytes) {
   return "imported_" + std::to_string(fnv1a(bytes.data(), bytes.size()));
 }
 
-static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::vector<uint8_t>& bytes, const std::string& ext, std::string& name, std::string* err) {
+static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::vector<uint8_t>& bytes, const std::string& ext, std::string& name, std::string* err, bool referenceOnly = false) {
   auto fail = [&] { if (err) *err = "Cannot store the background in " + pathToUtf8(folder); return false; };
   std::error_code ec;
   fs::create_directories(folder, ec);
   if (ec) return fail();
-  std::map<std::string, fs::path> files;
-  for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
-    files.emplace(normKey(pathToUtf8(it->path().filename())), it->path());
-  if (ec) return fail();
   const std::string base = backgroundKey(bytes);
   for (unsigned i = 0;; ++i) {
-    const std::string stem = base + (i ? "_" + std::to_string(i) : "");
+    const std::string stem = referenceOnly ? name : base + (i ? "_" + std::to_string(i) : "");
     const std::string leaf = stem + ext;
     bool conflict = false, reusable = false;
     for (const auto& pre : {stem, "_" + stem, stem + "_"}) for (const char* suffix : kArtExt) {
       const auto file = pre + suffix;
-      if (auto it = files.find(normKey(file)); it != files.end()) {
+      fs::path actual;
+      if (!resolveDiskSpelling(folder / file, actual, err)) return false;
+      if (fs::exists(actual, ec)) {
         std::vector<uint8_t> existing;
-        if (file == leaf && fs::is_regular_file(fs::symlink_status(it->second, ec)) && fs::file_size(it->second, ec) == bytes.size() && slurp(it->second, existing) && existing == bytes) reusable = true;
+        if (file == leaf && fs::is_regular_file(fs::symlink_status(actual, ec)) && fs::file_size(actual, ec) == bytes.size() && slurp(actual, existing) && existing == bytes) reusable = true;
         else conflict = true;
       }
       if (vfs && vfs->exists("levels/" + file)) {
@@ -288,6 +289,7 @@ static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::v
         if (!hit || hit->bytes != bytes) conflict = true;
       }
     }
+    if (referenceOnly) return !conflict || fail();
     if (conflict) continue;
     if (!reusable) {
       const fs::path target = folder / leaf;
@@ -305,7 +307,9 @@ static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::v
   }
 }
 
-bool Editor::importBackground(const fs::path& file, const fs::path& folder, std::string* err) {
+bool Editor::importBackground(const fs::path& requested, const fs::path& folder, std::string* err) {
+  fs::path file;
+  if (!resolveDiskSpelling(requested, file, err)) return false;
   std::string ext = lowerS(pathToUtf8(file.extension()));
   if (ext == ".jpeg") ext = ".jpg";
   std::vector<uint8_t> bytes;
@@ -324,9 +328,24 @@ bool Editor::importBackground(const fs::path& file, const fs::path& folder, std:
 bool Editor::prepareBackground(const fs::path& folder, std::string& name, std::string* err) const {
   if (!hasImportedBackground()) return true;
   const auto key = name.substr(0, name.find('_', 9));
+  if (!meta.baseLink.name.empty()) {
+    for (const char* ext : kArtExt) {
+      const auto path = "levels/" + name + ext;
+      const auto* owner = vfs ? vfs->owner(path) : nullptr;
+      if (!owner) continue;
+      auto hit = vfs->readFrom(*owner, path);
+      if (owner->provider == meta.baseLink.provider && hit && backgroundKey(hit->bytes) == key)
+        return storeBackground(folder, vfs, hit->bytes, ext, name, err, true);
+      break;
+    }
+    if (err) *err = "Linked background " + name + " must be available from " + meta.baseLink.provider;
+    return false;
+  }
   if (!backgroundDir_.empty()) for (const char* ext : kArtExt) {
     std::vector<uint8_t> bytes;
-    if (slurp(backgroundDir_ / (name + ext), bytes) && backgroundKey(bytes) == key)
+    fs::path file;
+    if (!resolveDiskSpelling(backgroundDir_ / (name + ext), file, err)) return false;
+    if (slurp(file, bytes) && backgroundKey(bytes) == key)
       return storeBackground(folder, vfs, bytes, ext, name, err);
   }
   if (vfs) for (const char* ext : kArtExt) {
@@ -398,8 +417,8 @@ bool Editor::setArt(ArtSlot slot, const std::string& value) {
   status = ok ? (value.empty() ? "picture removed" : "picture: " + value) : "the selected objects have no picture setting";
   return ok;
 }
-int Editor::copyArtToMod(const fs::path& modDir) const {
-  if (!vfs) return 0;
+bool Editor::planArtCopies(const fs::path& modDir, std::map<fs::path, fs::path>& copies, std::string* err) const {
+  if (!vfs) return true;
   struct Ref { ArtSlot slot; std::string value; };
   std::vector<Ref> refs;
   if (!hasImportedBackground()) refs.push_back({ArtSlot::Background, meta.background.empty() ? meta.name : meta.background});
@@ -407,7 +426,6 @@ int Editor::copyArtToMod(const fs::path& modDir) const {
     if (n->type == 9) { if (!n->str("emitter_image").empty()) refs.push_back({ArtSlot::Emitter, n->str("emitter_image")}); }
     else if (!n->str("image").empty()) refs.push_back({ArtSlot::Object, n->str("image")});
   }
-  int copied = 0;
   std::set<std::string> done;
   std::error_code ec;
   for (auto& r : refs) {
@@ -419,22 +437,24 @@ int Editor::copyArtToMod(const fs::path& modDir) const {
       for (auto& L : vfs->layers()) {
         auto f = L.files.find(key);
         if (f == L.files.end() && !L.pakIndex.count(key)) continue;
-        if (L.isMod && L.kind == Layer::Dir && f != L.files.end() && L.root != modDir) {
-          fs::path rel = fs::relative(f->second, L.root, ec);
-          fs::path dst = modDir / rel;
-          if (!ec && !fs::exists(dst, ec)) {
-            fs::create_directories(dst.parent_path(), ec);
-            if (fs::copy_file(f->second, dst, ec)) copied++;
-          }
+        if (L.isMod && f != L.files.end()) {
+          fs::path src, dst;
+          if (!resolveDiskSpelling(f->second, src, err)) return false;
+          const auto rel = src.lexically_relative(L.root);
+          fs::path dir = modDir / rel.parent_path();
+          if (rel.has_parent_path() && !resolveDiskSpelling(dir, dir, err)) return false;
+          if (!resolveDiskSpelling(dir / rel.filename(), dst, err)) return false;
+          if (L.root != modDir && !fs::exists(dst, ec)) copies.emplace(dst, src);
         }
         break;
       }
     }
   }
-  return copied;
+  return true;
 }
 
 void Editor::resetHistory() {
+  savedMod_ = false;
   customTypes.clear();
   undo_.clear();
   redo_.clear();
@@ -450,7 +470,24 @@ void Editor::resetHistory() {
   changed();
 }
 
+bool Editor::resolveBase(BaseLink& link, std::string* err) {
+  uint64_t hash;
+  if (!link.name.empty()) {
+    if (vfs) return readBaseLevel(*vfs, link, base, hash, err);
+    if (err) *err = "Mount the pack containing " + link.name + " before opening this level";
+    return false;
+  }
+  if (!meta.baseLink.name.empty()) {
+    BaseLink stock{"_base", ""};
+    if (!vfs || !readBaseLevel(*vfs, stock, base, hash, nullptr)) base = syntheticBase();
+  }
+  return true;
+}
+
 void Editor::newLevel(const std::string& name) {
+  stageError_.clear();
+  BaseLink stock;
+  resolveBase(stock, nullptr);
   level = std::make_shared<Level>();
   level->version = 0x42;
   level->mode = 1;
@@ -504,15 +541,104 @@ std::shared_ptr<Level> Editor::bake() const {
   }
 }
 
-void Editor::finishLoad() {
+struct StageSelection {
+  ui::CfgItem level;
+  int matches = 0;
+  std::vector<std::vector<std::string>> rows;
+};
+
+static StageSelection selectStage(const std::string& text, const std::string& name) {
+  StageSelection result;
+  for (const auto& stage : ui::cfgParse(text)) {
+    if (!stage.isGroup || lowerS(stage.key) != "stage") continue;
+    int count = 0, selected = 0;
+    std::vector<std::vector<std::string>> rows;
+    for (const auto& row : stage.kids) {
+      if (row.isGroup) continue;
+      auto values = ui::cfgValues(row.label);
+      if (values.empty()) continue;
+      const auto key = lowerS(row.key);
+      if (key == "level") {
+        ++count;
+        auto& file = values.front();
+        file.erase(file.find_last_not_of(" \t\r\n") + 1);
+        file.erase(0, file.find_first_not_of(" \t\r\n"));
+        if (lowerS(file) != lowerS(name)) continue;
+        ++result.matches;
+        result.level = row;
+        selected = count;
+      } else if (key == "dialog") {
+        if (!selected || values.size() < 2 || std::atoi(values[0].c_str()) != selected) continue;
+        values[0] = "1";
+      }
+      values.insert(values.begin(), row.key);
+      rows.push_back(std::move(values));
+    }
+    if (selected) result.rows = std::move(rows);
+  }
+  return result;
+}
+
+static bool boardFiles(const fs::path& requested, fs::path& dat, fs::path& ini, std::string* err) {
+  auto dir = requested.parent_path();
+  if (normKey(genericUtf8(dir.filename())) == "LEVELS" && !resolveDiskSpelling(dir, dir, err)) return false;
+  if (!resolveDiskSpelling(dir / requested.filename(), dat, err)) return false;
+  return resolveDiskSpelling(fs::path(dat).replace_extension(".ini"), ini, err);
+}
+
+static bool readSourceStage(const fs::path& file, std::string& text, std::string* err) {
+  if (file.empty()) return true;
+  fs::path index;
+  if (!resolveDiskSpelling(file.parent_path() / "mod_levels.cfg", index, err)) return false;
+  std::error_code ec;
+  if (!fs::exists(index, ec) && !ec) return true;
+  std::vector<uint8_t> bytes;
+  if (ec || !slurp(index, bytes)) { if (err) *err = "cannot read stage list: " + pathToUtf8(index); return false; }
+  text.assign(bytes.begin(), bytes.end());
+  return true;
+}
+
+void Editor::collectSourceStage(const std::string& text) {
+  auto selection = selectStage(text, meta.name);
+  if (!selection.matches) return;
+  if (selection.matches > 1 || !meta.stageRows.empty()) stageError_ = "ambiguous stage entry for " + meta.name;
+  else meta.stageRows = std::move(selection.rows);
+}
+
+void Editor::finishLoad(const LevelBundle& lb, const Layer* owner, const fs::path& file, const std::string& stage) {
   linkRefs(*level);
   resetHistory();
+  meta = LevelMeta();
+  meta.baseLink = lb.baseLink;
+  meta.name = lb.name;
+  meta.title = lb.title;
+  meta.background = lb.background;
+  meta.master = lb.master;
+  meta.boardWidth = lb.cfg.boardWidth;
+  meta.balls = lb.cfg.balls;
+  meta.orange = lb.cfg.orange;
+  meta.physics = lb.cfg.physics;
+  stageError_.clear();
+  savedPath.clear();
+  if (!file.empty()) meta.name = pathToUtf8(file.stem());
+  backgroundDir_ = file.parent_path();
+  if (!file.empty()) {
+    if (backgroundDir_.empty()) backgroundDir_ = ".";
+    collectSourceStage(stage);
+    if (!owner || (owner->isMod && !owner->fromZip)) {
+      savedPath = file;
+      savedMod_ = owner || (normKey(pathToUtf8(file.parent_path().filename())) == "LEVELS" && (!meta.stageRows.empty() || !stageError_.empty()));
+    }
+  }
+  auto nodes = builtNodes(*level);
+  for (auto& [idx, key] : lb.cfg.pegTypes)
+    if (idx >= 0 && (size_t)idx < nodes.size() && pegOf(*nodes[(size_t)idx])) customTypes[nodes[(size_t)idx]] = key;
 }
 
 bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err) {
   LevelBundle lb;
   std::string e;
-  if (!loadLevelBundle(vfs, nameOrPath, lb, &e, true)) {
+  if (!loadLevelBundle(vfs, nameOrPath, lb, &e)) {
     if (err) *err = e;
     return false;
   }
@@ -526,78 +652,100 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
     if (err) *err = ex.what();
     return false;
   }
+  fs::path file;
+  const bool disk = lb.name != nameOrPath;
+  if (disk) file = pathFromUtf8(lb.source);
+  const auto key = "levels/" + lb.name;
+  const auto* owner = vfs.owner(key + ".dat", file);
+  if (file.empty() && owner && owner->kind == Layer::Dir) file = owner->files.at(normKey(key + ".dat"));
+  fs::path side;
+  if (!file.empty() && !boardFiles(file, file, side, err)) return false;
+  std::string stage;
+  if ((disk || (owner && owner->isMod)) && !readSourceStage(file, stage, err)) return false;
   level = copy;
   base = lb.base;
-  meta = LevelMeta();
-  meta.name = lb.name;
-  meta.title = lb.title;
-  meta.background = lb.background;
-  const fs::path source = pathFromUtf8(nameOrPath);
-  backgroundDir_ = normKey(genericUtf8(source.extension())) == ".DAT" && !source.has_parent_path() ? fs::path(".") : source.parent_path();
-  meta.master = lb.master;
-  meta.boardWidth = lb.cfg.boardWidth;
-  meta.balls = lb.cfg.balls;
-  meta.orange = lb.cfg.orange;
-  meta.physics = lb.cfg.physics;
-  savedPath.clear();
-  finishLoad();
-  {
-    auto nodes = builtNodes(*level);
-    for (auto& [idx, key] : lb.cfg.pegTypes)
-      if (idx >= 0 && (size_t)idx < nodes.size() && pegOf(*nodes[(size_t)idx])) customTypes[nodes[(size_t)idx]] = key;
+  finishLoad(lb, owner, file, stage);
+  if (!disk && owner && !owner->isMod) {
+    if (owner->isLevelPack) {
+      for (const auto& [key, i] : owner->pakIndex) {
+        if (!key.ends_with(".CFG") || key.find('\\') != key.npos) continue;
+        const auto& e = owner->pak->entries[i];
+        collectSourceStage(std::string(owner->pak->data.begin() + e.offset, owner->pak->data.begin() + e.offset + e.size));
+      }
+    } else if (auto stages = vfs.read("levels/stages.cfg")) {
+      collectSourceStage(std::string(stages->bytes.begin(), stages->bytes.end()));
+    }
   }
   status = "opened " + lb.name + " (" + std::to_string(objects().size()) + " objects)";
   return true;
 }
 
-static bool resolveDatPair(const fs::path& requested, fs::path& dat, fs::path& ini, std::string* err) {
-  return resolveDiskSpelling(requested, dat, err) && resolveDiskSpelling(fs::path(dat).replace_extension(".ini"), ini, err);
-}
-
 bool Editor::loadDatFile(const fs::path& requested, std::string* err) {
   fs::path p, side;
-  if (!resolveDatPair(requested, p, side, err)) return false;
+  std::string stage;
+  if (!boardFiles(requested, p, side, err) || !readSourceStage(p, stage, err)) return false;
   std::vector<uint8_t> bytes;
   if (!slurp(p, bytes)) { if (err) *err = "cannot read " + pathToUtf8(p); return false; }
   std::string e;
   auto lv = parseLevel(bytes, &e);
   if (!lv) { if (err) *err = e; return false; }
-  int boardWidth = 650;
-  std::string background;
+  LevelBundle lb;
+  lb.name = lb.title = pathToUtf8(p.stem());
+  const auto* owner = vfs ? vfs->owner("levels/" + lb.name + ".dat", p) : nullptr;
   std::error_code ec;
   if (fs::exists(side, ec)) {
     if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
-    auto ini = readIni(std::string(bytes.begin(), bytes.end()));
-    if (ini.count("background")) background = ini["background"];
-    if (ini.count("board_width")) boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
+    const std::string sidecar(bytes.begin(), bytes.end());
+    auto ini = readIni(sidecar);
+    if (!baseLinkFromIni(ini, vfs, owner, lb.baseLink, err)) return false;
+    readLevelSettings(lb, ini, sidecar);
   }
   if (ec) { if (err) *err = "cannot read " + pathToUtf8(side) + ": " + ec.message(); return false; }
+  if (!resolveBase(lb.baseLink, err)) return false;
   level = std::make_shared<Level>(std::move(*lv));
-  meta.name = pathToUtf8(p.stem());
-  meta.title = meta.name;
-  meta.boardWidth = boardWidth;
-  meta.background = background;
-  backgroundDir_ = p.has_parent_path() ? p.parent_path() : fs::path(".");
-  savedPath = p;
-  finishLoad();
+  finishLoad(lb, owner, p, stage);
   status = "opened " + pathToUtf8(p);
+  return true;
+}
+
+static bool exportBaseLink(const BaseLink& link, const std::string& levelName, const Vfs* vfs, const fs::path& dir, std::string& text, std::string* err, const Layer** donor = nullptr) {
+  if (link.name.empty()) return true;
+  auto fail = [&](const std::string& why) { if (err) *err = link.name + ": " + why; return false; };
+  if (levelName.starts_with('_')) return fail("a base level cannot itself link another base");
+  const auto leaf = link.name + ".dat";
+  if (!vfs || link.hash.empty()) return fail("mount the original base pack to export this level");
+  uint64_t hash;
+  auto hit = readBaseFile(*vfs, link, hash, err);
+  if (!hit) return false;
+  std::error_code ec;
+  if (donor) *donor = hit->layer;
+  fs::path localFile;
+  if (!resolveDiskSpelling(dir / leaf, localFile, err)) return false;
+  if (fs::exists(localFile, ec)) {
+    std::vector<uint8_t> local;
+    if (!fs::is_regular_file(fs::symlink_status(localFile, ec)) || !slurp(localFile, local) || local != hit->bytes) return fail("destination base differs or cannot be read");
+  }
+  if (ec) return fail("cannot inspect the destination base");
+  text = "base = " + link.name + "\nbase_hash = " + link.hash + "\nbase_provider = " + link.provider + "\n";
   return true;
 }
 
 bool Editor::saveDat(const fs::path& requested, std::string* err) {
   fs::path p, side;
+  if ((requested != savedPath && !checkSavedSpelling(err)) || !boardFiles(requested, p, side, err)) return false;
   try {
-    if (!resolveDatPair(requested, p, side, err)) return false;
     if (lowerS(pathToUtf8(p.extension())) == ".ini") { if (err) *err = "DAT target must not use the INI extension"; return false; }
     auto bytes = writeLevel(*level);
     std::vector<uint8_t> old;
     if (fs::exists(side) && !slurp(side, old)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
     std::istringstream in(std::string(old.begin(), old.end()));
     std::string line, text;
+    if (!exportBaseLink(meta.baseLink, pathToUtf8(p.stem()), vfs, p.parent_path(), text, err)) return false;
     std::string background = meta.background;
     if (!prepareBackground(p.has_parent_path() ? p.parent_path() : fs::path("."), background, err)) return false;
     while (std::getline(in, line)) {
       auto entry = readIni(line);
+      if (entry.count("base") || entry.count("base_hash") || entry.count("base_provider")) continue;
       if (!entry.count("board_width") && !entry.count("background")) text += line + "\n";
     }
     if (!background.empty()) text += "background = " + background + "\n";
@@ -608,16 +756,33 @@ bool Editor::saveDat(const fs::path& requested, std::string* err) {
     return false;
   }
   savedPath = p;
+  savedMod_ = false;
   clean_ = (int)undo_.size();
   metaDirty = false;
   status = "saved " + pathToUtf8(p);
   return true;
 }
 
+bool Editor::checkSavedSpelling(std::string* err) const {
+  if (savedPath.empty()) return true;
+  fs::path dat, ini, index;
+  return boardFiles(savedPath, dat, ini, err) && (!savedMod_ || resolveDiskSpelling(dat.parent_path() / "mod_levels.cfg", index, err));
+}
+
+bool Editor::saveCurrent(std::string* err) {
+  if (savedPath.empty()) { if (err) *err = "save needs a path (or use savemod)"; return false; }
+  if (!savedMod_) return saveDat(savedPath, err);
+  if (normKey(genericUtf8(savedPath.stem())) != normKey(meta.name)) { if (err) *err = "level name changed; choose a new mod destination"; return false; }
+  return saveToMod(savedPath.parent_path().parent_path(), err);
+}
+
 bool Editor::saveJson(const fs::path& requested, std::string* err) {
   fs::path p;
-  if (!resolveDiskSpelling(requested, p, err)) return false;
+  if (!checkSavedSpelling(err) || !resolveDiskSpelling(requested, p, err)) return false;
+  if (!stageError_.empty()) { if (err) *err = stageError_; return false; }
   auto exported = meta;
+  std::string link;
+  if (!exportBaseLink(meta.baseLink, meta.name, vfs, p.parent_path(), link, err)) return false;
   if (!prepareBackground(p.has_parent_path() ? p.parent_path() : fs::path("."), exported.background, err)) return false;
   std::string text = levelToJson(*level, exported).dump(2) + "\n";
   if (!spit(p, text)) { if (err) *err = "cannot write " + pathToUtf8(p); return false; }
@@ -636,13 +801,127 @@ bool Editor::loadJson(const fs::path& requested, std::string* err) {
   Level lv;
   LevelMeta m;
   if (!levelFromJson(j, lv, m, &e)) { if (err) *err = e; return false; }
+  if (!resolveBase(m.baseLink, err)) return false;
   level = std::make_shared<Level>(std::move(lv));
-  meta = m;
+  meta = std::move(m);
+  stageError_.clear();
   backgroundDir_ = p.has_parent_path() ? p.parent_path() : fs::path(".");
   savedPath.clear();
   resetHistory();
   status = "imported " + pathToUtf8(p);
   return true;
+}
+
+using IndexEntries = std::vector<std::string>;
+
+static std::string editorIndex(const fs::path& modDir, const IndexEntries& levels) {
+  std::string out;
+  for (size_t i = 0; i < levels.size(); i += 5) {
+    std::string stageName = pathToUtf8(modDir.filename()) + (i ? " " + std::to_string(i / 5 + 1) : "");
+    out += "Stage\n{\nName: \"" + stageName + "\"\nDesc: \"Levels made with the PegglePort level editor\"\n";
+    for (size_t j = i; j < std::min(levels.size(), i + 5); j++) out += "\t" + levels[j] + "\n";
+    out += "}\n";
+  }
+  return out;
+}
+
+static std::string cfgQuote(const std::string& field) {
+  std::string out = "\"";
+  for (char c : field) {
+    if (c == '\n') out += "\\n";
+    else {
+      if (c == '\\' || c == '"') out += '\\';
+      out += c;
+    }
+  }
+  return out + '"';
+}
+
+static bool replaceStageTitle(std::string& text, const ui::CfgItem& row, const LevelMeta& meta) {
+  auto values = ui::cfgValues(row.label);
+  if (values.size() < 2) return false;
+  if (values[1] == meta.title) return true;
+  auto comma = row.label.find(',');
+  if (comma == text.npos || ui::cfgValues(row.label.substr(0, comma)) != std::vector<std::string>{values[0]}) return false;
+  auto pos = row.label.find_first_not_of(" \t", comma + 1);
+  if (pos == text.npos) return false;
+  size_t len = values[1].size();
+  if (row.label[pos] == '"') {
+    std::istringstream in(row.label.substr(pos));
+    std::string title;
+    if (!(in >> std::quoted(title)) || in.tellg() < 0) return false;
+    len = (size_t)in.tellg();
+  } else if (row.label.compare(pos, len, values[1]) != 0) return false;
+  auto next = row.label.find_first_not_of(" \t\r", pos + len);
+  if (next != text.npos && row.label[next] != ',') return false;
+  const auto quoted = cfgQuote(meta.title);
+  auto changed = row.label;
+  changed.replace(pos, len, quoted);
+  values[1] = meta.title;
+  if (ui::cfgValues(changed) != values) return false;
+  size_t start = 0;
+  for (int i = 1; i < row.line; ++i) {
+    start = text.find('\n', start);
+    if (start == text.npos) return false;
+    ++start;
+  }
+  const auto line = text.substr(start, text.find('\n', start) - start);
+  const auto label = line.rfind(row.label);
+  if (label == text.npos) return false;
+  auto probe = text;
+  probe.insert(start + label + pos, 1, 'X');
+  auto live = row.label;
+  live.insert(pos, 1, 'X');
+  if (selectStage(probe, meta.name).level.label != live) return false;
+  text.replace(start + label + pos, len, quoted);
+  return true;
+}
+
+static std::string singleBoardStage(const LevelMeta& meta) {
+  std::string out = "Stage\n{\n";
+  for (auto row : meta.stageRows) {
+    const bool level = lowerS(row[0]) == "level";
+    if (level) {
+      row[1] = meta.name;
+      if (meta.stageTitleEdited) { if (row.size() < 3) row.resize(3); row[2] = meta.title; }
+    }
+    out += row[0] + ": ";
+    for (size_t i = 1; i < row.size(); ++i) {
+      if (i > 1) out += ", ";
+      out += level && i == 1 ? row[i] : cfgQuote(row[i]);
+    }
+    out += '\n';
+  }
+  return out + "}\n";
+}
+
+static constexpr int kEditorPackPriority = 10;
+
+static bool checkModDestination(const Vfs& vfs, const Layer& donor, const fs::path& dir, const mods::Manifest& dest, const std::string& name, std::string* err) {
+  auto refuse = [&](const std::string& why) { if (err) *err = why; return false; };
+  std::error_code ec;
+  const bool samePack = fs::equivalent(dir, donor.root, ec);
+  if (samePack != ("mod:" + dest.id == donor.provider))
+    return refuse("destination pack ID conflicts with the required donor " + donor.provider);
+  const auto key = normKey("levels/" + name);
+  if (samePack || (!donor.files.contains(key + ".DAT") && !donor.files.contains(key + ".INI"))) return true;
+  int priority = dest.format == "none" ? kEditorPackPriority : 0;
+  fs::path ini;
+  if (!resolveDiskSpelling(dir / "mod.ini", ini, err)) return false;
+  if (fs::exists(ini, ec)) {
+    std::string bytes;
+    if (!mods::readFile(ini, bytes, 1 << 20)) return refuse("cannot read " + pathToUtf8(ini));
+    priority = std::atoi(readIni(bytes)["priority"].c_str());
+  }
+  if (ec) return refuse("cannot inspect " + pathToUtf8(ini));
+  if (priority > donor.priority) return true;
+  if (priority == donor.priority) {
+    for (const auto& layer : vfs.layers()) {
+      if (&layer == &donor) break;
+      if (layer.priority == priority && layer.provider == "mod:" + dest.id && fs::equivalent(dir, layer.root, ec)) return true;
+    }
+  }
+  return refuse("choose a distinct level name; " + donor.provider + " can mask " + name + " in Quick Play");
 }
 
 bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
@@ -651,13 +930,64 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     if (err) *err = "level names may only use letters, digits, '_' and '-': '" + meta.name + "'";
     return false;
   }
-  fs::path lv = modDir / "levels";
-  fs::path target, side, index, modIni;
-  if (!resolveDatPair(lv / (meta.name + ".dat"), target, side, err) ||
-      !resolveDiskSpelling(lv / "mod_levels.cfg", index, err) ||
-      !resolveDiskSpelling(modDir / "mod.ini", modIni, err)) return false;
+  const bool original = savedMod_ && modDir == savedPath.parent_path().parent_path() && normKey(meta.name) == normKey(genericUtf8(savedPath.stem()));
+  if (!original && !checkSavedSpelling(err)) return false;
+  fs::path lv, target, side, path;
+  if (!resolveDiskSpelling(modDir / "levels", lv, err) || !boardFiles(lv / (original ? savedPath.filename() : fs::path(meta.name + ".dat")), target, side, err) ||
+      !resolveDiskSpelling(lv / "mod_levels.cfg", path, err)) return false;
+  auto refuse = [&](const std::string& message) { if (err) *err = message; return false; };
+  if (meta.title.find_first_of("\r\n") != std::string::npos || readIni("title=" + meta.title)["title"] != meta.title)
+    return refuse("title cannot be represented in the level sidecar");
+  std::string out;
+  std::vector<uint8_t> index;
+  std::error_code ec;
+  const bool exists = fs::exists(path, ec);
+  if (ec || (exists && !slurp(path, index))) return refuse("cannot read " + pathToUtf8(path));
+  out.assign(index.begin(), index.end());
+  const auto selected = selectStage(out, meta.name);
+  if (!stageError_.empty() && (!original || !selected.matches || meta.stageTitleEdited)) return refuse(stageError_);
+  if (selected.matches) {
+    if (!meta.stageRows.empty() && selected.rows != meta.stageRows)
+      return refuse("stage settings conflict with the destination entry for " + meta.name + "; choose a new mod folder");
+    if (meta.stageTitleEdited && (selected.matches != 1 || !replaceStageTitle(out, selected.level, meta)))
+      return refuse("cannot safely update the selected stage title for " + meta.name);
+  } else {
+    if (original && !meta.stageRows.empty()) return refuse("saved stage entry is missing: " + pathToUtf8(path));
+    if (!meta.stageRows.empty()) {
+      if (exists) return refuse("cannot add the selected stage to an existing index; choose a new mod folder");
+      out = singleBoardStage(meta);
+    } else {
+      IndexEntries levels;
+      std::istringstream in(out);
+      std::string line;
+      while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.starts_with("\tLevel: ")) levels.push_back(line.substr(1));
+      }
+      auto formatted = [&](const IndexEntries& entries) {
+        auto text = editorIndex(modDir, entries);
+        if (out.find("\r\n") != out.npos) {
+          for (size_t i = 0; (i = text.find('\n', i)) != text.npos; i += 2) text.insert(i, 1, '\r');
+        }
+        return text;
+      };
+      if (exists && (levels.empty() || out != formatted(levels)))
+        return refuse("cannot add a level to this authored stage list; choose a new mod folder");
+      levels.push_back("Level: " + meta.name + ", " + cfgQuote(meta.title) + ", 100000, 3");
+      out = formatted(levels);
+    }
+  }
+  std::string link;
+  const Layer* donor = nullptr;
+  if (!exportBaseLink(meta.baseLink, meta.name, vfs, lv, link, err, &donor)) return false;
+  mods::Manifest dest;
+  if (!mods::loadManifest(modDir, dest, err)) return false;
+  if (donor && donor->isMod && !checkModDestination(*vfs, *donor, modDir, dest, meta.name, err)) return false;
+  std::map<fs::path, fs::path> copies;
+  if (meta.baseLink.name.empty() && !planArtCopies(modDir, copies, err)) return false;
   std::ostringstream ini;
   ini << "# written by the PegglePort level editor\n";
+  ini << link;
   ini << "title = " << meta.title << "\n";
   if (meta.boardWidth > 650) ini << "board_width = " << meta.boardWidth << "\n";
   if (meta.balls > 0) ini << "balls = " << meta.balls << "\n";
@@ -679,56 +1009,28 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     }
     for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
   }
-  std::vector<std::pair<std::string, std::string>> levels;
-  {
-    std::vector<uint8_t> bytes;
-    std::error_code ec;
-    const bool exists = fs::exists(index, ec);
-    if (ec || (exists && !slurp(index, bytes))) { if (err) *err = "cannot read mod level list"; return false; }
-    if (exists) {
-      std::istringstream in(std::string(bytes.begin(), bytes.end()));
-      std::string line;
-      while (std::getline(in, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        size_t k = line.find_first_not_of(" \t");
-        if (k == std::string::npos || line.compare(k, 6, "Level:") != 0) continue;
-        std::string rest = line.substr(k + 6);
-        rest.erase(0, rest.find_first_not_of(" \t"));
-        std::string nm = rest.substr(0, rest.find(','));
-        nm.erase(nm.find_last_not_of(" \t") + 1);
-        levels.push_back({nm, line.substr(k)});
-      }
-    }
-  }
-  std::string entry = "Level: " + meta.name + ", \"" + meta.title + "\", 100000, 3";
-  bool found = false;
-  for (auto& l : levels)
-    if (normKey(l.first) == normKey(meta.name)) { l.second = entry; found = true; }
-  if (!found) levels.push_back({meta.name, entry});
-  std::string out;
-  for (size_t i = 0; i < levels.size(); i += 5) {
-    std::string stageName = pathToUtf8(modDir.filename()) + (i ? " " + std::to_string(i / 5 + 1) : "");
-    out += "Stage\n{\nName: \"" + stageName + "\"\nDesc: \"Levels made with the PegglePort level editor\"\n";
-    for (size_t j = i; j < std::min(levels.size(), i + 5); j++) out += "\t" + levels[j].second + "\n";
-    out += "}\n";
-  }
   try {
-    const bool hasMetadata = fs::exists(modIni);
-    if (hasMetadata && !fs::is_regular_file(modIni)) { if (err) *err = "not a regular file: " + pathToUtf8(modIni); return false; }
     std::string metadata;
-    if (!hasMetadata) {
-      std::string id = pathToUtf8(modDir.filename());
-      for (auto& c : id) c = (char)std::tolower((unsigned char)c);
-      metadata = "id = " + id + "\nname = " + pathToUtf8(modDir.filename()) + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n";
-    }
+    if (dest.format == "none")
+      metadata = "id = " + dest.id + "\nname = " + dest.name + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = " + std::to_string(kEditorPackPriority) + "\n";
     const auto bytes = writeLevel(*level);
-    if (!saveLevelFiles(target, bytes, side, ini.str(), err, index, out, hasMetadata ? nullptr : &metadata)) return false;
+    if (!saveLevelFiles(target, bytes, side, ini.str(), err, path, &out, metadata.empty() ? nullptr : &metadata)) return false;
   } catch (const std::exception& ex) {
     if (err) *err = ex.what();
     return false;
   }
-  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + pathToUtf8(modDir));
+  int copied = 0;
+  for (const auto& [dst, src] : copies) {
+    fs::create_directories(dst.parent_path(), ec);
+    if (!ec && fs::copy_file(src, dst, ec)) ++copied;
+  }
+  if (copied) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + pathToUtf8(modDir));
   savedPath = target;
+  savedMod_ = true;
+  auto stage = selectStage(out, meta.name);
+  meta.stageRows = std::move(stage.rows);
+  stageError_ = stage.matches == 1 ? "" : "ambiguous stage entry for " + meta.name;
+  meta.stageTitleEdited = false;
   clean_ = (int)undo_.size();
   metaDirty = false;
   status = "saved " + pathToUtf8(target);
@@ -1316,7 +1618,7 @@ int Editor::generate(const std::string& kind, const std::vector<float>& a, int p
 }
 void Editor::setMeta(const std::string& k, const std::string& v) {
   if (k == "name") meta.name = v;
-  else if (k == "title") meta.title = v;
+  else if (k == "title") { meta.title = v; meta.stageTitleEdited = true; }
   else if (k == "background") meta.background = v;
   else if (k == "master") meta.master = v;
   else if (k == "board_width") {
@@ -1595,6 +1897,7 @@ bool Editor::buildBoard(Board& b, LevelBundle& lb, std::vector<NodeP>* objNode, 
   }
   lb = LevelBundle();
   lb.base = base;
+  lb.baseLink = meta.baseLink;
   lb.level = baked;
   lb.name = meta.name;
   lb.title = meta.title;
@@ -1812,7 +2115,7 @@ std::string Editor::exec(const std::string& line, bool* okOut) {
     newLevel(w.size() > 1 ? w[1] : "NewLevel");
     msg = status;
   } else if (c == "save") {
-    if (w.size() > 1) ok = saveDat(w[1], &err); else if (!savedPath.empty()) ok = saveDat(savedPath, &err); else { ok = false; err = "save needs a path (or use savemod)"; }
+    ok = w.size() > 1 ? saveDat(w[1], &err) : saveCurrent(&err);
     msg = ok ? status : err;
   } else if (c == "export") {
     ok = w.size() > 1 && saveJson(w[1], &err);

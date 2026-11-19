@@ -4,17 +4,23 @@
 #include <string>
 #include <vector>
 
-#include "profile.h"
+#include "gamepaths.h"
 
 namespace pp {
 
 constexpr int kSteamAppDeluxe = 3480;
 constexpr int kSteamAppNights = 3540;
+constexpr int kSteamAppExtreme = 3483;
 
-inline int gameIndex(Game g) { return g == Game::Nights ? 1 : 0; }
-inline Game gameAt(int i) { return i == 1 ? Game::Nights : Game::Deluxe; }
 inline Game otherGame(Game g) { return g == Game::Nights ? Game::Deluxe : Game::Nights; }
-inline int steamAppId(Game g) { return g == Game::Nights ? kSteamAppNights : kSteamAppDeluxe; }
+inline int steamAppId(Game g) {
+  switch (g) {
+    case Game::Deluxe: return kSteamAppDeluxe;
+    case Game::Nights: return kSteamAppNights;
+    case Game::Extreme: return kSteamAppExtreme;
+    default: return 0;
+  }
+}
 
 struct FindPlace {
   std::filesystem::path path;
@@ -23,14 +29,14 @@ struct FindPlace {
 };
 
 struct FindSources {
-  std::filesystem::path remembered[2];
+  std::filesystem::path remembered[kGameCount];
   std::vector<FindPlace> steamRoots;
-  std::vector<FindPlace> installs[2];
+  std::vector<FindPlace> installs[kGameCount];
   std::vector<FindPlace> steamLibraries;
   std::vector<FindPlace> publisherDirs;
   std::vector<FindPlace> gamesDirs;
   std::vector<std::string> notes;
-  bool skip[2] = {false, false};
+  bool skip[kGameCount] = {};
   bool wholeComputer = true;
 };
 
@@ -47,12 +53,12 @@ struct FindLook {
 };
 
 struct FoundGames {
-  std::filesystem::path dir[2];
-  std::string from[2];
+  std::filesystem::path dir[kGameCount];
+  std::string from[kGameCount];
   std::vector<std::string> notes;
   std::vector<FindLook> looks;
   bool has(Game g) const { return !dir[gameIndex(g)].empty(); }
-  bool any() const { return !dir[0].empty() || !dir[1].empty(); }
+  bool any() const { for (const auto& p : dir) if (!p.empty()) return true; return false; }
 };
 
 enum class PathKind { Missing, Folder, File, Unreadable };
@@ -73,11 +79,13 @@ std::string steamInstallDir(const std::filesystem::path& manifest);
 
 FindSources systemFindSources(const std::filesystem::path& programDir);
 FoundGames findGames(const FindSources& sources);
+bool validateCampaign(const std::filesystem::path& dir, Game game, std::string& why);
 std::vector<std::string> searchReport(const FoundGames& found);
 std::vector<std::string> searchSummary(const FoundGames& found, size_t maxLines = 14);
 
 struct GameFolderStore {
-  std::filesystem::path dir[2];
+  std::filesystem::path dir[kGameCount];
+  bool alternate[kGameCount] = {};
   Game home = Game::Deluxe;
   bool load(const std::filesystem::path& file);
   bool save(const std::filesystem::path& file) const;

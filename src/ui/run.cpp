@@ -339,7 +339,7 @@ static SDL_Surface* makeWindowIcon(Game game) {
   return s;
 }
 
-static bool bothInstalled(const RunOptions& o) { return o.hasGame && o.hasGame(o.game) && o.hasGame(otherGame(o.game)); }
+static bool bothInstalled(const RunOptions& o) { return combinedEdition(o.game) && o.hasGame && o.hasGame(o.game) && o.hasGame(otherGame(o.game)); }
 
 static Game homeOf(const RunOptions& o) { return bothInstalled(o) && o.home ? o.home() : o.game; }
 
@@ -428,10 +428,10 @@ static RunResult playWindow(const RunOptions& o, Vfs& vfs, GameWindow& window, b
         P.last = 0;
       }
       if (app.takeGameFoldersRequest() && o.chooseFolders) {
-        if (o.chooseFolders(o.game)) {
+        if (auto picked = o.chooseFolders(o.game)) {
           app.finishOptionsDialog(true, false);
           next = GameRequest();
-          next.game = o.game;
+          next.game = *picked;
           result = RunResult::SwitchGame;
           app.requestQuit();
         } else {
@@ -466,14 +466,14 @@ static void keepPendingInvites() {
 }
 
 bool GameWindow::open(Game game, int w, int h, bool keepPicture, std::string& error) {
-  const char* title = game == Game::Deluxe ? "Peggle Deluxe (PegglePort)" : "Peggle Nights (PegglePort)";
+  const std::string title = std::string(gameTitle(game)) + " (PegglePort)";
   if (!win_) {
     SDL_Rect area;
     if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &area) && area.w > 0 && area.h > 0) {
       w = std::min(w, area.w);
       h = std::min(h, area.h);
     }
-    if (!SDL_CreateWindowAndRenderer(title, w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win_, &ren_)) {
+    if (!SDL_CreateWindowAndRenderer(title.c_str(), w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win_, &ren_)) {
       error = std::string("The game window could not be opened: ") + SDL_GetError();
       win_ = nullptr;
       ren_ = nullptr;
@@ -482,7 +482,7 @@ bool GameWindow::open(Game game, int w, int h, bool keepPicture, std::string& er
     SDL_SetRenderVSync(ren_, 1);
     SDL_StartTextInput(win_);
   } else {
-    SDL_SetWindowTitle(win_, title);
+    SDL_SetWindowTitle(win_, title.c_str());
     if (!keepPicture) {
       SDL_SetRenderDrawColor(ren_, 0, 0, 0, 255);
       SDL_RenderClear(ren_);

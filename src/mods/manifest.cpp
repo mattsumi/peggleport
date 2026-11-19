@@ -36,21 +36,13 @@ bool readFile(const fs::path& p, std::string& out, size_t maxBytes) {
   std::ifstream f(p, std::ios::binary);
   if (!f) return false;
   f.seekg(0, std::ios::end);
-  auto n = (size_t)f.tellg();
-  if (n > maxBytes) return false;
+  const auto n = f.tellg();
+  if (n < 0 || (uint64_t)n > maxBytes) return false;
   f.seekg(0);
-  out.resize(n);
-  f.read(out.data(), (std::streamsize)n);
-  return true;
-}
-std::string sanitizeId(const std::string& s) {
-  std::string o;
-  for (char c : s) {
-    c = (char)std::tolower((unsigned char)c);
-    if (std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-') o += c;
-    else if (c == ' ') o += '_';
-  }
-  return o.empty() ? "mod" : o;
+  out.resize((size_t)n);
+  if (f.read(out.data(), (std::streamsize)n) && f.gcount() == n) return true;
+  out.clear();
+  return false;
 }
 bool safeRelPath(const std::string& rel) { return modhost::relPathOk(rel); }
 
@@ -135,11 +127,20 @@ bool loadManifest(const fs::path& dir, Manifest& m, std::string* err) {
   if (folder.empty()) folder = pathToUtf8(dir.parent_path().filename());
   std::string text;
   m = Manifest();
-  if (readFile(dir / "mod.json", text, 1 << 20)) {
-    if (!parseManifest(text, true, folder, m, err)) return false;
-  } else if (readFile(dir / "mod.ini", text, 1 << 20)) {
-    if (!parseManifest(text, false, folder, m, err)) return false;
-  } else {
+  fs::path jsonPath, iniPath;
+  if (!resolveDiskSpelling(dir / "mod.json", jsonPath, err) || !resolveDiskSpelling(dir / "mod.ini", iniPath, err)) return false;
+  for (bool json : {true, false}) {
+    const auto& path = json ? jsonPath : iniPath;
+    std::error_code ec;
+    if (fs::symlink_status(path, ec).type() == fs::file_type::not_found) continue;
+    if (ec || !fs::is_regular_file(path, ec) || !readFile(path, text, 1 << 20)) {
+      if (err) *err = "cannot read " + pathToUtf8(path);
+      return false;
+    }
+    if (!parseManifest(text, json, folder, m, err)) return false;
+    break;
+  }
+  if (m.format.empty()) {
     m.name = gameText(folder);
     m.id = sanitizeId(folder);
     m.format = "none";

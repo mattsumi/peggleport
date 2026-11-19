@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "ui/app.h"
@@ -18,7 +19,7 @@ struct RunOptions {
   StartTarget start;
   int winW = 1024, winH = 768;
   std::function<bool(Game)> canOpen;
-  std::function<bool(Game)> chooseFolders;
+  std::function<std::optional<Game>(Game)> chooseFolders;
   std::function<bool(Game)> hasGame;
   std::function<std::filesystem::path(Game)> gameDir;
   std::function<Game()> home;

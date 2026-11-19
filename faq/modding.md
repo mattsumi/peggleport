@@ -80,6 +80,18 @@ Files in a mod folder are looked up before the game's own files, using the same 
 * Levels go in `levels/` as `.dat` files. Add a `mod_levels.cfg` there to list them as extra Quick Play stages, or let the level editor write all of this for you.
 * A level can have an `.ini` next to it with `title`, `board_width` (650 is the classic width, a larger number makes that level's board wider), `balls`, `orange`, `background` and `master`. The same file can also change how the ball moves with `gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed` and `ball_radius`, see [Physics](#physics), and give pegs a mod peg type with `peg` lines, see [Peg types](#peg-types).
 
+### Pego prototype pack
+
+Run `python examples/mods/build_pego_pack.py "path/to/Pego Deluxe" "path/to/pego_prototype"` with your own August 2006 prototype files. Put the generated folder into Deluxe's Mods folder and enable **Pego Prototype**. Its 55 boards appear as extra Quick Play stages. The pack keeps their original base geometry and uses prototype backgrounds and thumbnails where supplied. Deluxe supplies the remaining art, interface and rules; this is not the full prototype campaign.
+
+A level sidecar can use `base = _pack_base` to load `levels/_pack_base.dat` instead of `levels/_base.dat`. The base name must start with an underscore and contain only letters, digits, underscores or hyphens.
+
+### World of Warcraft level pack
+
+Build the `pp_wow_pack` target, then run `pp_wow_pack "path/to/Peggle World of Warcraft Edition" "path/to/wow_levels"`. The tool reads your installed copy and creates a data-only mod. Put the folder into Deluxe's or Nights' Mods folder and enable **Peggle WoW Levels**. From the first Quick Play page, use the back arrow to jump to mod stages, then page forward until you see **WoW - Stage 1**.
+
+The pack has the ten campaign boards and the **1-Shot Kill** challenge layout on a bonus page. The bonus is played with normal Quick Play rules. The pack does not install the original campaign, music, or challenge rules into the host game.
+
 ## The Lua API
 
 ### What is in the sandbox

@@ -185,7 +185,7 @@ endif()
 
 add_library(pp_editor_core STATIC src/editor/model.cpp src/editor/json.cpp src/editor/editor.cpp)
 target_include_directories(pp_editor_core PUBLIC src third_party)
-target_link_libraries(pp_editor_core PUBLIC pp_core)
+target_link_libraries(pp_editor_core PUBLIC pp_core PRIVATE pp_mods)
 
 add_library(pp_ui STATIC
   src/profile.cpp src/profile_import.cpp
@@ -202,6 +202,16 @@ add_executable(peggleport WIN32
   src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
+add_executable(pp_edition_test EXCLUDE_FROM_ALL
+  tests/edition_test.cpp tests/launcher_test.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
+  src/mods/overlay.cpp src/editor/screen.cpp)
+target_link_libraries(pp_edition_test PRIVATE pp_ui pp_editor_core)
+add_executable(pp_wow_pack EXCLUDE_FROM_ALL examples/mods/build_wow_pack.cpp)
+target_link_libraries(pp_wow_pack PRIVATE pp_core)
+set_target_properties(pp_wow_pack PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+if(MINGW)
+  target_link_options(pp_wow_pack PRIVATE -municode)
+endif()
 option(PP_HD_TOOLS "Build the HD art reference exporter and presentation tests" OFF)
 if(PP_HD_TOOLS)
   enable_testing()
@@ -302,6 +312,10 @@ option(PP_BUILD_TESTS "Build regression tests" ON)
 option(PP_TEST_LAN_DISCOVERY "Run the LAN broadcast integration test" OFF)
 if(PP_BUILD_TESTS)
   enable_testing()
+  if(NOT PP_STEAM)
+    set_target_properties(pp_edition_test PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME launcher COMMAND pp_edition_test --launcher "${CMAKE_CURRENT_BINARY_DIR}/launcher-fixtures")
+  endif()
   add_executable(pp_online_discovery_test tests/online_discovery_test.cpp)
   target_link_libraries(pp_online_discovery_test PRIVATE pp_core)
   if(PP_TEST_LAN_DISCOVERY)
@@ -335,10 +349,19 @@ if(PP_BUILD_TESTS)
   target_link_libraries(pp_authored_width_test PRIVATE pp_core)
   add_test(NAME authored_width COMMAND pp_authored_width_test)
   set_tests_properties(authored_width PROPERTIES TIMEOUT 20)
+  add_executable(pp_editor_export_test tests/editor_export_test.cpp)
+  target_link_libraries(pp_editor_export_test PRIVATE pp_editor_core)
+  add_test(NAME editor_export COMMAND pp_editor_export_test "${CMAKE_CURRENT_BINARY_DIR}")
+  add_executable(pp_editor_provider_test tests/editor_provider_test.cpp)
+  target_link_libraries(pp_editor_provider_test PRIVATE pp_editor_core pp_mods)
+  add_test(NAME editor_provider COMMAND pp_editor_provider_test "${CMAKE_CURRENT_BINARY_DIR}")
   add_executable(pp_editor_geometry_test tests/editor_geometry_test.cpp)
   target_link_libraries(pp_editor_geometry_test PRIVATE pp_editor_core)
   add_test(NAME editor_geometry COMMAND pp_editor_geometry_test "${CMAKE_CURRENT_BINARY_DIR}")
   set_tests_properties(editor_geometry PROPERTIES TIMEOUT 30)
+  add_executable(pp_editor_stage_test tests/editor_stage_test.cpp)
+  target_link_libraries(pp_editor_stage_test PRIVATE pp_editor_core)
+  add_test(NAME editor_stage COMMAND pp_editor_stage_test "${CMAKE_CURRENT_BINARY_DIR}")
   add_executable(pp_ui_controls_test
     tests/ui_controls_test.cpp
     src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp

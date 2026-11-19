@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -47,20 +48,21 @@ class GameFolders {
   void setHome(Game g);
   const FoundGames& lastSearch() const { return lastSearch_; }
   bool gameToOpen(Game& g) const;
+  bool recoverLaunch(Game& game, bool required, const std::string& problem);
   bool askForAnyGame(const std::string& problem = std::string());
   bool askForGame(Game g);
-  bool chooseFolders(Game running);
+  std::optional<Game> chooseFolders(Game running);
   bool readyFor(Game g);
-  void drop(Game g);
   void tell(const std::string& text, bool problem = true);
 
  private:
   int ask(const std::string& title, const std::string& text, const std::vector<std::string>& buttons, bool problem);
-  int adopt(const std::filesystem::path& chosen);
+  int adopt(const std::filesystem::path& chosen, std::string& problem);
   std::filesystem::path writeStartLog() const;
   std::filesystem::path copyFolder(Game g) const;
-  void keepCopy(Game g);
-  void remember(Game g, const std::filesystem::path& dir);
+  bool remember(Game g, const std::filesystem::path& dir, std::string& problem);
+  void exclude(Game g);
+  bool useSource(Game g, const std::filesystem::path& source);
   void tellNoChooser();
   std::filesystem::path startFolder(Game g) const;
 
@@ -68,11 +70,10 @@ class GameFolders {
   std::function<FindSources()> sources_;
   StartDialogs dialogs_;
   GameFolderStore store_;
-  std::filesystem::path dir_[2];
-  std::filesystem::path install_[2];
-  bool fromCopy_[2] = {false, false};
-  bool retried_[2] = {false, false};
-  bool copyBlocked_ = false;
+  bool selectionUnavailable_ = false;
+  std::filesystem::path dir_[kGameCount];
+  std::filesystem::path install_[kGameCount];
+  bool fromCopy_[kGameCount] = {};
   FoundGames lastSearch_;
   SDL_Window* window_ = nullptr;
   App* app_ = nullptr;

@@ -262,6 +262,10 @@ void ImportDialog::onButton(int id) {
 }
 
 void App::doImportProfileDialog() {
+  if (!combinedEdition(cfg.game)) {
+    doNotYet("Original save import is only available for Peggle Deluxe and Peggle Nights.");
+    return;
+  }
   killDialog(D_ImportProfile);
   auto d = std::make_unique<ImportDialog>(*this);
   Dialog* raw = d.get();

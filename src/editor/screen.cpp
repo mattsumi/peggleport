@@ -258,7 +258,7 @@ void EditorScreen::collectLevels() {
   if (fs::is_directory(mods, ec))
     for (auto& m : fs::directory_iterator(mods, ec)) {
       fs::path lv = m.path() / "levels";
-      if (!fs::is_directory(lv, ec)) continue;
+      if (!resolveDiskSpelling(lv, lv, nullptr) || !fs::is_directory(lv, ec)) continue;
       for (auto& f : fs::directory_iterator(lv, ec))
         if (normKey(genericUtf8(f.path().extension())) == ".DAT") levelList_.push_back({pathToUtf8(f.path()), "mod " + pathToUtf8(m.path().filename()) + ": " + pathToUtf8(f.path().stem())});
     }
@@ -1525,19 +1525,26 @@ void EditorScreen::startPrompt(const std::string& label, const std::string& init
   dirtyLayout();
 }
 void EditorScreen::quickSave() {
+  if (ed.savedPath.empty()) { saveMod(); return; }
   std::string err;
-  if (normKey(genericUtf8(ed.savedPath.extension())) == ".DAT")
-    say(ed.saveDat(ed.savedPath, &err) ? ed.status : "save failed: " + err);
-  else saveMod();
+  if (ed.saveCurrent(&err)) say(ed.status);
+  else say("save failed: " + pathToUtf8(ed.savedPath) + ": " + err);
 }
+static bool thumbnailPath(const fs::path& mod, const std::string& name, fs::path& path, std::string* err) {
+  fs::path levels, dir;
+  return resolveDiskSpelling(mod / "levels", levels, err) && resolveDiskSpelling(levels / "cached_thumbnails", dir, err) &&
+         resolveDiskSpelling(dir / (name + ".tga"), path, err);
+}
+
 void EditorScreen::saveMod() {
   std::string err;
   fs::path dir = Editor::modDirFor(app.userDir, modName_);
-  ed.validate();
-  if (ed.saveToMod(dir, &err)) {
+  fs::path thumbnail;
+  if (thumbnailPath(dir, ed.meta.name, thumbnail, &err) && ed.saveToMod(dir, &err)) {
+    ed.validate();
     int errors = 0;
     for (auto& i : ed.issues) errors += i.sev == Issue::Error;
-    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + "  enable it in Mods on the main menu to play it");
+    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + (ed.meta.baseLink.name.empty() ? "  enable it in Mods on the main menu to play it" : "  keep the pack providing " + ed.meta.baseLink.name + " enabled"));
     thumbDir_ = dir;
     indexMod(dir);
   } else {
@@ -1546,7 +1553,8 @@ void EditorScreen::saveMod() {
 }
 bool EditorScreen::writeThumbnail(const fs::path& modDir) {
   SDL_Renderer* r = g_->renderer();
-  if (!r || !app.boardRenderer) return false;
+  fs::path path;
+  if (!r || !app.boardRenderer || !thumbnailPath(modDir, ed.meta.name, path, nullptr)) return false;
   if (builtRev_ != ed.revision) rebuildBoard();
   if (!boardOk_) return false;
   renderBoard(board_, lb_, false, 2);
@@ -1560,14 +1568,13 @@ bool EditorScreen::writeThumbnail(const fs::path& modDir) {
   SDL_DestroySurface(px);
   if (!small) return false;
   std::error_code ec;
-  fs::path d = modDir / "levels" / "cached_thumbnails";
-  fs::create_directories(d, ec);
+  fs::create_directories(path.parent_path(), ec);
   SDL_Surface* rgba = SDL_ConvertSurface(small, SDL_PIXELFORMAT_BGRA32);
   SDL_DestroySurface(small);
   if (!rgba) return false;
   const int w = rgba->w, h = rgba->h;
   uint8_t hdr[18] = {0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, (uint8_t)(w & 255), (uint8_t)(w >> 8), (uint8_t)(h & 255), (uint8_t)(h >> 8), 32, 8 | 0x20};
-  std::ofstream f(d / (ed.meta.name + ".tga"), std::ios::binary);
+  std::ofstream f(path, std::ios::binary);
   bool ok = (bool)f;
   if (ok) {
     f.write((const char*)hdr, 18);
@@ -1585,8 +1592,10 @@ void EditorScreen::indexMod(const fs::path& dir) {
       mounted = true;
       auto& lm = const_cast<Layer&>(L);
       std::error_code ec;
-      for (fs::recursive_directory_iterator it(dir / "levels", ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_regular_file(ec)) lm.files[normKey("levels/" + genericUtf8(fs::relative(it->path(), dir / "levels", ec)))] = it->path();
+      fs::path levels;
+      if (!resolveDiskSpelling(dir / "levels", levels, nullptr)) continue;
+      for (fs::recursive_directory_iterator it(levels, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec)) lm.files[normKey("levels/" + genericUtf8(fs::relative(it->path(), levels, ec)))] = it->path();
     }
   if (!mounted) app.vfs.mountMod(dir, &e2);
 }

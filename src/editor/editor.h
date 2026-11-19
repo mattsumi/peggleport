@@ -55,7 +55,6 @@ class Editor {
   std::string artPath(ArtSlot slot, const std::string& value) const;
   bool artExists(ArtSlot slot, const std::string& value) const { return !artPath(slot, value).empty(); }
   bool setArt(ArtSlot slot, const std::string& value);
-  int copyArtToMod(const std::filesystem::path& modDir) const;
   std::string customType(const NodeP& n) const;
   void setCustomType(const std::string& key);
   std::string collisionRole(const NodeP& n) const;
@@ -68,6 +67,7 @@ class Editor {
   bool loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err);
   bool loadDatFile(const std::filesystem::path& p, std::string* err);
   bool saveDat(const std::filesystem::path& p, std::string* err);
+  bool saveCurrent(std::string* err);
   bool saveJson(const std::filesystem::path& p, std::string* err);
   bool loadJson(const std::filesystem::path& p, std::string* err);
   bool saveToMod(const std::filesystem::path& modDir, std::string* err);
@@ -189,7 +189,13 @@ class Editor {
   void changed() { revision++; }
   void prune();
   void resetHistory();
-  void finishLoad();
+  void finishLoad(const LevelBundle& lb, const Layer* owner, const std::filesystem::path& file, const std::string& stage);
+  bool resolveBase(BaseLink& link, std::string* err);
+  bool planArtCopies(const std::filesystem::path& modDir, std::map<std::filesystem::path, std::filesystem::path>& copies, std::string* err) const;
+  bool checkSavedSpelling(std::string* err) const;
+  bool savedMod_ = false;
+  std::string stageError_;
+  void collectSourceStage(const std::string& text);
 
   struct G {
     enum Kind { None, Move, Box, Rotate, Line, Stamp, Corner } kind = None;

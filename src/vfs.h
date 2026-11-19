@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -26,12 +27,13 @@ struct Pak {
   std::vector<uint8_t> data;
   std::vector<PakEntry> entries;
 };
+bool readFileBytes(const std::filesystem::path& p, std::vector<uint8_t>& out, size_t maxBytes = std::numeric_limits<size_t>::max());
 bool loadPak(const std::filesystem::path& p, Pak& out, std::string* err);
 
 struct Layer {
   enum Kind { Dir, PakFile } kind = Dir;
-  std::string label;
-  bool isMod = false, isLevelPack = false;
+  std::string label, provider;
+  bool isMod = false, isLevelPack = false, fromZip = false;
   int priority = 0;
   float imageScale = 1.0f;
   std::filesystem::path root;
@@ -60,20 +62,22 @@ class Vfs {
  public:
   bool mountGame(const std::filesystem::path& gameDir, std::string* err);
   bool mountPresentation(const std::filesystem::path& dataDir);
-  bool mountMod(const std::filesystem::path& modDir, std::string* err);
+  bool mountMod(const std::filesystem::path& modDir, std::string* err, const std::string& modId = {}, bool fromZip = false);
   bool unmountMod(const std::filesystem::path& modDir);
   size_t unmountMods();
   std::string modSignature() const;
   void modKeys(std::set<std::string>& out) const;
   std::optional<VfsHit> read(std::string_view path) const;
-  std::optional<VfsHit> read(std::string_view path, std::size_t maxBytes, std::string* spellingError = nullptr) const;
-  std::optional<VfsHit> readEditorLevelIni(const std::string& levelKey, const Layer& boardLayer, std::string& err) const;
+  std::optional<VfsHit> read(std::string_view path, std::size_t maxBytes) const;
+  const Layer* owner(std::string_view path, const std::filesystem::path& diskFile = {}) const;
+  std::optional<VfsHit> readFrom(const Layer& layer, std::string_view path) const;
   bool exists(std::string_view path) const;
   std::vector<std::string> keys() const;
   const std::vector<Layer>& layers() const { return layers_; }
   std::string describe() const;
 
  private:
+  std::optional<VfsHit> readImpl(std::string_view path, size_t maxBytes, const Layer* only) const;
   static void indexDir(Layer& L, std::string_view prefix = {});
   std::vector<Layer> layers_;
 };

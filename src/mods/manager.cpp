@@ -43,7 +43,7 @@ void failMod(std::vector<std::unique_ptr<ModInfo>>& mods, std::unique_ptr<ModInf
   m->state = ModInfo::Failed;
   m->discoveryFailed = true;
   m->error = err;
-  pp::log::error("mod:" + id, "cannot load: " + err);
+  pp::log::error("mod:" + (id.empty() ? name : id), "cannot load: " + err);
   mods.push_back(std::move(m));
 }
 }
@@ -100,6 +100,7 @@ bool ModManager::save() const {
   j.set("version", Json::num(1));
   Json en = Json::array(), ord = Json::array(), con = Json::object(), unr = Json::object();
   for (auto& m : mods_) {
+    if (m->m.id.empty()) continue;
     ord.a.push_back(Json::str(m->m.id));
     if (m->enabled && !m->fromCli) en.a.push_back(Json::str(m->m.id));
   }
@@ -166,7 +167,7 @@ void ModManager::addMod(const fs::path& srcIn, bool cli) {
   m->dir = dir;
   std::string err;
   if (!loadManifest(dir, m->m, &err)) {
-    failMod(mods_, std::move(m), sanitizeId(pathToUtf8(dir.filename())), pathToUtf8(dir.filename()), err);
+    failMod(mods_, std::move(m), {}, pathToUtf8(dir.filename()), err);
     return;
   }
   if (m->zip) m->m.id = m->m.id.empty() ? sanitizeId(pathToUtf8(srcIn.stem())) : m->m.id;
@@ -423,7 +424,7 @@ void ModManager::activate(Vfs* vfs) {
       }
     }
     std::string err;
-    if (vfs && !vfs->mountMod(m.dir, &err)) {
+    if (vfs && !vfs->mountMod(m.dir, &err, m.m.id, m.zip)) {
       failLoad(m, err);
       host_.log(m.m.id, pp::log::Level::Error, "not loaded: " + err);
       continue;

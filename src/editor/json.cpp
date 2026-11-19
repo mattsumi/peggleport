@@ -362,6 +362,11 @@ J levelToJson(const Level& L, const LevelMeta& m) {
   meta.set("name", J::str(m.name));
   meta.set("title", J::str(m.title));
   meta.set("background", J::str(m.background));
+  if (!m.baseLink.name.empty()) {
+    meta.set("base", J::str(m.baseLink.name));
+    meta.set("base_hash", J::str(m.baseLink.hash));
+    meta.set("base_provider", J::str(m.baseLink.provider));
+  }
   meta.set("master", J::str(m.master));
   meta.set("board_width", J::num(m.boardWidth));
   meta.set("balls", J::num(m.balls));
@@ -372,6 +377,16 @@ J levelToJson(const Level& L, const LevelMeta& m) {
       if (m.physics.has(k)) ph.set(physicsKey(k).name, J::num(std::strtod(physicsFormat(m.physics.v.at(k)).c_str(), nullptr)));
     meta.set("physics", ph);
   }
+  if (!m.stageRows.empty()) {
+    J rows = J::arr();
+    for (const auto& row : m.stageRows) {
+      J fields = J::arr();
+      for (const auto& field : row) fields.a.push_back(J::str(field));
+      rows.a.push_back(std::move(fields));
+    }
+    meta.set("stage_rows", std::move(rows));
+  }
+  if (m.stageTitleEdited) meta.set("stage_title_edited", J::boolean(true));
   root.set("meta", meta);
   Writer w;
   for (auto& e : L.entries)
@@ -471,9 +486,37 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
   if (auto m = j.get("meta")) {
     auto s = [&](const char* k, std::string& dst) { if (auto v = m->get(k)) dst = v->s; };
     s("name", meta.name); s("title", meta.title); s("background", meta.background); s("master", meta.master);
+    std::map<std::string, std::string> link;
+    for (const char* k : {"base", "base_hash", "base_provider"}) if (auto v = m->get(k)) {
+      if (v->t != J::Str) return fail("invalid base link field");
+      link[k] = v->s;
+    }
+    if (!baseLinkFromIni(link, nullptr, nullptr, meta.baseLink, err)) return false;
     if (auto v = m->get("board_width")) meta.boardWidth = v->n >= 650.0 ? (int)std::min(v->n, 1400.0) : 650;
     if (auto v = m->get("balls")) meta.balls = v->n >= 0.0 ? (int)std::min(v->n, 99.0) : 0;
     if (auto v = m->get("orange")) meta.orange = v->n >= 0.0 ? (int)std::min(v->n, 500.0) : 0;
+    if (auto rows = m->get("stage_rows")) {
+      if (rows->t != J::Arr) return fail("invalid stage rows");
+      bool level = false;
+      for (const auto& row : rows->a) {
+        if (row.t != J::Arr || row.a.size() < 2) return fail("invalid stage row");
+        std::vector<std::string> fields;
+        for (const auto& field : row.a) {
+          if (field.t != J::Str) return fail("invalid stage field");
+          fields.push_back(field.s);
+        }
+        auto key = normKey(fields[0]);
+        if (fields[0].empty() || fields[0].find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789") != std::string::npos) return fail("invalid stage key");
+        if (key == "LEVEL") { if (level) return fail("multiple stage levels"); level = true; }
+        if (key == "DIALOG" && (!level || fields.size() < 3 || fields[1] != "1")) return fail("invalid stage dialog");
+        meta.stageRows.push_back(std::move(fields));
+      }
+      if (!level) return fail("missing stage level");
+    }
+    if (auto edited = m->get("stage_title_edited")) {
+      if (edited->t != J::Bool) return fail("invalid stage title edit");
+      meta.stageTitleEdited = edited->b;
+    }
     if (const J* ph = m->get("physics"); ph && ph->t == J::Obj) {
       meta.physics = PhysicsEdit();
       for (const auto& kv : ph->o) {
