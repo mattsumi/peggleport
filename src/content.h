@@ -52,7 +52,7 @@ struct CharInfo {
 };
 std::vector<CharInfo> loadCharacters(const Vfs& vfs);
 
-bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err);
+bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err, bool checkDiskSpelling = false);
 std::vector<StageLevel> listStageLevels(const Vfs& vfs);
 
 }

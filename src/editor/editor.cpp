@@ -72,7 +72,7 @@ static bool spit(const fs::path& p, const void* data, size_t n) {
 }
 static bool spit(const fs::path& p, const std::string& s) { return spit(p, s.data(), s.size()); }
 
-static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& bytes, const fs::path& ini, const std::string& text, std::string* err, const std::string* index = nullptr, const std::string* metadata = nullptr) {
+static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& bytes, const fs::path& ini, const std::string& text, std::string* err, const fs::path& indexPath = {}, const std::string& index = {}, const std::string* metadata = nullptr) {
   auto fail = [&](const std::string& message) { if (err) *err = message; return false; };
   if (dat == ini) return fail("DAT and INI paths must differ");
   struct Output {
@@ -83,7 +83,7 @@ static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& byte
     std::vector<uint8_t> old;
   };
   std::vector<Output> outputs = {{dat, "new.dat", "old.dat", bytes.data(), bytes.size()}, {ini, "new.ini", "old.ini", text.data(), text.size()}};
-  if (index) outputs.push_back({dat.parent_path() / "mod_levels.cfg", "new.cfg", "old.cfg", index->data(), index->size()});
+  if (!indexPath.empty()) outputs.push_back({indexPath, "new.cfg", "old.cfg", index.data(), index.size()});
   if (metadata) outputs.push_back({dat.parent_path().parent_path() / "mod.ini", "new.mod.ini", "old.mod.ini", metadata->data(), metadata->size()});
   std::error_code ec;
   for (auto& output : outputs) {
@@ -512,7 +512,7 @@ void Editor::finishLoad() {
 bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err) {
   LevelBundle lb;
   std::string e;
-  if (!loadLevelBundle(vfs, nameOrPath, lb, &e)) {
+  if (!loadLevelBundle(vfs, nameOrPath, lb, &e, true)) {
     if (err) *err = e;
     return false;
   }
@@ -533,7 +533,7 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   meta.title = lb.title;
   meta.background = lb.background;
   const fs::path source = pathFromUtf8(nameOrPath);
-  backgroundDir_ = source.extension() == ".dat" && !source.has_parent_path() ? fs::path(".") : source.parent_path();
+  backgroundDir_ = normKey(genericUtf8(source.extension())) == ".DAT" && !source.has_parent_path() ? fs::path(".") : source.parent_path();
   meta.master = lb.master;
   meta.boardWidth = lb.cfg.boardWidth;
   meta.balls = lb.cfg.balls;
@@ -550,7 +550,13 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   return true;
 }
 
-bool Editor::loadDatFile(const fs::path& p, std::string* err) {
+static bool resolveDatPair(const fs::path& requested, fs::path& dat, fs::path& ini, std::string* err) {
+  return resolveDiskSpelling(requested, dat, err) && resolveDiskSpelling(fs::path(dat).replace_extension(".ini"), ini, err);
+}
+
+bool Editor::loadDatFile(const fs::path& requested, std::string* err) {
+  fs::path p, side;
+  if (!resolveDatPair(requested, p, side, err)) return false;
   std::vector<uint8_t> bytes;
   if (!slurp(p, bytes)) { if (err) *err = "cannot read " + pathToUtf8(p); return false; }
   std::string e;
@@ -558,8 +564,6 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   if (!lv) { if (err) *err = e; return false; }
   int boardWidth = 650;
   std::string background;
-  fs::path side = p;
-  side.replace_extension(".ini");
   std::error_code ec;
   if (fs::exists(side, ec)) {
     if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
@@ -580,12 +584,12 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   return true;
 }
 
-bool Editor::saveDat(const fs::path& p, std::string* err) {
+bool Editor::saveDat(const fs::path& requested, std::string* err) {
+  fs::path p, side;
   try {
+    if (!resolveDatPair(requested, p, side, err)) return false;
     if (lowerS(pathToUtf8(p.extension())) == ".ini") { if (err) *err = "DAT target must not use the INI extension"; return false; }
     auto bytes = writeLevel(*level);
-    fs::path side = p;
-    side.replace_extension(".ini");
     std::vector<uint8_t> old;
     if (fs::exists(side) && !slurp(side, old)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
     std::istringstream in(std::string(old.begin(), old.end()));
@@ -610,7 +614,9 @@ bool Editor::saveDat(const fs::path& p, std::string* err) {
   return true;
 }
 
-bool Editor::saveJson(const fs::path& p, std::string* err) {
+bool Editor::saveJson(const fs::path& requested, std::string* err) {
+  fs::path p;
+  if (!resolveDiskSpelling(requested, p, err)) return false;
   auto exported = meta;
   if (!prepareBackground(p.has_parent_path() ? p.parent_path() : fs::path("."), exported.background, err)) return false;
   std::string text = levelToJson(*level, exported).dump(2) + "\n";
@@ -619,7 +625,9 @@ bool Editor::saveJson(const fs::path& p, std::string* err) {
   return true;
 }
 
-bool Editor::loadJson(const fs::path& p, std::string* err) {
+bool Editor::loadJson(const fs::path& requested, std::string* err) {
+  fs::path p;
+  if (!resolveDiskSpelling(requested, p, err)) return false;
   std::vector<uint8_t> bytes;
   if (!slurp(p, bytes)) { if (err) *err = "cannot read " + pathToUtf8(p); return false; }
   J j;
@@ -644,7 +652,10 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     return false;
   }
   fs::path lv = modDir / "levels";
-  const fs::path target = lv / (meta.name + ".dat");
+  fs::path target, side, index, modIni;
+  if (!resolveDatPair(lv / (meta.name + ".dat"), target, side, err) ||
+      !resolveDiskSpelling(lv / "mod_levels.cfg", index, err) ||
+      !resolveDiskSpelling(modDir / "mod.ini", modIni, err)) return false;
   std::ostringstream ini;
   ini << "# written by the PegglePort level editor\n";
   ini << "title = " << meta.title << "\n";
@@ -672,8 +683,8 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   {
     std::vector<uint8_t> bytes;
     std::error_code ec;
-    const bool exists = fs::exists(lv / "mod_levels.cfg", ec);
-    if (ec || (exists && !slurp(lv / "mod_levels.cfg", bytes))) { if (err) *err = "cannot read mod level list"; return false; }
+    const bool exists = fs::exists(index, ec);
+    if (ec || (exists && !slurp(index, bytes))) { if (err) *err = "cannot read mod level list"; return false; }
     if (exists) {
       std::istringstream in(std::string(bytes.begin(), bytes.end()));
       std::string line;
@@ -692,7 +703,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   std::string entry = "Level: " + meta.name + ", \"" + meta.title + "\", 100000, 3";
   bool found = false;
   for (auto& l : levels)
-    if (l.first == meta.name) { l.second = entry; found = true; }
+    if (normKey(l.first) == normKey(meta.name)) { l.second = entry; found = true; }
   if (!found) levels.push_back({meta.name, entry});
   std::string out;
   for (size_t i = 0; i < levels.size(); i += 5) {
@@ -702,7 +713,6 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     out += "}\n";
   }
   try {
-    const fs::path modIni = modDir / "mod.ini";
     const bool hasMetadata = fs::exists(modIni);
     if (hasMetadata && !fs::is_regular_file(modIni)) { if (err) *err = "not a regular file: " + pathToUtf8(modIni); return false; }
     std::string metadata;
@@ -712,7 +722,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
       metadata = "id = " + id + "\nname = " + pathToUtf8(modDir.filename()) + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n";
     }
     const auto bytes = writeLevel(*level);
-    if (!saveLevelFiles(target, bytes, lv / (meta.name + ".ini"), ini.str(), err, &out, hasMetadata ? nullptr : &metadata)) return false;
+    if (!saveLevelFiles(target, bytes, side, ini.str(), err, index, out, hasMetadata ? nullptr : &metadata)) return false;
   } catch (const std::exception& ex) {
     if (err) *err = ex.what();
     return false;

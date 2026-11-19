@@ -112,12 +112,14 @@ static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int
   }
 }
 
-static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
+static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err, bool checkDiskSpelling) {
   out = LevelBundle();
   std::vector<uint8_t> lvBytes, sideBytes, baseBytes;
   fs::path p = pathFromUtf8(nameOrPath);
   std::error_code ec;
-  if (p.extension() == ".dat" && fs::is_regular_file(p, ec)) {
+  const bool diskDat = checkDiskSpelling ? normKey(genericUtf8(p.extension())) == ".DAT" : p.extension() == ".dat";
+  if (diskDat && checkDiskSpelling && !resolveDiskSpelling(p, p, err)) return false;
+  if (diskDat && fs::is_regular_file(p, ec)) {
     if (!slurp(p, lvBytes)) {
       if (err) *err = "cannot read " + pathToUtf8(p);
       return false;
@@ -126,17 +128,23 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     out.source = pathToUtf8(p);
     fs::path side = p;
     side.replace_extension(".ini");
-    slurp(side, sideBytes);
+    if (checkDiskSpelling && !resolveDiskSpelling(side, side, err)) return false;
+    if (!slurp(side, sideBytes) && checkDiskSpelling && (fs::exists(side, ec) || ec)) {
+      if (err) *err = "cannot read " + pathToUtf8(side);
+      return false;
+    }
   } else {
     out.name = nameOrPath;
-    auto h = vfs.read("levels/" + nameOrPath + ".dat");
+    auto read = [&](const char* ext) { return vfs.read("levels/" + nameOrPath + ext, SIZE_MAX, checkDiskSpelling ? err : nullptr); };
+    auto h = read(".dat");
     if (!h) {
-      if (err) *err = "level not found: levels/" + nameOrPath + ".dat";
+      if (err && err->empty()) *err = "level not found: levels/" + nameOrPath + ".dat";
       return false;
     }
     lvBytes = std::move(h->bytes);
     out.source = h->layer ? h->layer->label : "";
-    if (auto s = vfs.read("levels/" + nameOrPath + ".ini")) sideBytes = std::move(s->bytes);
+    if (auto s = read(".ini")) sideBytes = std::move(s->bytes);
+    else if (err && !err->empty()) return false;
   }
   auto ini = readIni(std::string(sideBytes.begin(), sideBytes.end()));
   std::string e2;
@@ -202,9 +210,9 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
   return true;
 }
 
-bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
+bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err, bool checkDiskSpelling) {
   std::string e;
-  if (!loadLevelBundleImpl(vfs, nameOrPath, out, &e)) {
+  if (!loadLevelBundleImpl(vfs, nameOrPath, out, &e, checkDiskSpelling)) {
     pp::log::error("game", "cannot load level " + nameOrPath + ": " + e);
     if (err) *err = e;
     return false;

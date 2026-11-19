@@ -45,6 +45,28 @@ std::string genericUtf8(const fs::path& p) {
   return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
 
+bool resolveDiskSpelling(const fs::path& requested, fs::path& actual, std::string* err) {
+  const auto parent = requested.parent_path();
+  const auto dir = parent.empty() ? fs::path(".") : parent;
+  const auto key = normKey(genericUtf8(requested.filename()));
+  fs::path match;
+  std::error_code ec;
+  fs::directory_iterator it(dir, ec), end;
+  if (ec == std::errc::no_such_file_or_directory) ec.clear();
+  for (; !ec && it != end; it.increment(ec)) {
+    const auto leaf = it->path().filename();
+    if (normKey(genericUtf8(leaf)) != key) continue;
+    if (!match.empty()) {
+      if (err) *err = "ambiguous filename: " + pathToUtf8(parent / match) + " and " + pathToUtf8(parent / leaf);
+      return false;
+    }
+    match = leaf;
+  }
+  if (ec) { if (err) *err = "cannot inspect " + pathToUtf8(dir) + ": " + ec.message(); return false; }
+  actual = match.empty() ? requested : parent / match;
+  return true;
+}
+
 std::map<std::string, std::string> readIni(const std::string& text) {
   std::map<std::string, std::string> out;
   std::istringstream in(text);
@@ -287,7 +309,7 @@ void vfsLogMiss(const char* kind, std::string_view path) {
 
 std::optional<VfsHit> Vfs::read(std::string_view path) const { return read(path, std::numeric_limits<size_t>::max()); }
 
-std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
+std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes, std::string* spellingError) const {
   std::string k = normKey(path);
   for (auto& L : layers_) {
     if (L.kind == Layer::PakFile) {
@@ -304,7 +326,9 @@ std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
     if (it == L.files.end()) continue;
     VfsHit h;
     h.layer = &L;
-    if (!slurp(it->second, h.bytes, maxBytes)) continue;
+    fs::path actual;
+    if (spellingError && !resolveDiskSpelling(it->second, actual, spellingError)) return std::nullopt;
+    if (!slurp(spellingError ? actual : it->second, h.bytes, maxBytes)) continue;
     return h;
   }
   return std::nullopt;

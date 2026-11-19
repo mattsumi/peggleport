@@ -260,7 +260,7 @@ void EditorScreen::collectLevels() {
       fs::path lv = m.path() / "levels";
       if (!fs::is_directory(lv, ec)) continue;
       for (auto& f : fs::directory_iterator(lv, ec))
-        if (f.path().extension() == ".dat") levelList_.push_back({pathToUtf8(f.path()), "mod " + pathToUtf8(m.path().filename()) + ": " + pathToUtf8(f.path().stem())});
+        if (normKey(genericUtf8(f.path().extension())) == ".DAT") levelList_.push_back({pathToUtf8(f.path()), "mod " + pathToUtf8(m.path().filename()) + ": " + pathToUtf8(f.path().stem())});
     }
 }
 
@@ -773,7 +773,7 @@ void EditorScreen::drawToolbar() {
   add("Open", 48, [&] { collectLevels(); openDlg_ = true; openFilter_.clear(); openScroll_ = 0; dirtyLayout(); });
   add("Save", 48, [&] { quickSave(); });
   add("To mod", 58, [&] { saveMod(); });
-  add("Export", 56, [&] { std::string e; if (ed.saveJson(exportPath(".json"), &e)) say("exported " + pathToUtf8(exportPath(".json"))); else say(e); });
+  add("Export", 56, [&] { std::string e; if (ed.saveJson(exportPath(".json"), &e)) say(ed.status); else say(e); });
   add("Import", 56, [&] { std::string e; if (ed.loadJson(exportPath(".json"), &e)) { say(ed.status); restoreBackground(); fitView(); } else say(e); });
   button({CW - 202, y, 118, h}, "Test play", [&] { startPlay(); }, false, true, 0, true);
   button({CW - 76, y, 64, h}, exitArmed_ ? "Sure?" : "Exit", [&] { exitEditor(); }, exitArmed_);
@@ -1526,8 +1526,9 @@ void EditorScreen::startPrompt(const std::string& label, const std::string& init
 }
 void EditorScreen::quickSave() {
   std::string err;
-  if (!ed.savedPath.empty() && ed.savedPath.extension() == ".dat" && ed.saveDat(ed.savedPath, &err)) { say(ed.status); return; }
-  saveMod();
+  if (normKey(genericUtf8(ed.savedPath.extension())) == ".DAT")
+    say(ed.saveDat(ed.savedPath, &err) ? ed.status : "save failed: " + err);
+  else saveMod();
 }
 void EditorScreen::saveMod() {
   std::string err;
