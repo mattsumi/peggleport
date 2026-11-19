@@ -1525,9 +1525,10 @@ void EditorScreen::startPrompt(const std::string& label, const std::string& init
   dirtyLayout();
 }
 void EditorScreen::quickSave() {
+  if (ed.savedPath.empty()) { saveMod(); return; }
   std::string err;
-  if (!ed.savedPath.empty() && ed.savedPath.extension() == ".dat" && ed.saveDat(ed.savedPath, &err)) { say(ed.status); return; }
-  saveMod();
+  if (ed.saveCurrent(&err)) say(ed.status);
+  else say("save failed: " + pathToUtf8(ed.savedPath) + ": " + err);
 }
 void EditorScreen::saveMod() {
   std::string err;

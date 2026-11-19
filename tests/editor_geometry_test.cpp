@@ -423,13 +423,14 @@ static void modMetadataFailure(const fs::path& root) {
     e.newLevel("Existing");
     e.place(Tool::PegOrange, {300, 200});
     if (hadTarget) check(e.saveToMod(mod, &err), label + " seed actual destination");
-    fs::remove(metadata);
     if (late) {
-      std::ofstream file(index, std::ios::binary | std::ios::app);
-      file << "Level: Other, \"" << std::string(8 * 1024 * 1024, 'x') << "\", 100000, 3\n";
-      file.close();
-      check((bool)file, label + " seed long existing registration");
-    } else fs::create_directory(metadata);
+      Editor padding;
+      padding.newLevel("Other");
+      padding.setMeta("title", std::string(8 * 1024 * 1024, 'x'));
+      check(padding.saveToMod(mod, &err), label + " seed long existing registration");
+    }
+    fs::remove(metadata);
+    if (!late) fs::create_directory(metadata);
     const auto oldIndex = fileBytes(index);
     const auto oldDat = hadTarget ? fileBytes(dat) : "", oldIni = hadTarget ? fileBytes(ini) : "";
     const auto savedPath = e.savedPath;
@@ -555,8 +556,7 @@ static void modSaveFailure(const fs::path& root) {
     }
     fs::remove(index);
     auto quickSave = [&] {
-      if (!e.savedPath.empty() && e.savedPath.extension() == ".dat" && e.saveDat(e.savedPath, &err)) return true;
-      return e.saveToMod(mod, &err);
+      return e.savedPath.empty() ? e.saveToMod(mod, &err) : e.saveCurrent(&err);
     };
     check(quickSave(), label + " ordinary Save routing succeeds after obstruction removal");
     if (hadTarget) {

@@ -355,6 +355,9 @@ if(PP_BUILD_TESTS)
   target_link_libraries(pp_editor_geometry_test PRIVATE pp_editor_core)
   add_test(NAME editor_geometry COMMAND pp_editor_geometry_test "${CMAKE_CURRENT_BINARY_DIR}")
   set_tests_properties(editor_geometry PROPERTIES TIMEOUT 30)
+  add_executable(pp_editor_stage_test tests/editor_stage_test.cpp)
+  target_link_libraries(pp_editor_stage_test PRIVATE pp_editor_core)
+  add_test(NAME editor_stage COMMAND pp_editor_stage_test "${CMAKE_CURRENT_BINARY_DIR}")
   add_executable(pp_ui_controls_test
     tests/ui_controls_test.cpp
     src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp

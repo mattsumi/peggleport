@@ -68,6 +68,7 @@ class Editor {
   bool loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err);
   bool loadDatFile(const std::filesystem::path& p, std::string* err);
   bool saveDat(const std::filesystem::path& p, std::string* err);
+  bool saveCurrent(std::string* err);
   bool saveJson(const std::filesystem::path& p, std::string* err);
   bool loadJson(const std::filesystem::path& p, std::string* err);
   bool saveToMod(const std::filesystem::path& modDir, std::string* err);
@@ -191,7 +192,9 @@ class Editor {
   void resetHistory();
   void finishLoad();
   bool resolveBase(BaseLink& link, std::string* err);
-  std::string sourceStage_;
+  bool savedMod_ = false;
+  std::string stageError_;
+  void collectSourceStage(const std::string& text);
   void readSourceStage(const std::filesystem::path& index);
 
   struct G {

@@ -451,6 +451,7 @@ int Editor::copyArtToMod(const fs::path& modDir) const {
 }
 
 void Editor::resetHistory() {
+  savedMod_ = false;
   customTypes.clear();
   undo_.clear();
   redo_.clear();
@@ -481,7 +482,7 @@ bool Editor::resolveBase(BaseLink& link, std::string* err) {
 }
 
 void Editor::newLevel(const std::string& name) {
-  sourceStage_.clear();
+  stageError_.clear();
   BaseLink stock;
   resolveBase(stock, nullptr);
   level = std::make_shared<Level>();
@@ -542,25 +543,61 @@ void Editor::finishLoad() {
   resetHistory();
 }
 
-void Editor::readSourceStage(const fs::path& index) {
-  sourceStage_.clear();
-  if (meta.baseLink.name.empty() || index.empty()) return;
-  std::vector<uint8_t> bytes;
-  if (!slurp(index, bytes)) return;
-  for (const auto& stage : ui::cfgParse(std::string(bytes.begin(), bytes.end()))) {
+struct StageSelection {
+  ui::CfgItem level;
+  int matches = 0;
+  std::vector<std::vector<std::string>> rows;
+};
+
+static StageSelection selectStage(const std::string& text, const std::string& name) {
+  StageSelection result;
+  for (const auto& stage : ui::cfgParse(text)) {
     if (!stage.isGroup || lowerS(stage.key) != "stage") continue;
-    std::string header;
-    bool selected = false;
+    int count = 0, selected = 0;
+    std::vector<std::vector<std::string>> rows;
     for (const auto& row : stage.kids) {
       if (row.isGroup) continue;
-      auto fields = ui::cfgValues(row.label);
-      if (fields.empty()) continue;
+      auto values = ui::cfgValues(row.label);
+      if (values.empty()) continue;
       const auto key = lowerS(row.key);
-      if (key == "name" || key == "desc") header += row.key + ":" + row.label + "\n";
-      if (key == "level" && normKey(fields[0]) == normKey(meta.name)) selected = true;
+      if (key == "level") {
+        ++count;
+        auto& file = values.front();
+        file.erase(file.find_last_not_of(" \t\r\n") + 1);
+        file.erase(0, file.find_first_not_of(" \t\r\n"));
+        if (lowerS(file) != lowerS(name)) continue;
+        ++result.matches;
+        result.level = row;
+        selected = count;
+      } else if (key == "dialog") {
+        if (!selected || values.size() < 2 || std::atoi(values[0].c_str()) != selected) continue;
+        values[0] = "1";
+      }
+      values.insert(values.begin(), row.key);
+      rows.push_back(std::move(values));
     }
-    if (selected) { sourceStage_ = header; return; }
+    if (selected) result.rows = std::move(rows);
   }
+  return result;
+}
+
+void Editor::readSourceStage(const fs::path& index) {
+  meta.stageRows.clear();
+  meta.stageTitleEdited = false;
+  stageError_.clear();
+  if (index.empty()) return;
+  std::error_code ec;
+  if (!fs::exists(index, ec) && !ec) return;
+  std::vector<uint8_t> bytes;
+  if (!slurp(index, bytes)) { stageError_ = "cannot read stage list: " + pathToUtf8(index); return; }
+  collectSourceStage(std::string(bytes.begin(), bytes.end()));
+}
+
+void Editor::collectSourceStage(const std::string& text) {
+  auto selection = selectStage(text, meta.name);
+  if (!selection.matches) return;
+  if (selection.matches > 1 || !meta.stageRows.empty()) stageError_ = "ambiguous stage entry for " + meta.name;
+  else meta.stageRows = std::move(selection.rows);
 }
 
 bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err) {
@@ -589,15 +626,24 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   const fs::path source = pathFromUtf8(nameOrPath);
   backgroundDir_ = source.extension() == ".dat" && !source.has_parent_path() ? fs::path(".") : source.parent_path();
   meta.baseLink = lb.baseLink;
-  fs::path index;
-  if (!meta.baseLink.name.empty()) {
-    if (lb.source == nameOrPath && source.extension() == ".dat") index = source.parent_path() / "mod_levels.cfg";
-    else if (auto hit = vfs.read("levels/" + lb.name + ".dat"); hit && hit->layer && hit->layer->isMod) {
-      const auto it = hit->layer->files.find(normKey("levels/mod_levels.cfg"));
-      if (it != hit->layer->files.end()) index = it->second;
+  stageError_.clear();
+  if (lb.source == nameOrPath && source.extension() == ".dat") {
+    readSourceStage(source.parent_path() / "mod_levels.cfg");
+  } else if (auto hit = vfs.read("levels/" + lb.name + ".dat"); hit && hit->layer) {
+    const auto& layer = *hit->layer;
+    if (layer.isMod) {
+      const auto it = layer.files.find(normKey("levels/mod_levels.cfg"));
+      if (it != layer.files.end()) readSourceStage(it->second);
+    } else if (layer.isLevelPack) {
+      for (const auto& [key, i] : layer.pakIndex) {
+        if (!key.ends_with(".CFG") || key.find('\\') != key.npos) continue;
+        const auto& e = layer.pak->entries[i];
+        collectSourceStage(std::string(layer.pak->data.begin() + e.offset, layer.pak->data.begin() + e.offset + e.size));
+      }
+    } else if (auto stages = vfs.read("levels/stages.cfg")) {
+      collectSourceStage(std::string(stages->bytes.begin(), stages->bytes.end()));
     }
   }
-  readSourceStage(index);
   meta.master = lb.master;
   meta.boardWidth = lb.cfg.boardWidth;
   meta.balls = lb.cfg.balls;
@@ -700,13 +746,22 @@ bool Editor::saveDat(const fs::path& p, std::string* err) {
     return false;
   }
   savedPath = p;
+  savedMod_ = false;
   clean_ = (int)undo_.size();
   metaDirty = false;
   status = "saved " + pathToUtf8(p);
   return true;
 }
 
+bool Editor::saveCurrent(std::string* err) {
+  if (savedPath.empty()) { if (err) *err = "save needs a path (or use savemod)"; return false; }
+  if (!savedMod_) return saveDat(savedPath, err);
+  if (pathToUtf8(savedPath.stem()) != meta.name) { if (err) *err = "level name changed; choose a new mod destination"; return false; }
+  return saveToMod(savedPath.parent_path().parent_path(), err);
+}
+
 bool Editor::saveJson(const fs::path& p, std::string* err) {
+  if (!stageError_.empty()) { if (err) *err = stageError_; return false; }
   auto exported = meta;
   std::string link;
   if (!exportBaseLink(meta.baseLink, meta.name, vfs, p.parent_path(), link, err)) return false;
@@ -728,8 +783,8 @@ bool Editor::loadJson(const fs::path& p, std::string* err) {
   if (!levelFromJson(j, lv, m, &e)) { if (err) *err = e; return false; }
   if (!resolveBase(m.baseLink, err)) return false;
   level = std::make_shared<Level>(std::move(lv));
-  meta = m;
-  sourceStage_.clear();
+  meta = std::move(m);
+  stageError_.clear();
   backgroundDir_ = p.has_parent_path() ? p.parent_path() : fs::path(".");
   savedPath.clear();
   resetHistory();
@@ -737,59 +792,87 @@ bool Editor::loadJson(const fs::path& p, std::string* err) {
   return true;
 }
 
-using IndexEntries = std::vector<std::pair<std::string, std::string>>;
+using IndexEntries = std::vector<std::string>;
 
 static std::string editorIndex(const fs::path& modDir, const IndexEntries& levels) {
   std::string out;
   for (size_t i = 0; i < levels.size(); i += 5) {
     std::string stageName = pathToUtf8(modDir.filename()) + (i ? " " + std::to_string(i / 5 + 1) : "");
     out += "Stage\n{\nName: \"" + stageName + "\"\nDesc: \"Levels made with the PegglePort level editor\"\n";
-    for (size_t j = i; j < std::min(levels.size(), i + 5); j++) out += "\t" + levels[j].second + "\n";
+    for (size_t j = i; j < std::min(levels.size(), i + 5); j++) out += "\t" + levels[j] + "\n";
     out += "}\n";
   }
   return out;
 }
 
-static bool updateAuthoredIndex(std::string& text, const LevelMeta& meta, std::string* err) {
-  auto fail = [&] { if (err) *err = "Cannot safely update the authored stage list for " + meta.name + "; use a new mod folder"; return false; };
-  for (const auto& stage : ui::cfgParse(text)) {
-    if (!stage.isGroup || lowerS(stage.key) != "stage") continue;
-    for (const auto& row : stage.kids) {
-      if (row.isGroup || lowerS(row.key) != "level") continue;
-      auto cols = ui::cfgValues(row.label);
-      if (cols.empty() || normKey(cols[0]) != normKey(meta.name)) continue;
-      if (cols.size() >= 2 && cols[1] == meta.title) return true;
-      size_t start = 0;
-      for (int i = 1; i < row.line; ++i) {
-        start = text.find('\n', start);
-        if (start == text.npos) return fail();
-        ++start;
-      }
-      const auto end = text.find('\n', start);
-      const auto line = text.substr(start, end - start);
-      const auto colon = line.find(':');
-      if (colon == line.npos || cols.size() < 2 || meta.title.find_first_of("\r\n") != meta.title.npos) return fail();
-      std::istringstream in(line.substr(colon + 1));
-      std::string key;
-      if (!std::getline(in, key, ',') || ui::cfgValues(key) != std::vector<std::string>{cols[0]}) return fail();
-      in >> std::ws;
-      const auto begin = in.tellg();
-      if (begin < 0) return fail();
-      std::string title;
-      if (in.peek() == '"') { if (!(in >> std::quoted(title))) return fail(); }
-      else title = cols[1];
-      size_t pos = colon + 1 + (size_t)begin;
-      size_t len = line[pos] == '"' ? (size_t)in.tellg() - (size_t)begin : title.size();
-      if (title != cols[1] || (line[pos] != '"' && line.compare(pos, len, title) != 0)) return fail();
-      auto next = line.find_first_not_of(" \t\r", pos + len);
-      if (next != line.npos && line[next] != ',' && line.compare(next, 2, "//") != 0) return fail();
-      std::ostringstream escaped;
-      escaped << std::quoted(meta.title);
-      text.replace(start + pos, len, escaped.str());
-      return true;
+static std::string cfgQuote(const std::string& field) {
+  std::string out = "\"";
+  for (char c : field) {
+    if (c == '\n') out += "\\n";
+    else {
+      if (c == '\\' || c == '"') out += '\\';
+      out += c;
     }
   }
-  return fail();
+  return out + '"';
+}
+
+static bool replaceStageTitle(std::string& text, const ui::CfgItem& row, const LevelMeta& meta) {
+  auto values = ui::cfgValues(row.label);
+  if (values.size() < 2) return false;
+  if (values[1] == meta.title) return true;
+  auto comma = row.label.find(',');
+  if (comma == text.npos || ui::cfgValues(row.label.substr(0, comma)) != std::vector<std::string>{values[0]}) return false;
+  auto pos = row.label.find_first_not_of(" \t", comma + 1);
+  if (pos == text.npos) return false;
+  size_t len = values[1].size();
+  if (row.label[pos] == '"') {
+    std::istringstream in(row.label.substr(pos));
+    std::string title;
+    if (!(in >> std::quoted(title)) || in.tellg() < 0) return false;
+    len = (size_t)in.tellg();
+  } else if (row.label.compare(pos, len, values[1]) != 0) return false;
+  auto next = row.label.find_first_not_of(" \t\r", pos + len);
+  if (next != text.npos && row.label[next] != ',') return false;
+  const auto quoted = cfgQuote(meta.title);
+  auto changed = row.label;
+  changed.replace(pos, len, quoted);
+  values[1] = meta.title;
+  if (ui::cfgValues(changed) != values) return false;
+  size_t start = 0;
+  for (int i = 1; i < row.line; ++i) {
+    start = text.find('\n', start);
+    if (start == text.npos) return false;
+    ++start;
+  }
+  const auto line = text.substr(start, text.find('\n', start) - start);
+  const auto label = line.rfind(row.label);
+  if (label == text.npos) return false;
+  auto probe = text;
+  probe.insert(start + label + pos, 1, 'X');
+  auto live = row.label;
+  live.insert(pos, 1, 'X');
+  if (selectStage(probe, meta.name).level.label != live) return false;
+  text.replace(start + label + pos, len, quoted);
+  return true;
+}
+
+static std::string singleBoardStage(const LevelMeta& meta) {
+  std::string out = "Stage\n{\n";
+  for (auto row : meta.stageRows) {
+    const bool level = lowerS(row[0]) == "level";
+    if (level) {
+      row[1] = meta.name;
+      if (meta.stageTitleEdited) { if (row.size() < 3) row.resize(3); row[2] = meta.title; }
+    }
+    out += row[0] + ": ";
+    for (size_t i = 1; i < row.size(); ++i) {
+      if (i > 1) out += ", ";
+      out += level && i == 1 ? row[i] : cfgQuote(row[i]);
+    }
+    out += '\n';
+  }
+  return out + "}\n";
 }
 
 bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
@@ -800,49 +883,48 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   }
   fs::path lv = modDir / "levels";
   const fs::path target = lv / (meta.name + ".dat");
-  IndexEntries levels;
-  std::string original;
-  {
-    std::vector<uint8_t> bytes;
-    std::error_code ec;
-    const bool exists = fs::exists(lv / "mod_levels.cfg", ec);
-    if (ec || (exists && !slurp(lv / "mod_levels.cfg", bytes))) { if (err) *err = "cannot read mod level list"; return false; }
-    if (exists) {
-      original.assign(bytes.begin(), bytes.end());
-      std::istringstream in(original);
+  auto refuse = [&](const std::string& message) { if (err) *err = message; return false; };
+  if (meta.title.find_first_of("\r\n") != std::string::npos || readIni("title=" + meta.title)["title"] != meta.title)
+    return refuse("title cannot be represented in the level sidecar");
+  std::string out;
+  std::vector<uint8_t> index;
+  std::error_code ec;
+  const auto path = lv / "mod_levels.cfg";
+  const bool exists = fs::exists(path, ec);
+  if (ec || (exists && !slurp(path, index))) return refuse("cannot read " + pathToUtf8(path));
+  out.assign(index.begin(), index.end());
+  const auto selected = selectStage(out, meta.name);
+  if (selected.matches) {
+    if (!meta.stageRows.empty() && selected.rows != meta.stageRows)
+      return refuse("stage settings conflict with the destination entry for " + meta.name + "; choose a new mod folder");
+    if (meta.stageTitleEdited && (selected.matches != 1 || !replaceStageTitle(out, selected.level, meta)))
+      return refuse("cannot safely update the selected stage title for " + meta.name);
+  } else {
+    if (!stageError_.empty()) return refuse(stageError_);
+    if (savedMod_ && target == savedPath) return refuse("saved stage entry is missing: " + pathToUtf8(path));
+    if (!meta.stageRows.empty()) {
+      if (exists) return refuse("cannot add the selected stage to an existing index; choose a new mod folder");
+      out = singleBoardStage(meta);
+    } else {
+      IndexEntries levels;
+      std::istringstream in(out);
       std::string line;
       while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        size_t k = line.find_first_not_of(" \t");
-        if (k == std::string::npos || line.compare(k, 6, "Level:") != 0) continue;
-        std::string rest = line.substr(k + 6);
-        rest.erase(0, rest.find_first_not_of(" \t"));
-        std::string nm = rest.substr(0, rest.find(','));
-        nm.erase(nm.find_last_not_of(" \t") + 1);
-        levels.push_back({nm, line.substr(k)});
+        if (line.starts_with("\tLevel: ")) levels.push_back(line.substr(1));
       }
+      auto formatted = [&](const IndexEntries& entries) {
+        auto text = editorIndex(modDir, entries);
+        if (out.find("\r\n") != out.npos) {
+          for (size_t i = 0; (i = text.find('\n', i)) != text.npos; i += 2) text.insert(i, 1, '\r');
+        }
+        return text;
+      };
+      if (exists && (levels.empty() || out != formatted(levels)))
+        return refuse("cannot add a level to this authored stage list; choose a new mod folder");
+      levels.push_back("Level: " + meta.name + ", " + cfgQuote(meta.title) + ", 100000, 3");
+      out = formatted(levels);
     }
-  }
-  std::string entry = "Level: " + meta.name + ", \"" + meta.title + "\", 100000, 3";
-  std::string out;
-  auto editorGenerated = [&] {
-    std::string normalized = original;
-    std::erase(normalized, '\r');
-    return normalized == editorIndex(modDir, levels);
-  };
-  if (original.empty() && !sourceStage_.empty()) {
-    std::ostringstream row;
-    row << "Stage\n{\n" << sourceStage_ << "  Level: " << meta.name << ", " << std::quoted(meta.title) << ", 100000, 3\n}\n";
-    out = row.str();
-  } else if (!meta.baseLink.name.empty() && !original.empty() && !editorGenerated()) {
-    out = std::move(original);
-    if (!updateAuthoredIndex(out, meta, err)) return false;
-  } else {
-    bool found = false;
-    for (auto& l : levels)
-      if (l.first == meta.name) { l.second = entry; found = true; }
-    if (!found) levels.push_back({meta.name, entry});
-    out = editorIndex(modDir, levels);
   }
   std::string link;
   if (!exportBaseLink(meta.baseLink, meta.name, vfs, lv, link, err)) return false;
@@ -888,6 +970,11 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   }
   if (int copied = meta.baseLink.name.empty() ? copyArtToMod(modDir) : 0) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + pathToUtf8(modDir));
   savedPath = target;
+  savedMod_ = true;
+  auto stage = selectStage(out, meta.name);
+  meta.stageRows = std::move(stage.rows);
+  stageError_ = stage.matches == 1 ? "" : "ambiguous stage entry for " + meta.name;
+  meta.stageTitleEdited = false;
   clean_ = (int)undo_.size();
   metaDirty = false;
   status = "saved " + pathToUtf8(target);
@@ -1475,7 +1562,7 @@ int Editor::generate(const std::string& kind, const std::vector<float>& a, int p
 }
 void Editor::setMeta(const std::string& k, const std::string& v) {
   if (k == "name") meta.name = v;
-  else if (k == "title") meta.title = v;
+  else if (k == "title") { meta.title = v; meta.stageTitleEdited = true; }
   else if (k == "background") meta.background = v;
   else if (k == "master") meta.master = v;
   else if (k == "board_width") {
@@ -1972,7 +2059,7 @@ std::string Editor::exec(const std::string& line, bool* okOut) {
     newLevel(w.size() > 1 ? w[1] : "NewLevel");
     msg = status;
   } else if (c == "save") {
-    if (w.size() > 1) ok = saveDat(w[1], &err); else if (!savedPath.empty()) ok = saveDat(savedPath, &err); else { ok = false; err = "save needs a path (or use savemod)"; }
+    ok = w.size() > 1 ? saveDat(w[1], &err) : saveCurrent(&err);
     msg = ok ? status : err;
   } else if (c == "export") {
     ok = w.size() > 1 && saveJson(w[1], &err);
