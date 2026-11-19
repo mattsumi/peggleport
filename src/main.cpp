@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
       play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
     }
     pp::ui::GameWindow window;
+    const auto base = pp::ui::GameFolders::programDir();
     while (play) {
       folders.setWindow(window.window());
       const std::filesystem::path dir = folders.dir(request.game);
@@ -109,6 +110,7 @@ int main(int argc, char** argv) {
         exitCode = 1;
         break;
       }
+      if (!base.empty()) vfs->mountPresentation(base / "presentation");
       pp::log::info("start", std::string("Opening ") + pp::gameTitle(request.game) + " from " + pp::pathToUtf8(dir));
       std::string error;
       pp::ui::GameRequest next;

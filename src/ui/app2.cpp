@@ -66,8 +66,10 @@ void App::doUserDialog() {
   auto d = std::make_unique<UserDialog>(*this);
   Dialog* raw = d.get();
   positionDialog(raw, 400);
-  raw->x = 0x96;
-  raw->y = 0x3c;
+  if (classicDialogPositions()) {
+    raw->x = 0x96;
+    raw->y = 0x3c;
+  }
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }
@@ -76,9 +78,11 @@ void App::doCreateUserDialog() {
   killDialog(D_CreateUser);
   auto d = std::make_unique<NewUserDialog>(*this, false, true, curProfile != nullptr);
   Dialog* raw = d.get();
-  float h = raw->preferredHeight(raw->w);
-  raw->resize((800 - raw->w) / 2, (600 - h) / 2, raw->w, h);
-  if (dynamic_cast<MainMenu*>(cur_.get())) { raw->x = 0x1e; raw->y = 0x1e; }
+  if (classicDialogPositions()) {
+    float h = raw->preferredHeight(raw->w);
+    raw->resize((800 - raw->w) / 2, (600 - h) / 2, raw->w, h);
+    if (dynamic_cast<MainMenu*>(cur_.get())) { raw->x = 0x1e; raw->y = 0x1e; }
+  } else positionDialog(raw, raw->w);
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }
@@ -194,7 +198,7 @@ void App::doOptionsDialog() {
   pauseBoard(true);
   auto d = std::make_unique<OptionsDialog>(*this, hasBoard());
   OptionsDialog* raw = d.get();
-  positionDialog(raw, 0x1b8);
+  positionDialog(raw, raw->preferredWidth(), raw->preferredWidth() > 440);
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }
@@ -227,7 +231,7 @@ void App::setGames(bool both, Game home) {
   d->fullscreen->checked = old->fullscreen->checked;
   d->colorblind->checked = old->colorblind->checked;
   old->gone = true;
-  positionDialog(d.get(), 0x1b8);
+  positionDialog(d.get(), d->preferredWidth(), d->preferredWidth() > 440);
   dialogs_.push_back(std::move(d));
 }
 
@@ -296,13 +300,7 @@ void App::dialogButton(int dlg, int btn) {
       off(dlg);
       if (btn != ID_YES && btn != ID_NO) return;
       const Game wanted = yes ? Game::Deluxe : Game::Nights;
-      if (wanted != game) {
-        StartTarget target;
-        target.place = StartPlace::Adventure;
-        requestGameSwitch(wanted, target);
-      } else if (auto* mm = dynamic_cast<MainMenu*>(cur_.get())) {
-        mm->startAdventure();
-      }
+      if (auto* mm = dynamic_cast<MainMenu*>(cur_.get())) mm->chooseAdventure(wanted);
       return;
     }
     case D_CreateUser: finishCreateUserDialog(yes); return;
@@ -327,7 +325,7 @@ void App::dialogButton(int dlg, int btn) {
 
 void App::alignQuestionWithMenu(Dialog* d) {
   auto* o = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
-  if (!o || !o->fromGame) return;
+  if (!o || !o->fromGame || !classicDialogPositions()) return;
   o->layout();
   d->scrollTarget = o->y + o->mainMenu->y + o->mainMenu->h - d->h;
 }
@@ -337,8 +335,10 @@ void App::doAdventureQuestion() {
   d->setYesNo("Peggle Deluxe", "Peggle Nights");
   d->escapeButton = ID_CLOSE;
   d->returnButton = game == Game::Nights ? ID_NO : ID_YES;
-  d->resize(227, d->y, 366, d->preferredHeight(366));
-  d->scrollTarget = 280;
+  if (classicDialogPositions()) {
+    d->resize(227, d->y, 366, d->preferredHeight(366));
+    d->scrollTarget = 280;
+  } else positionDialog(d, 366);
 }
 
 void App::doConfirmMainMenuDialog() {
@@ -369,7 +369,7 @@ void App::doConfirmRestartLevelDialog(float top) {
   }
   Dialog* d = doDialog(D_RestartLevel, true, title, text, "", BUTTONS_YES_NO);
   d->setYesNo(yes, "CANCEL");
-  if (top > 0) d->scrollTarget = top;
+  if (top > 0 && classicDialogPositions()) d->scrollTarget = top;
   else alignQuestionWithMenu(d);
 }
 

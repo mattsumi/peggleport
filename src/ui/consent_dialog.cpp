@@ -154,7 +154,6 @@ ConsentDialog::Body ConsentDialog::describe(const std::string& id, int step) {
     nativeFull = mods::NativeMod::probe().full();
   }
   if (step == 1) b.after.push_back(nativeFull && !mi->scan.declaredNet && mi->m.scripts.empty() ? "The scan is best effort. Allow only mods you trust." : "This scan is best effort: a determined author can hide network use in the code. Allow only mods you trust.");
-  else b.after.push_back(mods::kScanDisclaimer);
   b.notesMayScroll = step != 1;
   return b;
 }

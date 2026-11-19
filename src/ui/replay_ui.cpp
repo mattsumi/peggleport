@@ -172,7 +172,7 @@ class SaveReplayDialog : public Dialog {
     }
   }
   void placeChild(Dialog* c) {
-    if (!c) return;
+    if (!c || !app.classicDialogPositions()) return;
     const float top = scrollActive ? scrollTarget : y;
     c->scrollTarget = std::max(top, std::max(10.0f, top + 255 - c->h));
   }
@@ -245,8 +245,10 @@ void App::doSaveReplayDialog() {
   auto d = std::make_unique<SaveReplayDialog>(*this);
   Dialog* raw = d.get();
   positionDialog(raw, 400);
-  raw->x = 200;
-  raw->y = 60;
+  if (classicDialogPositions()) {
+    raw->x = 200;
+    raw->y = 60;
+  }
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }

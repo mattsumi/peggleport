@@ -129,7 +129,7 @@ Press **F10** on any screen, also while you play. A panel opens at the bottom wi
 ## Mods
 
 **How do I install a mod?**
-Put the mod folder or `.zip` into the `mods` folder (the Mods screen has an **Open Folder** button for it), open **Options, then Mods** and tick the mod. It loads right away, the game does not need a restart. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
+In Classic 4:3, choose **Options → Mods** from the main menu. In widescreen, choose **Mods** directly on the main menu. Select **Open Folder**, put the mod folder or `.zip` there, then tick the mod on the Mods screen. It loads without a restart. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
 
 **Can a mod do something nasty?**
 A mod can only touch the network if it says so in its manifest, and PegglePort scans every mod before it loads. If the scan finds network use, or the mod contains native code, the game shows you what it found and waits for your OK. This is a best effort check, not a guarantee, so only install mods from people you trust. Lua mods run in a sandbox without file or network access. Native plugins run in a separate helper process that the operating system locks down: no network, no writing files, no starting programs, and it can only read its own folder. If your system cannot apply all of that to a plugin, the game says so and the plugin stays off until you also allow it to run without restrictions.
@@ -171,4 +171,4 @@ Same reason. Click "More info", then "Run anyway".
 The game draws at your screen's real resolution and scales its 800x600 picture to fit. Resize the window once and it remembers the size. On Linux with X11 you can set `SDL_VIDEO_X11_SCALING_FACTOR=1.5` or similar if the scale is off.
 
 **The game closes on start or a level does not load.**
-Open the game again, press F10 and look for red lines. The most common cause is a mod; disable it in Options, Mods. If that does not help, open an issue and attach the saved log.
+Open the game again, press F10 and look for red lines. The most common cause is a mod; disable it on the Mods screen. If that does not help, open an issue and attach the saved log.

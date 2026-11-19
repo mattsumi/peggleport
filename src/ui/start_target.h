@@ -7,7 +7,7 @@
 
 namespace pp::ui {
 
-enum class StartPlace { MainMenu, Adventure, Level, Challenge, LevelList, ChallengeList };
+enum class StartPlace { MainMenu, Adventure, Level, Challenge, LevelList, ChallengeList, SinglePlayer, NightsHub };
 
 struct DuelTally {
   int wins[2]{}, fevers[2]{}, points[2]{}, streakOwner = -1, streak = 0;

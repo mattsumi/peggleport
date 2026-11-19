@@ -931,8 +931,9 @@ void Board::updatePostShot() {
     shotScore = 0;
     style[cur] = 0;
   } else if (shotScore < 1 && pegsHitShot == 0 && !duel && !bucketShot && !(cfg.ch.active && cfg.ch.noFreeballs)) {
-    bool last = ballsLeft[cur] < 1;
-    bool win = (!cfg.coinFlipSeen) || (int)(shotRand[1] % 100) <= (last ? 80 : 60);
+    const bool win = cfg.legacyMissCoin()
+        ? !cfg.coinFlipSeen || shotRand[1] % 100u <= (ballsLeft[cur] < 1 ? 80u : 60u)
+        : (shotRand[1] & 1u) != 0;
     coin.on = true;
     coin.win = win;
     coin.angle = (int)(rng.rand() % 360);
@@ -1185,14 +1186,16 @@ static bool inPolyN(const float (*pt)[2], int n, float px, float py) {
 bool Board::inFlipperZone(const Obj& o) const {
   if (o.zoneMode == 1) return true;
   if (o.zoneMode == 2) return false;
-  const float x = o.fromBase ? o.pos.x : o.pos.x - (float)(W - 650) * 0.5f;
+  const bool legacy = cfg.legacyFlippers();
+  const float x = legacy && !o.fromBase ? o.pos.x - (W - 650) * 0.5f : o.pos.x;
+  const float rightX = legacy ? x : x - (W - 650);
   const float y = o.pos.y;
   if (cfg.nights) {
     static const float NA[5][2] = {{0, 448}, {50, 460}, {92, 470}, {95, 523}, {0, 530}};
     static const float NB[5][2] = {{644, 450}, {600, 455}, {558, 460}, {555, 523}, {644, 530}};
     if (400.0 <= (double)y) {
       if (x < 150.0f && inPolyN(NA, 5, x, y)) return true;
-      if (500.0 < (double)x && inPolyN(NB, 5, x, y)) return true;
+      if (500.0 < (double)rightX && inPolyN(NB, 5, rightX, y)) return true;
     }
     return false;
   }
@@ -1200,7 +1203,7 @@ bool Board::inFlipperZone(const Obj& o) const {
   static const float B[4][2] = {{650, 380}, {540, 470}, {540, 600}, {650, 600}};
   if (400.0f <= y) {
     if (x < 150.0f && (x < 80.0f || inPoly4(A, x, y))) return true;
-    if (500.0f < x && (570.0f < x || inPoly4(B, x, y))) return true;
+    if (500.0f < rightX && (570.0f < rightX || inPoly4(B, rightX, y))) return true;
   }
   return false;
 }
@@ -1602,7 +1605,7 @@ bool Board::ghostHits(const Ball& g, const Obj& o) const {
     V2 hn, hv, av;
     bool kiss = true;
     phys::Poly p = o.ppoly;
-    return p.check(g.pos, g.vel, r, hitT, hp, hn, hv, av, kiss);
+    return p.check(g.pos, g.vel, r, hitT, hp, hn, hv, av, kiss, cfg.simRules == SimRules::Classic);
   }
   return false;
 }

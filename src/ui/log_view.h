@@ -44,6 +44,7 @@ class LogView : public Panel {
   bool dragging_ = false;
   bool downOwned_ = false;
   float wheelAcc_ = 0;
+  float dragOffset_ = 0;
   long top_ = 0;
   int statusTicks_ = 0;
   std::string status_;
@@ -69,6 +70,7 @@ class LogView : public Panel {
 
   bool contains(float px, float py) const { return px >= x && py >= y && px < x + w && py < y + h; }
   bool inTrack(float px, float py) const;
+  Rect scrollThumb() const;
   long maxTop() const;
   void layout(Gfx& g);
   void sync();

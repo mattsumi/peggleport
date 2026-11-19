@@ -220,10 +220,12 @@ class OnlineGameScreen : public Screen {
   }
 
   bool input(const Input& in) override {
+    const auto view = app.boardRenderer ? app.boardRenderer->consoleView(canvasWidth(), 650 + boardExtra()) : Renderer::View{};
+    const float boardX = std::floor((in.x - view.x) / view.k) - (float)boardLeft(), boardY = std::floor((in.y - view.y) / view.k) - 40;
     switch (in.type) {
       case Input::MouseMove:
-        mx_ = std::floor(in.x) - (float)boardLeft();
-        my_ = std::floor(in.y) - 40;
+        mx_ = boardX;
+        my_ = boardY;
         wheelNudge_ = 0;
         break;
       case Input::Wheel: wheelNudge_ += in.wheel * 0.1f * 3.14159265f / 180.0f; break;
@@ -235,8 +237,8 @@ class OnlineGameScreen : public Screen {
     }
     bool used = Panel::input(in);
     if (in.type == Input::MouseDown && in.button == 1 && !used && state_ == Playing && !menu_) {
-      mx_ = std::floor(in.x) - (float)boardLeft();
-      my_ = std::floor(in.y) - 40;
+      mx_ = boardX;
+      my_ = boardY;
       wantFire_ = true;
     }
     return used;

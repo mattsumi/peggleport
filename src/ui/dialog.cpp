@@ -1,4 +1,7 @@
 #include "ui/dialog.h"
+#include "ui/dialogs.h"
+#include "ui/secondary_art.h"
+#include "ui/visuals_dialog.h"
 
 #include <SDL3/SDL.h>
 #include <vector>
@@ -8,6 +11,9 @@
 #include <cmath>
 
 namespace pp::ui {
+
+static constexpr int kOptionsChildren[] = {D_Visuals, D_RestartLevel, D_ReturnToMenu, D_NewChallenge};
+static constexpr float kConsoleActionH = 44, kConsoleActionW = 184, kConsoleActionGap = 4;
 
 Dialog::Dialog(App& a, int id, bool mod, const std::string& hdr, const std::string& ln, const std::string& ftr, int bm)
     : Panel(a), dialogId(id), modal(mod), header(hdr), lines(ln), footer(ftr), buttonMode(bm) {
@@ -29,11 +35,29 @@ Dialog::Dialog(App& a, int id, bool mod, const std::string& hdr, const std::stri
   } else if (bm == BUTTONS_FOOTER) {
     yesBtn = mk(ID_FOOTER, ftr);
   }
+  if (usesConsoleQuestion()) {
+    buttonH = kConsoleActionH;
+    linesFont = "OVERLOAD16OUTLINE";
+    insB = 22;
+    if (dialogId == D_ReturnToMenu && bm == BUTTONS_YES_NO) setYesNo("Leave", "Cancel");
+    styleConsoleAction(*yesBtn);
+    styleConsoleAction(*noBtn);
+  } else if (usesConsoleLock()) {
+    buttonH = kConsoleActionH;
+    linesFont = "OVERLOAD16OUTLINE";
+    insL = insR = 28;
+    insB = 22;
+    styleConsoleAction(*yesBtn);
+    focusW = yesBtn;
+    yesBtn->focused = true;
+  } else if (usesConsoleTip()) {
+    styleConsoleAction(*yesBtn);
+  }
 }
 
 void Dialog::setYesNo(const std::string& y, const std::string& n) {
   if (yesBtn) yesBtn->label = y;
-  if (noBtn) noBtn->label = n;
+  if (noBtn) noBtn->label = usesConsoleQuestion() && n == "CANCEL" ? "Cancel" : n;
 }
 
 float Dialog::preferredHeight(float width) {
@@ -57,12 +81,21 @@ float Dialog::preferredHeight(float width) {
   if (yesBtn) {
     if (needSpace) hgt += 10;
     hgt += buttonH + 8;
+    if (usesConsoleQuestion()) hgt += buttonH + kConsoleActionGap;
   }
   return hgt;
 }
 
 void Dialog::layoutButtons() {
   if (yesBtn && noBtn) {
+    if (usesConsoleQuestion()) {
+      noBtn->w = yesBtn->w = kConsoleActionW;
+      noBtn->h = yesBtn->h = buttonH;
+      noBtn->x = yesBtn->x = (w - kConsoleActionW) / 2;
+      noBtn->y = h - insB - buttonH;
+      yesBtn->y = noBtn->y - buttonH - kConsoleActionGap;
+      return;
+    }
     float bw = std::trunc((w - insL - insR - 8) / 2);
     yesBtn->x = insL;
     yesBtn->y = h - insB - buttonH;
@@ -73,9 +106,9 @@ void Dialog::layoutButtons() {
     noBtn->w = bw;
     noBtn->h = buttonH;
   } else if (yesBtn) {
-    yesBtn->x = insL;
     yesBtn->y = h - insB - buttonH;
-    yesBtn->w = w - insL - insR;
+    yesBtn->w = (usesConsoleTip() || usesConsoleLock()) ? kConsoleActionW : w - insL - insR;
+    yesBtn->x = usesConsoleTip() || usesConsoleLock() ? (w - yesBtn->w) / 2 : insL;
     yesBtn->h = buttonH;
   }
 }
@@ -121,7 +154,48 @@ void Dialog::update() {
   }
 }
 
+bool Dialog::usesConsoleOptionsChrome() const {
+  if (app.widescreenMode() == WidescreenMode::Classic4x3 || app.gfx.canvasW() < 960) return false;
+  if (dialogId != D_Options && std::find(std::begin(kOptionsChildren), std::end(kOptionsChildren), dialogId) == std::end(kOptionsChildren))
+    return false;
+  auto* options = app.getDialog(D_Options);
+  return options && options->w > 440;
+}
+
+bool Dialog::usesConsoleQuestion() const {
+  return yesBtn && noBtn && dialogId != D_Options && usesConsoleOptionsChrome();
+}
+
+bool Dialog::usesConsoleTip() const {
+  return dialogId == D_Tip && buttonMode == BUTTONS_FOOTER && app.hasBoard() && app.gameMode == GameMode::Adventure &&
+         app.widescreenMode() != WidescreenMode::Classic4x3 && app.gfx.canvasW() >= 960;
+}
+
+bool Dialog::usesConsoleLock() const {
+  return dialogId == D_Locked && buttonMode == BUTTONS_FOOTER && app.consoleCanvasWidth() >= 960;
+}
+
+void Dialog::styleConsoleAction(Button& button) {
+  Tex* art = secondaryArt(app.gfx, "action_button");
+  if (!art) art = app.gfx.img("IMAGE_DLG_BROWNBUTTON2");
+  if (art) button.image = art;
+  button.labelStyle = 9;
+  button.labelFullGradient = true;
+  button.textOffY = 3;
+  if (usesConsoleQuestion() || usesConsoleLock()) {
+    button.font = "OVERLOAD16OUTLINE";
+    button.textOffY = 7;
+  }
+}
+
+float Dialog::chromeOpacity() const {
+  if (scrollingOff) return std::clamp((y + h) / 200.0f, 0.0f, 1.0f);
+  return scrollActive ? std::clamp((600 - y) / std::max(1.0f, 600 - scrollTarget), 0.0f, 1.0f) : 1.0f;
+}
+
 void Dialog::drawLayer(Gfx& g) {
+  if (dialogId != D_Options && usesConsoleOptionsChrome())
+    g.fill(-g.originX(), -g.originY(), static_cast<float>(g.canvasW()), kOptionsFooterTop, 0x080520, chromeOpacity() * 0.35f);
   if (rope) {
     Tex* con = g.img("IMAGE_DLG_CONNECTOR");
     Tex* seg = g.img("IMAGE_DLG_SEGMENT");
@@ -131,7 +205,8 @@ void Dialog::drawLayer(Gfx& g) {
       g.draw(con, (w - con->lw()) / 2, cy);
     }
   }
-  Tex* box = g.img("IMAGE_DLG_DIALOGBOX");
+  Tex* box = usesConsoleOptionsChrome() || usesConsoleTip() || usesConsoleLock() ? secondaryArt(g, "story_panel") : nullptr;
+  if (!box) box = g.img("IMAGE_DLG_DIALOGBOX");
   if (box) g.drawBox(box, 0, 0, w, h);
   else g.fill(0, 0, w, h, 0x203050, 0.95f);
   float curY = insT;
@@ -174,7 +249,7 @@ void Dialog::cycleFocus(int dir) {
 }
 
 bool Dialog::focusKey(int key) {
-  if (!focusW || dynamic_cast<EditBox*>(focusW)) return false;
+  if (!focusW || !focusW->enabled || !focusW->visible || dynamic_cast<EditBox*>(focusW)) return false;
   if (key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_SPACE) {
     if (auto* b = dynamic_cast<Button*>(focusW)) { app.playSample(b->clickSound); onButton(b->id); return true; }
     if (auto* c = dynamic_cast<Checkbox*>(focusW)) { c->mouseDown(0, 0, 1, 1); return true; }
@@ -191,7 +266,35 @@ bool Dialog::focusKey(int key) {
 }
 
 void Dialog::drawOverlay(Gfx& g) {
-  if (!focusW || !focusW->visible || dynamic_cast<EditBox*>(focusW) || scrollingOff) return;
+  const bool consoleChrome = usesConsoleOptionsChrome();
+  if (consoleChrome) {
+    auto* options = dynamic_cast<OptionsDialog*>(app.getDialog(D_Options));
+    const Dialog* child = nullptr;
+    for (int id : kOptionsChildren)
+      if ((child = app.getDialog(id))) break;
+    if (options && this == (child ? child : options)) {
+      const bool question = child && child->usesConsoleQuestion();
+      options->drawChromeFooter(g, child && !question, question ? 1.0f - child->chromeOpacity() : 1.0f);
+    }
+    if (child && this == options) return;
+  }
+  Widget* highlight = focusW;
+  if (!highlight && usesConsoleQuestion() && !scrollActive && !yesBtn->over && !noBtn->over) highlight = yesBtn;
+  if (!highlight || !highlight->visible || dynamic_cast<EditBox*>(highlight) || scrollingOff) return;
+  if (consoleChrome || usesConsoleLock()) {
+    if (!highlight->enabled) return;
+    if (auto* button = dynamic_cast<Button*>(highlight); button && button->kind == Button::Kind::Patch && button->image) {
+      if ((usesConsoleQuestion() || usesConsoleLock()) && g.vfs().exists("console/menu/button_glow.png"))
+        g.drawStretch(g.img("console/menu/button_glow.png"), button->x - 15, button->y - 11, button->w + 30, button->h + 22, Mode(.8f, 0xffad68, true));
+      Button lit = *button;
+      lit.over = true;
+      lit.overAlpha = 1;
+      g.pushOrigin(lit.x, lit.y);
+      lit.draw(g);
+      g.popOrigin();
+      return;
+    }
+  }
   const float x0 = focusW->x - 2, y0 = focusW->y - 1, w0 = focusW->w + 4, h0 = focusW->h + 2;
   g.fill(x0, y0, w0, 2, 0xffff66, 0.9f);
   g.fill(x0, y0 + h0 - 2, w0, 2, 0xffff66, 0.9f);

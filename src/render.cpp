@@ -10,7 +10,10 @@
 #include <string_view>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 
+#include "gamepaths.h"
 #include "image.h"
 
 namespace pp {
@@ -37,51 +40,6 @@ std::vector<V2> resample(const std::vector<V2>& v, int n) {
 }
 }
 
-static void upscale2(Image& im, int rows, int cols) {
-  const int w = im.w, h = im.h, W = w * 2, H = h * 2;
-  const int cw = (cols > 1 && w % cols == 0) ? w / cols : w, chh = (rows > 1 && h % rows == 0) ? h / rows : h;
-  std::vector<float> src((size_t)w * h * 4), tmp((size_t)W * h * 4);
-  for (size_t i = 0; i < (size_t)w * h; i++) {
-    float a = im.rgba[i * 4 + 3];
-    for (int c = 0; c < 3; c++) src[i * 4 + c] = im.rgba[i * 4 + c] * a / 255.0f;
-    src[i * 4 + 3] = a;
-  }
-  auto cr = [](float t, float p0, float p1, float p2, float p3) {
-    return 0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
-  };
-  for (int x = 0; x < W; x++) {
-    float u = ((float)x + 0.5f) * 0.5f - 0.5f;
-    int i1 = (int)std::floor(u);
-    float t = u - (float)i1;
-    int n = std::clamp((int)std::floor(u + 0.5f), 0, w - 1), lo = n / cw * cw, hi = std::min(w - 1, lo + cw - 1);
-    int id[4];
-    for (int k = 0; k < 4; k++) id[k] = std::clamp(i1 + k - 1, lo, hi);
-    for (int y = 0; y < h; y++)
-      for (int c = 0; c < 4; c++)
-        tmp[((size_t)y * W + x) * 4 + c] = cr(t, src[((size_t)y * w + id[0]) * 4 + c], src[((size_t)y * w + id[1]) * 4 + c], src[((size_t)y * w + id[2]) * 4 + c], src[((size_t)y * w + id[3]) * 4 + c]);
-  }
-  std::vector<uint8_t> out((size_t)W * H * 4);
-  for (int y = 0; y < H; y++) {
-    float v = ((float)y + 0.5f) * 0.5f - 0.5f;
-    int j1 = (int)std::floor(v);
-    float t = v - (float)j1;
-    int n = std::clamp((int)std::floor(v + 0.5f), 0, h - 1), lo = n / chh * chh, hi = std::min(h - 1, lo + chh - 1);
-    int id[4];
-    for (int k = 0; k < 4; k++) id[k] = std::clamp(j1 + k - 1, lo, hi);
-    for (int x = 0; x < W; x++) {
-      float p[4];
-      for (int c = 0; c < 4; c++)
-        p[c] = cr(t, tmp[((size_t)id[0] * W + x) * 4 + c], tmp[((size_t)id[1] * W + x) * 4 + c], tmp[((size_t)id[2] * W + x) * 4 + c], tmp[((size_t)id[3] * W + x) * 4 + c]);
-      float a = std::clamp(p[3], 0.0f, 255.0f);
-      uint8_t* o = &out[((size_t)y * W + x) * 4];
-      for (int c = 0; c < 3; c++) o[c] = a > 0.5f ? (uint8_t)std::lround(std::clamp(p[c], 0.0f, a) * 255.0f / a) : 0;
-      o[3] = (uint8_t)std::lround(a);
-    }
-  }
-  im.rgba = std::move(out);
-  im.w = W;
-  im.h = H;
-}
 static void downscale2(Image& im) {
   const int W = im.w / 2, H = im.h / 2;
   std::vector<uint8_t> out((size_t)W * H * 4);
@@ -103,9 +61,32 @@ static void downscale2(Image& im) {
   im.h = H;
 }
 
+static void blurImage(std::vector<uint8_t>& pixels, int w, int h, int radius) {
+  std::vector<uint8_t> tmp(pixels.size());
+  auto box = [&](const auto& src, auto& dst, int span, int lines, int along, int across) {
+    for (int line = 0; line < lines; ++line) {
+      const size_t start = (size_t)line * across * 4;
+      for (int c = 0; c < 4; ++c) {
+        auto at = [&](int pos) { return src[start + (size_t)std::clamp(pos, 0, span - 1) * along * 4 + c]; };
+        int sum = 0;
+        for (int i = -radius; i <= radius; ++i) sum += at(i);
+        for (int i = 0; i < span; ++i) {
+          dst[start + (size_t)i * along * 4 + c] = (uint8_t)(sum / (2 * radius + 1));
+          sum += at(i + radius + 1) - at(i - radius);
+        }
+      }
+    }
+  };
+  for (int i = 0; i < 3; ++i) {
+    box(pixels, tmp, w, h, 1, w);
+    box(tmp, pixels, h, w, w, 1);
+  }
+}
+
 Renderer::~Renderer() {
   if (bloomA_) SDL_DestroyTexture(bloomA_);
   if (bloomB_) SDL_DestroyTexture(bloomB_);
+  for (auto* target : pauseTargets_) if (target) SDL_DestroyTexture(target);
   for (auto& [_, t] : cache_)
     if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : modCache_)
@@ -206,6 +187,54 @@ void Renderer::beginCanvas(int canvasW) {
   oy_ = (oh - 600 * s_) * 0.5f;
 }
 
+void Renderer::drawPauseBackdrop(float amount, const SDL_Rect& area, const std::function<void()>& drawScene) {
+  const int opacity = (int)std::lround(std::clamp(amount, 0.0f, 1.0f) * 255);
+  int ow = 0, oh = 0;
+  if (!opacity || area.w < 16 || area.h < 16 || !SDL_GetCurrentRenderOutputSize(r_, &ow, &oh)) {
+    drawScene();
+    return;
+  }
+  const int passes = area.h >= 840 ? 3 : 2;
+  for (int i = 0; i <= passes; ++i) {
+    const int w = i ? area.w >> i : ow, h = i ? area.h >> i : oh;
+    auto*& t = pauseTargets_[i];
+    if (t && (t->w != w || t->h != h)) {
+      SDL_DestroyTexture(t);
+      t = nullptr;
+    }
+    if (!t) {
+      t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+      if (!t) { drawScene(); return; }
+      SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_NONE);
+    }
+  }
+
+  auto* previous = SDL_GetRenderTarget(r_);
+  if (!SDL_SetRenderTarget(r_, pauseTargets_[0])) { drawScene(); return; }
+  SDL_SetRenderClipRect(r_, nullptr);
+  SDL_SetRenderDrawColor(r_, 0, 0, 0, 255);
+  SDL_RenderClear(r_);
+  drawScene();
+
+  const SDL_FRect bounds{(float)area.x, (float)area.y, (float)area.w, (float)area.h};
+  bool softened = true;
+  for (int i = 1; i <= passes && softened; ++i) {
+    softened = SDL_SetRenderTarget(r_, pauseTargets_[i]) &&
+        SDL_RenderTexture(r_, pauseTargets_[i - 1], i == 1 ? &bounds : nullptr, nullptr);
+  }
+  SDL_SetRenderTarget(r_, previous);
+  SDL_RenderTexture(r_, pauseTargets_[0], nullptr, nullptr);
+  if (softened) {
+    auto* blurred = pauseTargets_[passes];
+    SDL_SetTextureBlendMode(blurred, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureAlphaMod(blurred, (Uint8)opacity);
+    SDL_RenderTexture(r_, blurred, nullptr, &bounds);
+    SDL_SetTextureAlphaMod(blurred, 255);
+    SDL_SetTextureBlendMode(blurred, SDL_BLENDMODE_NONE);
+  }
+}
+
 Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor) { return tex(path, rows, cols, mask, alphaColor, false); }
 
 Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor, bool limited) {
@@ -221,7 +250,11 @@ Renderer::Tex* Renderer::tex(const std::string& path, int rows, int cols, const 
         im->rgba[i + 1] = (alphaColor >> 8) & 255;
         im->rgba[i + 2] = alphaColor & 255;
       }
-    if (texQ_ == 1 && im->scale < 1.5f && im->w <= 2048 && im->h <= 2048) {
+    if (path.starts_with("console/gutters/")) {
+      bool opaque = true;
+      for (size_t i = 3; i < im->rgba.size() && opaque; i += 4) opaque = im->rgba[i] == 255;
+      if (opaque) blurImage(im->rgba, im->w, im->h, std::max(1, (int)std::lround(im->h / 180.0f)));
+    } else if (texQ_ == 1 && im->scale < 1.5f && im->w <= 2048 && im->h <= 2048) {
       upscale2(*im, rows, cols);
       im->scale *= 2;
     } else if (texQ_ == -1 && im->w % 2 == 0 && im->h % 2 == 0 && im->w >= 16 && im->h >= 16 && (cols <= 1 || (im->w / 2) % cols == 0) && (rows <= 1 || (im->h / 2) % rows == 0)) {
@@ -323,52 +356,32 @@ Renderer::Tex* Renderer::wideBackground(const std::string& path, int targetW, fl
       int sx = u, d = 0;
       if (u < 0 || u >= w) {
         d = u < 0 ? -u : u - w + 1;
-        int p = (d - 1) % (2 * w);
-        if (p >= w) p = 2 * w - 1 - p;
-        sx = u < 0 ? p : w - 1 - p;
+        sx = std::clamp(u, 0, w - 1);
         gap = std::max(gap, d);
       }
       dist[(size_t)x] = (float)d;
       for (int y = 0; y < h; y++) std::memcpy(&out[((size_t)y * tw + x) * 4], &im->rgba[((size_t)y * w + sx) * 4], 4);
     }
-    const int band = std::max(gap, 1);
     if (gap > 0) {
-      std::vector<uint8_t> bl = out, tmp = out;
-      const int R = std::max(2, (int)std::lround(6 * sc));
-      auto boxH = [&](std::vector<uint8_t>& a, std::vector<uint8_t>& dst) {
-        for (int y = 0; y < h; y++)
-          for (int c = 0; c < 4; c++) {
-            int sum = 0, n = 0;
-            for (int x = -R; x <= R; x++) { sum += a[((size_t)y * tw + std::clamp(x, 0, tw - 1)) * 4 + c]; n++; }
-            for (int x = 0; x < tw; x++) {
-              dst[((size_t)y * tw + x) * 4 + c] = (uint8_t)(sum / n);
-              int xo = std::clamp(x - R, 0, tw - 1), xi = std::clamp(x + R + 1, 0, tw - 1);
-              sum += a[((size_t)y * tw + xi) * 4 + c] - a[((size_t)y * tw + xo) * 4 + c];
-            }
-          }
-      };
-      auto boxV = [&](std::vector<uint8_t>& a, std::vector<uint8_t>& dst) {
-        for (int x = 0; x < tw; x++)
-          for (int c = 0; c < 4; c++) {
-            int sum = 0, n = 0;
-            for (int y = -R; y <= R; y++) { sum += a[((size_t)std::clamp(y, 0, h - 1) * tw + x) * 4 + c]; n++; }
-            for (int y = 0; y < h; y++) {
-              dst[((size_t)y * tw + x) * 4 + c] = (uint8_t)(sum / n);
-              int yo = std::clamp(y - R, 0, h - 1), yi = std::clamp(y + R + 1, 0, h - 1);
-              sum += a[((size_t)yi * tw + x) * 4 + c] - a[((size_t)yo * tw + x) * 4 + c];
-            }
-          }
-      };
-      for (int pass = 0; pass < 3; pass++) { boxH(bl, tmp); boxV(tmp, bl); }
+      std::vector<uint8_t> bl(out.size()), tmp(out.size());
+      const float sampleScale = (float)w / (float)tw;
+      for (int y = 0; y < h; y++) {
+        const int sy = std::clamp((int)((y + 0.5f - h * 0.5f) * sampleScale + h * 0.5f), 0, h - 1);
+        for (int x = 0; x < tw; x++) {
+          const int sx = std::min(w - 1, (int)((x + 0.5f) * sampleScale));
+          std::memcpy(&bl[((size_t)y * tw + x) * 4], &im->rgba[((size_t)sy * w + sx) * 4], 4);
+        }
+      }
+      blurImage(bl, tw, h, std::max(2, (int)std::lround(18 * sc)));
       for (int x = 0; x < tw; x++) {
         if (dist[(size_t)x] <= 0) continue;
-        float t = std::min(1.0f, dist[(size_t)x] / (0.55f * (float)band));
+        float t = std::min(1.0f, dist[(size_t)x] / (24.0f * sc));
         t = t * t * (3 - 2 * t);
         float dark = 1.0f - 0.18f * t;
         for (int y = 0; y < h; y++) {
           uint8_t* o = &out[((size_t)y * tw + x) * 4];
           const uint8_t* b = &bl[((size_t)y * tw + x) * 4];
-          for (int c = 0; c < 3; c++) o[c] = (uint8_t)std::lround((o[c] * (1 - 0.9f * t) + b[c] * 0.9f * t) * dark);
+          for (int c = 0; c < 3; c++) o[c] = (uint8_t)std::lround((o[c] * (1 - t) + b[c] * t) * dark);
         }
       }
     }
@@ -430,6 +443,24 @@ Renderer::Tex* Renderer::objImage(const std::string& name) {
   for (const char* pre : {"", "images/levels/", "images/game/", "levels/"})
     if (auto t = tex(pre + name)) return t;
   return nullptr;
+}
+
+Renderer::Tex* Renderer::fileTex(const std::string& file) {
+  const std::string key = "file:" + file;
+  if (auto it = cache_.find(key); it != cache_.end()) return it->second.t ? &it->second : nullptr;
+  Tex T;
+  std::ifstream in(pathFromUtf8(file), std::ios::binary);
+  const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  Image im;
+  if (!bytes.empty() && decodeImage(bytes, im, nullptr, true) && (T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h))) {
+    SDL_UpdateTexture(T.t, nullptr, im.rgba.data(), im.w * 4);
+    SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+    T.w = im.w;
+    T.h = im.h;
+  }
+  auto& slot = cache_[key] = T;
+  return slot.t ? &slot : nullptr;
 }
 
 void Renderer::put(Tex* t, SDL_FRect sl, float x, float y, Paint p, float w, float h, float rot, float pivx, float pivy) {
@@ -504,6 +535,14 @@ void Renderer::text(float x, float y, const std::string& s, float size, Uint32 r
 }
 
 V2 Renderer::toBoard(float x, float y) const { return {(x - ox_) / s_ - BX, (y - oy_) / s_ - BY}; }
+
+Renderer::View Renderer::consoleView(int frameWidth, int boardWidth) const {
+  const int inset = hudInset(frameWidth, boardWidth);
+  if (!inset) return {};
+  for (const char* part : {"console/trim/left.png", "console/trim/right.png", "console/trim/top.png", "console/trim/bottom.png"})
+    if (!vfs_.exists(part)) return {};
+  return {0.9f, frameWidth * 0.5f - 345.8f - 0.9f * inset, 30.8f};
+}
 
 void Renderer::observe(const Board& b) {
   bool fresh = b.tick < lastTick_ || b.objs.size() != lastObjs_ || viz_.size() != b.objs.size();
@@ -787,7 +826,7 @@ void Renderer::drawObj(const Board& b, const Obj& o, int idx, Pass pass) {
     lightImg = img(light[k]);
   }
   Tex* objTex = objImage(o.image);
-  if (objTex && b.W > 650 && !o.fromBase) {
+  if (objTex && b.W > 650 && b.cfg.authoredWidth <= 650 && !o.fromBase) {
     const float half = (float)(b.W - 650) * 0.5f, cx = o.pos.x + rot({o.imgDx, o.imgDy}, o.rot).x, reach = std::max(objTex->lw(), objTex->lh()) * 0.5f;
     if (cx - reach > half + 650.0f || cx + reach < half) objTex = nullptr;
   }
@@ -839,76 +878,73 @@ void Renderer::drawBall(const Board& b, const Ball& bl, bool inGun) {
   if (Tex* t = img("IMAGE_BIGBALL")) put(t, {0, 0, t->lw(), t->lh()}, cx - r, cy - r, {}, r * 2, r * 2);
 }
 
-void Renderer::doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0, float y0, float ang, float speed, int hitStep, int len,
-                           int start, bool far, bool fireball, bool superCol) {
-  Tex* rect = img("IMAGE_GUIDERECT");
-  Tex* arrow = img("IMAGE_GUIDEARROW");
-  Tex* hitImg = img("IMAGE_GUIDEHIT");
-  const float vx = std::cos(ang) * speed, vy = -speed * std::sin(ang), ay = b.physics.gravityY * 0.5f, ax = b.physics.gravityX * 0.5f;
-  uint32_t col = fireball ? 0x903010u : superCol ? 0xaaaa60u : 0x109090u;
-  Paint add{(col << 8) | 0xffu, Blend::Add};
-  bool atHit = hitStep == -1, reached = false;
-  int n = 2;
-  V2 prev{x0 + vx * 2, y0 + vy * 2 + ay * 4};
-  if (ax != 0.0f) prev.x += ax * 4;
-  (void)b;
-  if (!(2 < len)) return;
-  do {
-    n += 4;
-    V2 cur{x0 + vx * (float)n, y0 + vy * (float)n + ay * (float)n * (float)n};
-    if (ax != 0.0f) cur.x += ax * (float)n * (float)n;
-    V2 at = cur;
-    if (n >= 3 && n - 3 < (int)tr.pts.size()) at = tr.pts[(size_t)(n - 3)];
-    bool farSeg = n >= len && far;
-    int lim = farSeg ? hitStep + 2 : hitStep;
-    if (!atHit && lim < n - 0) {
-      atHit = true;
-      reached = true;
-    }
-    if (n >= start) {
-      if (reached) {
-        if (b.guideOn() && !tr.pts.empty()) {
-          if (Tex* t = img("IMAGE_ALPHABALL")) {
-            float rot = 4.712389f - tr.hitAng;
-            putCentered(t, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
-            putCentered(t, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
-          }
-        } else if (hitImg) {
-          float rot = std::atan2(prev.y - cur.y, cur.x - prev.x);
-          if (b.cfg.nights) {
-            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {(col << 8) | 0xffu, Blend::Normal}, 1.0f, rot);
-            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
-          } else {
-            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {0xffffffffu, Blend::Normal}, 1.0f, rot);
-          }
-        }
-        break;
-      }
-      float rot = std::atan2(prev.y - cur.y, cur.x - prev.x);
-      if (!farSeg) {
-        if (rect) putCentered(rect, BX + at.x, BY + at.y, add, 1.0f, rot);
-      } else if (arrow) {
-        putCentered(arrow, BX + (float)(int)at.x, BY + (float)(int)at.y, add, 1.0f, rot);
-      }
-    }
-    prev = cur;
-  } while (n < len);
-}
-
 void Renderer::drawGuide(const Board& b) {
-  int g = guideAge_;
-  int len = 40 + (b.guideOn() ? 40 : 0);
-  bool far = true;
-  if (g != 0) {
-    if (g < 11) return;
-    int l2 = g * 4 - 40;
-    far = l2 >= len;
-    len = std::min(l2, len);
+  const int age = guideAge_;
+  if (age && age < 11) return;
+  const bool powered = b.guideOn();
+  const auto tr = b.guideTrace(b.gunAngle, powered);
+  const int count = (int)tr.pts.size();
+  const bool rebound = powered && tr.hitStep >= 0;
+  const int full = rebound ? std::max(tr.hitStep + 1, count) : powered ? 80 : 40;
+  const int len = age ? std::min(full, rebound ? (age - 10) * full / 20 : age * 4 - 40) : full;
+  const bool fire = b.master[b.cur] == Board::P_FIREBALL && b.turns[b.cur] > 0;
+  const uint32_t color = fire ? 0x903010ffu : 0x109090ffu;
+  const Paint add{color, Blend::Add};
+  const V2 muzzle = b.muzzle(b.gunAngle, b.physics.ballRadius);
+  const V2 velocity{std::cos(b.gunAngle) * b.physics.launchSpeed, -std::sin(b.gunAngle) * b.physics.launchSpeed};
+  const V2 accel{b.physics.gravityX * .5f, b.physics.gravityY * .5f};
+  auto ballistic = [&](int n) { return muzzle + velocity * (float)n + accel * (float)(n * n); };
+  V2 prev = ballistic(2);
+  Tex* rect = img("IMAGE_GUIDERECT");
+  for (int n = 6; n - 4 < len; n += 4) {
+    const int i = n - 3;
+    if (powered && (i >= count || (rebound && i >= std::min(len, tr.hitStep)))) break;
+    const V2 at = i < count ? tr.pts[i] : ballistic(n);
+    const V2 next = powered ? at : ballistic(n);
+    const float rot = std::atan2(prev.y - next.y, next.x - prev.x);
+    const bool arrow = !rebound && n >= len && len == full;
+    if (!powered && tr.hitStep >= 0 && n > tr.hitStep + (arrow ? 2 : 0)) {
+      if (auto* hit = img("IMAGE_GUIDEHIT")) {
+        putCentered(hit, BX + tr.hit.x, BY + tr.hit.y, {b.cfg.nights ? color : 0xffffffffu, Blend::Normal}, 1, rot);
+        if (b.cfg.nights) putCentered(hit, BX + tr.hit.x, BY + tr.hit.y, add, 1, rot);
+      }
+      break;
+    }
+    if (arrow) putCentered(img("IMAGE_GUIDEARROW"), BX + (int)at.x, BY + (int)at.y, add, 1, rot);
+    else putCentered(rect, BX + at.x, BY + at.y, add, 1, rot);
+    prev = next;
   }
-  Board::GuideTrace tr = b.guideTrace(b.gunAngle, b.guideOn());
-  V2 m = b.muzzle(b.gunAngle, b.physics.ballRadius);
-  bool fire = b.master[b.cur] == Board::P_FIREBALL && b.turns[b.cur] > 0;
-  doDrawGuide(b, tr, m.x, m.y, b.gunAngle, b.physics.launchSpeed, tr.hitStep, len, 2, far, fire, b.guideOn());
+  if (!rebound || tr.hitStep >= len) return;
+  const int end = std::min(count, len);
+  if (Tex* line = img("IMAGE_GUIDERECT2"); line && tr.hitStep < end) {
+    std::vector<SDL_Vertex> strip;
+    std::vector<int> indices;
+    const SDL_FColor tint{(color >> 24) / 255.f, ((color >> 16) & 255) / 255.f, ((color >> 8) & 255) / 255.f, 1};
+    strip.reserve(2 * (end - tr.hitStep + 1));
+    indices.reserve(6 * (end - tr.hitStep));
+    auto point = [&](int i) { return i < tr.hitStep ? tr.hit : tr.pts[i]; };
+    for (int i = tr.hitStep - 1; i < end; ++i) {
+      const V2 p = point(i), tangent = point(std::min(i + 1, end - 1)) - point(i - 1);
+      const float length = std::sqrt(tangent.len2());
+      if (length == 0) continue;
+      const V2 side = V2{-tangent.y, tangent.x} * (5.f / length);
+      const int k = (int)strip.size();
+      const float u = (k & 2) ? 1.f : 0.f;
+      strip.push_back({{px(BX + p.x + side.x), py(BY + p.y + side.y)}, tint, {u, 0}});
+      strip.push_back({{px(BX + p.x - side.x), py(BY + p.y - side.y)}, tint, {u, 1}});
+      if (k) indices.insert(indices.end(), {k - 2, k - 1, k, k, k - 1, k + 1});
+    }
+    if (!indices.empty()) {
+      SDL_SetTextureBlendMode(line->t, SDL_BLENDMODE_ADD);
+      SDL_RenderGeometry(r_, line->t, strip.data(), (int)strip.size(), indices.data(), (int)indices.size());
+      SDL_SetTextureBlendMode(line->t, SDL_BLENDMODE_BLEND);
+    }
+  }
+  if (Tex* marker = img("IMAGE_ALPHABALL")) {
+    const float rot = 4.712389f - tr.hitAng;
+    putCentered(marker, BX + tr.hit.x, BY + tr.hit.y, add, 1, rot);
+    putCentered(marker, BX + tr.hit.x, BY + tr.hit.y, add, 1, rot);
+  }
 }
 
 void Renderer::drawBoardShadow() {
@@ -930,11 +966,6 @@ void Renderer::drawWallMarks(float padL) {
   SDL_FRect l{px(x0), py(BY), px(x1) - px(x0), 560.0f * s_}, rr{px(x2), py(BY), px(x3) - px(x2), 560.0f * s_};
   SDL_RenderFillRect(r_, &l);
   SDL_RenderFillRect(r_, &rr);
-  Tex* t = img("IMAGE_INT_BACKSHADOW");
-  if (!t) return;
-  const float W = t->lw(), h2 = t->lh() - 25;
-  put(t, {0, 0, 30, h2}, 76.0f + padL, 49.0f);
-  put(t, {615, 0, W - 615, h2}, 691.0f + padL, 49.0f);
 }
 
 void Renderer::drawBoardShadowBottom(float rows, float top) {
@@ -965,7 +996,7 @@ void Renderer::drawZoomFrame(const Board& b) {
   Tex* bt = img("IMAGE_SCREENFRAMEBOTTOM");
   Tex* r = img("IMAGE_SCREENFRAMERIGHT");
   float dw = (float)(canvasW_ - 800);
-  if (l && t && bt && r) {
+  if (!trimClip_ && l && t && bt && r) {
     put(l, {0, 0, l->lw(), l->lh()}, 0, 0);
     put(t, {0, 0, t->lw(), t->lh()}, l->lw(), 0, {}, t->lw() + dw, t->lh());
     put(bt, {0, 0, bt->lw(), bt->lh()}, l->lw(), l->lh() - bt->lh(), {}, bt->lw() + dw, bt->lh());
@@ -1100,6 +1131,24 @@ void Renderer::bloomPass(int ow, int oh, const SDL_Rect& clip) {
   SDL_SetTextureAlphaMod(bloomA_, 255);
 }
 
+std::pair<Renderer::Tex*, Renderer::Tex*> Renderer::consoleGutters(int frameWidth, int boardWidth, const std::string& background) {
+  if (!hudInset(frameWidth, boardWidth)) return {};
+  const auto find = [&](const std::string& stem) {
+    const std::string prefix = "console/gutters/" + stem;
+    return std::pair{tex(prefix + "_left"), tex(prefix + "_right")};
+  };
+  const std::string key = normKey(background);
+  const auto separator = key.rfind('\\');
+  std::string stem = key.substr(separator == std::string::npos ? 0 : separator + 1);
+  if (const auto dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
+  if (!stem.empty() && stem != "DEFAULT") {
+    auto art = find(stem);
+    if (art.first && art.second) return art;
+  }
+  auto art = find("default");
+  return art.first && art.second ? art : std::pair<Tex*, Tex*>{};
+}
+
 void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   int ow = 0, oh = 0;
   SDL_GetCurrentRenderOutputSize(r_, &ow, &oh);
@@ -1109,6 +1158,11 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   SlowMoInterp slowMo(b, interp ? hud.alpha : -1.0f);
   FxInterp fxInterp(fx_, interp ? hud.alpha : 0.0f);
   if (stageFor_ != lb.name) {
+    for (auto it = cache_.lower_bound("widescreen/levels/");
+         it != cache_.end() && it->first.starts_with("widescreen/levels/");) {
+      if (it->second.t) SDL_DestroyTexture(it->second.t);
+      it = cache_.erase(it);
+    }
     stageFor_ = lb.name;
     stageCel_ = 0;
     stageNo_ = levelNo_ = 0;
@@ -1130,12 +1184,31 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
     texS_ = s0;
     texQ_ = !vis_.smooth ? 0 : s0 >= 1.45f ? 1 : s0 <= 0.7f ? -1 : 0;
   }
+  const auto [leftGutter, rightGutter] = consoleGutters(canvasW_, b.W, lb.background);
+  const float inset = (float)hudInset(canvasW_, b.W);
+  const float innerPad = padL - inset;
+  const auto centeredHud = [&](auto draw) {
+    const float x = ox_, board = BX;
+    const int w = canvasW_;
+    ox_ += inset * s_;
+    BX -= inset;
+    canvasW_ -= (int)(2 * inset);
+    draw();
+    ox_ = x;
+    BX = board;
+    canvasW_ = w;
+  };
   bloomOn_ = vis_.bloom;
   bloom_.clear();
   s_ = oh / 600.0f;
   if (canvasW_ * s_ > ow) s_ = ow / (float)canvasW_;
   ox_ = (ow - canvasW_ * s_) * 0.5f;
   oy_ = (oh - 600 * s_) * 0.5f;
+  const float frameS = s_, frameOx = ox_, frameOy = oy_;
+  const View view = consoleView(canvasW_, b.W);
+  ox_ += view.x * s_;
+  oy_ += view.y * s_;
+  s_ *= view.k;
   if (fx_.shake > 0) {
     ox_ += (float)(fx_.rand(5) - 2) * s_;
     oy_ += (float)(fx_.rand(5) - 2) * s_;
@@ -1161,7 +1234,8 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   SDL_SetRenderDrawColor(r_, 0, 0, 0, 255);
   SDL_RenderClear(r_);
 
-  Tex* bg = tex("levels/" + lb.background);
+  const std::string background = "levels/" + lb.background;
+  Tex* bg = tex(background);
   if (bg) {
     float k = std::max(ow / (float)bg->w, oh / (float)bg->h);
     SDL_FRect d{(ow - bg->w * k) / 2, (oh - bg->h * k) / 2, bg->w * k, bg->h * k};
@@ -1169,13 +1243,56 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
     SDL_RenderTexture(r_, bg->t, nullptr, &d);
     SDL_SetTextureColorMod(bg->t, 255, 255, 255);
   }
-  SDL_Rect canvasClip{(int)std::floor(ox_), (int)std::floor(oy_), (int)std::ceil(canvasW_ * s_), (int)std::ceil(600 * s_)};
+  const int canvasL = (int)std::floor(frameOx), canvasT = (int)std::floor(frameOy);
+  SDL_Rect canvasClip{canvasL, canvasT, (int)std::ceil(frameOx + canvasW_ * frameS) - canvasL, (int)std::ceil(frameOy + 600 * frameS) - canvasT};
   SDL_SetRenderClipRect(r_, &canvasClip);
   SDL_SetRenderDrawColor(r_, 0, 0, 0, 255);
-  SDL_FRect cv{px(0), py(0), canvasW_ * s_, 600 * s_};
+  SDL_FRect cv{px(inset), py(0), (canvasW_ - 2 * inset) * s_, 600 * s_};
   SDL_RenderFillRect(r_, &cv);
+  if (leftGutter && rightGutter) {
+    const int x0 = canvasClip.x, x1 = (int)std::round(px(inset));
+    const int x2 = (int)std::round(px(canvasW_ - inset)), x3 = canvasClip.x + canvasClip.w;
+    const int y0 = (int)std::round(frameOy), y1 = (int)std::round(frameOy + 600 * frameS);
+    const auto gutter = [&](Tex* t, const char* bezel, int l, int r, bool left) {
+      const SDL_Rect clip{l, y0, r - l, y1 - y0};
+      SDL_SetRenderClipRect(r_, &clip);
+      if (view.k < 1) {
+        const float gw = t->lw() * 600.0f / t->lh(), gx = left ? canvasW_ * 0.5f - 400 - gw : canvasW_ * 0.5f + 400;
+        const SDL_FRect dst{frameOx + gx * frameS, frameOy, gw * frameS, 600 * frameS};
+        SDL_RenderTexture(r_, t->t, nullptr, &dst);
+        const SDL_FRect edge{left ? (float)t->w - 1 : 0.0f, 0, 1, (float)t->h};
+        const SDL_FRect rest = left ? SDL_FRect{dst.x + dst.w, dst.y, r - dst.x - dst.w, dst.h} : SDL_FRect{(float)l, dst.y, dst.x - l, dst.h};
+        if (rest.w > 0) SDL_RenderTexture(r_, t->t, &edge, &rest);
+        return;
+      }
+      const float k = std::max(inset / t->lw(), 600.0f / t->lh());
+      const float sw = t->w * (inset / (k * t->lw())), sh = t->h * (600.0f / (k * t->lh()));
+      const SDL_FRect src{left ? t->w - sw : 0.0f, (t->h - sh) / 2, sw, sh};
+      const SDL_FRect dst{(float)l, (float)y0, (float)clip.w, (float)clip.h};
+      SDL_RenderTexture(r_, t->t, &src, &dst);
+      if (Tex* trim = tex(bezel)) {
+        const float scale = 600.0f / 720.0f;
+        const float height = trim->lh() * (1.08f * scale);
+        const float width = trim->lw() * (0.7f * scale);
+        const float margin = 70.0f * scale;
+        const float x = left ? margin : canvasW_ - margin - width;
+        quad(trim, {0, 0, (float)trim->w, (float)trim->h}, x, (600 - height) / 2, width, height);
+      }
+    };
+    gutter(leftGutter, "console/trim/left", x0, x1, true);
+    gutter(rightGutter, "console/trim/right", x2, x3, false);
+  }
+  if (view.k < 1) {
+    SDL_SetRenderClipRect(r_, &canvasClip);
+    const auto piece = [&](const char* path, float u, float v) {
+      if (Tex* t = tex(path)) quad(t, {0, 0, (float)t->w, (float)t->h}, inset + u - 1, v, t->lw() + 2, t->lh());
+    };
+    piece("console/trim/top", 94, -45);
+    piece("console/trim/bottom", 94, 582);
+  }
+  trimClip_ = view.k < 1 ? std::optional<SDL_Rect>(canvasClip) : std::nullopt;
   SDL_Rect field{(int)px(BX), (int)py(BY), (int)std::ceil(b.W * s_), (int)std::ceil(560 * s_)};
-  SDL_Rect interior{(int)px(75.0f), (int)py(BY), (int)std::ceil((b.W + 2 * padL) * s_), (int)std::ceil(560 * s_)};
+  SDL_Rect interior{(int)px(75.0f + inset), (int)py(BY), (int)std::ceil((b.W + 2 * innerPad) * s_), (int)std::ceil(560 * s_)};
   SDL_Rect objClip = zoomed ? canvasClip : field;
   SDL_SetRenderClipRect(r_, &objClip);
   if (bg) {
@@ -1183,17 +1300,29 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
     float cx = BX + b.W * 0.5f, cy = small ? BY + 284 : 300;
     if (!small) cx = canvasW_ * 0.5f;
     float topY = 0;
-    const float wbW = b.W + 2 * padL;
-    if (padL > 0) SDL_SetRenderClipRect(r_, &interior);
-    Tex* wb = (b.W > 650 || padL > 0) ? wideBackground("levels/" + lb.background, (int)wbW, &topY) : nullptr;
-    if (wb) {
+    const float wbW = b.W + 2 * innerPad;
+    if (innerPad > 0) SDL_SetRenderClipRect(r_, &interior);
+    Tex* panorama = b.W == 650 && innerPad > 0 ? tex("widescreen/" + background) : nullptr;
+    if (panorama && panorama->lw() >= wbW && panorama->lh() == bg->lh()) {
+      const float y = cy - bg->lh() / 2;
+      const int right = field.x + field.w;
+      const SDL_Rect wings[]{{interior.x, interior.y, field.x - interior.x, interior.h},
+                             {right, interior.y, interior.x + interior.w - right, interior.h}};
+      for (const auto& wing : wings) {
+        if (wing.w <= 0) continue;
+        SDL_SetRenderClipRect(r_, &wing);
+        quad(panorama, {0, 0, (float)panorama->w, (float)panorama->h}, cx - panorama->lw() / 2, y, panorama->lw(), panorama->lh());
+      }
+      SDL_SetRenderClipRect(r_, &field);
+      quad(bg, {0, 0, (float)bg->w, (float)bg->h}, cx - bg->lw() / 2, y, bg->lw(), bg->lh());
+    } else if (Tex* wb = (b.W > 650 || innerPad > 0) ? wideBackground(background, (int)wbW, &topY) : nullptr) {
       quad(wb, {0, 0, (float)wb->w, (float)wb->h}, 75.0f, small ? cy - wb->lh() / 2 : topY, wb->lw(), wb->lh());
     } else {
-      float w = bg->lw() * (small ? b.W / 650.0f : canvasW_ / 800.0f), h = bg->lh();
+      float w = bg->lw() * (small ? b.W / 650.0f : (canvasW_ - 2 * inset) / 800.0f), h = bg->lh();
       quad(bg, {0, 0, (float)bg->w, (float)bg->h}, cx - w / 2, cy - h / 2, w, h);
     }
     if (padL > 0) SDL_SetRenderClipRect(r_, &objClip);
-    drawBoardShadowBottom(b.cfg.nights ? 26.0f : 25.0f, ((int)bg->lh() & 1) ? 49.0f : 50.0f);
+    centeredHud([&] { drawBoardShadowBottom(b.cfg.nights ? 26.0f : 25.0f, ((int)bg->lh() & 1) ? 49.0f : 50.0f); });
   }
   for (size_t i = 0; i <= b.objs.size(); i++) {
     emitDraw(b, 0, i);
@@ -1228,9 +1357,11 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   for (size_t i = 0; i < b.objs.size(); i++) drawObj(b, b.objs[i], (int)i, Pass::Light);
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawEffects(b, 1);
-  drawBoardShadow();
-  drawWallMarks(padL);
-  drawHud(b, hud);
+  centeredHud([&] {
+    drawBoardShadow();
+    drawWallMarks(innerPad);
+    drawHud(b, hud);
+  });
   SDL_SetRenderClipRect(r_, &objClip);
   for (size_t i = 0; i <= b.objs.size(); i++) {
     emitDraw(b, 3, i);
@@ -1239,10 +1370,6 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawTexts(b, 0);
   fxDrawTexts(b, 1);
-  SDL_SetRenderClipRect(r_, &objClip);
-  const float launcherShift = (float)(b.W - 650) * 0.5f;
-  for (auto& bl : b.balls)
-    if (bl.bx0 <= 425.0f + launcherShift && 225.0f + launcherShift < bl.bx1 && bl.by0 <= 127.0f && -73.0f < bl.by1) drawBall(b, bl, false);
   if (b.phase == Phase::Aim) zenOn_ = b.turns[b.cur] > 0 && b.master[b.cur] == Board::P_ZEN;
   if (zenOn_ && !b.balls.empty()) {
     SDL_SetRenderClipRect(r_, &canvasClip);
@@ -1257,13 +1384,35 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   oy_ = baseOy;
   fxDrawEffects(b, 3);
   fxDrawTexts(b, 3);
-  if (b.zoomFade > 0) drawZoomFrame(b);
+  if (b.zoomFade > 0) {
+    if (inset > 0) {
+      s_ = frameS;
+      ox_ = frameOx;
+      oy_ = frameOy;
+    }
+    drawZoomFrame(b);
+    s_ = baseS;
+    ox_ = baseOx;
+    oy_ = baseOy;
+  }
   if (g_modOverlay) {
     SDL_SetRenderClipRect(r_, &canvasClip);
     g_modOverlay(*this, b);
   }
   if (bloomOn_) bloomPass(ow, oh, canvasClip);
   SDL_SetRenderClipRect(r_, nullptr);
+  if (inset > 0) {
+    const float x = std::floor((ow - canvasW_ * frameS) * 0.5f);
+    const float y = std::floor((oh - 600 * frameS) * 0.5f);
+    if (x > 0 || y > 0) {
+      const SDL_FRect bars[]{{0, 0, (float)ow, y}, {0, oh - y, (float)ow, y},
+                             {0, y, x, oh - 2 * y}, {ow - x, y, x, oh - 2 * y}};
+      SDL_SetRenderDrawBlendMode(r_, SDL_BLENDMODE_NONE);
+      SDL_SetRenderDrawColor(r_, 0, 0, 0, 255);
+      if (y > 0) SDL_RenderFillRects(r_, bars, 2);
+      if (x > 0) SDL_RenderFillRects(r_, bars + 2, 2);
+    }
+  }
 }
 
 }

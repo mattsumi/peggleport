@@ -104,6 +104,17 @@ void Rendezvous::handle(DatagramPort& port, const Endpoint& from, const uint8_t*
   std::vector<uint8_t> r = {kMagic0, kMagic1};
   uint64_t bucket = now / 30000;
   switch (d[2]) {
+    case kDiscover: {
+      if (&port != main_.get()) { stats.malformed++; return; }
+      r.push_back(kDiscovered);
+      r.insert(r.end(), d + 3, d + 11);
+      r.push_back(uint8_t(main_->localPort() >> 8));
+      r.push_back(uint8_t(main_->localPort()));
+      const uint8_t label[] = "PegglePort LAN discovery";
+      const uint64_t identity = siphash24(secret_, label, sizeof label - 1);
+      for (int i = 0; i < 8; i++) r.push_back(uint8_t(identity >> (8 * i)));
+      break;
+    }
     case kHello: {
       if (&port != main_.get()) { stats.malformed++; return; }
       r.push_back(kCookie);

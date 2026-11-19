@@ -82,7 +82,14 @@ void StoryScreen::drawWin(Gfx& g) {
       color = 0xffffaa;
     }
     y += (int)g.fontAscent(font);
-    g.drawString(font, (float)(cx - centred(g.textWidth(font, d.text))), (float)y, d.text, color);
+    const float width = g.textWidth(font, d.text);
+    const float x = (float)(cx - centred(width));
+    if (width > 262) {
+      const float s = g.scale(), ox = g.offX(), oy = g.offY(), fit = s * 262 / width;
+      g.setTransform(fit, ox + (s - fit) * cx, oy + (s - fit) * y);
+      g.drawString(font, x, (float)y, d.text, color);
+      g.setTransform(s, ox, oy);
+    } else g.drawString(font, x, (float)y, d.text, color);
   }
   g.popClip();
   if (Tex* claws = g.img("IMAGE_STORY_CLAWS")) g.draw(claws, 522, 386);

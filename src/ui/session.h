@@ -55,6 +55,9 @@ struct SavedSession {
   bool save(const std::filesystem::path& file) const;
   static bool load(const std::filesystem::path& file, SavedSession& out);
   bool rebuild(const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap, Board& aiSnap) const;
+
+ private:
+  bool rebuildWith(SimRules rules, const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap, Board& aiSnap) const;
 };
 
 struct ReadySession {

@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <set>
 #include <sstream>
 
@@ -29,8 +30,8 @@ using namespace pp::ed;
 namespace fs = std::filesystem;
 
 namespace {
-constexpr float CW = 1440, CH = 810, TOP = 36, LEFTW = 168, RIGHTW = 300, BOTH = 26;
-constexpr uint32_t kBg = 0x0a0c1c, kPanel = 0x151a3a, kPanel2 = 0x1d2350, kLine = 0x5a6cb4, kHot = 0x3a5cc8, kText = 0xe8ecff, kDim = 0x8a94c8,
+constexpr float CH = 720, TOP = 96, PLAYTOP = 64, LEFTW = 204, RIGHTW = 320, BOTH = 32;
+constexpr uint32_t kBg = 0x100d20, kPanel = 0x201c38, kPanel2 = 0x302b50, kLine = 0x527c89, kHot = 0x3259b0, kText = 0xe8ecff, kDim = 0xbab4d4,
                    kGold = 0xffd860, kRed = 0xff6a5a, kCyan = 0x38e4ff;
 
 struct Ctl {
@@ -56,7 +57,11 @@ class EditorScreen : public Screen {
   EditorScreen(App& a, const std::string& level);
   ~EditorScreen() override;
   const char* name() const override { return "editor"; }
-  int canvasWidth() const override { return (int)CW; }
+  int canvasWidth() const override {
+    int ow = 800, oh = 600;
+    if (auto* r = app.gfx.renderer()) SDL_GetCurrentRenderOutputSize(r, &ow, &oh);
+    return std::max(960, (int)std::lround(CH * ow / std::max(1, oh)));
+  }
   int canvasHeight() const override { return (int)CH; }
   void update() override;
   void drawLayer(Gfx& g) override;
@@ -65,11 +70,11 @@ class EditorScreen : public Screen {
   Editor ed;
 
  private:
-  float zoom_ = 1, panX_ = 0, panY_ = 0;
+  float CW = 1280, zoom_ = 1, panX_ = 0, panY_ = 0;
   Rect cv_{LEFTW, TOP, CW - LEFTW - RIGHTW, CH - TOP - BOTH};
   bool dr_ = true, layoutDirty_ = true, showGrid_ = true, animate_ = false, spaceDown_ = false, panning_ = false, canvasDrag_ = false;
   Gfx* g_ = nullptr;
-  float asc_ = 12, fh_ = 14;
+  float asc_ = 12, fh_ = 14, contentBottom_ = 0;
   std::vector<Ctl> ctls_;
   std::string msg_;
   int msgAge_ = 0, ticks_ = 0;
@@ -77,6 +82,8 @@ class EditorScreen : public Screen {
   float lastX_ = 0, lastY_ = 0, panStartX_ = 0, panStartY_ = 0, panOrgX_ = 0, panOrgY_ = 0;
   int tab_ = 0;
   float scroll_[5]{};
+  float paletteScroll_ = 0;
+  bool arrange_ = false;
   std::string modName_ = "MyLevels";
   bool exitArmed_ = false;
   bool exitWasArmed_ = false;
@@ -96,6 +103,9 @@ class EditorScreen : public Screen {
   void drawArtDialog();
   void chooseArt(const Editor::ArtItem* it);
   void syncModArt();
+  void chooseBackground();
+  void restoreBackground();
+  std::future<std::optional<std::string>> chosenBackground_;
   std::string artCurrent() const;
   std::string openFilter_;
   std::vector<std::pair<std::string, std::string>> levelList_;
@@ -120,10 +130,13 @@ class EditorScreen : public Screen {
 
   void R(float x, float y, float w, float h, uint32_t c, float a = 1) { if (dr_) g_->fill(x, y, w, h, c, a); }
   void F(float x, float y, float w, float h, uint32_t c, float a = 1) { if (dr_) g_->frame(x, y, w, h, c, a); }
-  void T(float x, float y, const std::string& s, uint32_t c = kText, Align al = Align::Left) { if (dr_) g_->drawString("PLAIN", x, y + asc_, s, c, 1, al); }
+  void T(float x, float y, const std::string& s, uint32_t c = kText, Align al = Align::Left) { contentBottom_ = std::max(contentBottom_, y + fh_); if (dr_) g_->drawString("PLAIN", x, y + asc_, s, c, 1, al); }
   float TW(const std::string& s) { return g_->textWidth("PLAIN", s); }
   bool hovered(const Rect& r) const { return r.contains(app.mouseX, app.mouseY); }
-  void button(Rect r, const std::string& label, std::function<void()> fn, bool active = false, bool enabled = true, uint32_t swatch = 0);
+  void panel(Rect r);
+  void button(Rect r, const std::string& label, std::function<void()> fn, bool active = false, bool enabled = true, uint32_t swatch = 0, bool primary = false, bool quiet = false);
+  void clippedText(Rect r, const std::string& text, uint32_t color = kText);
+  void scrollArea(Rect r, size_t first, float& offset, float bottom);
   void say(const std::string& m) { msg_ = m; msgAge_ = 0; }
   void dirtyLayout() { layoutDirty_ = true; }
 
@@ -166,6 +179,11 @@ class EditorScreen : public Screen {
   void newLevel();
   void loadBase();
   void collectLevels();
+  bool setModName(const std::string& name) {
+    if (name.empty() || name == "." || name == ".." || name.find_first_of("/\\:") != std::string::npos) { say("Choose a mod folder name, not a path."); return false; }
+    modName_ = name;
+    return true;
+  }
   void saveMod();
   void indexMod(const fs::path& dir);
   fs::path thumbDir_;
@@ -180,6 +198,8 @@ class EditorScreen : public Screen {
 };
 
 EditorScreen::EditorScreen(App& a, const std::string& level) : Screen(a) {
+  CW = (float)canvasWidth();
+  cv_.w = CW - LEFTW - RIGHTW;
   w = CW;
   h = CH;
   loadBase();
@@ -204,14 +224,17 @@ void EditorScreen::newLevel() {
   auto st = listStageLevels(app.vfs);
   if (!st.empty()) ed.meta.background = st.front().name;
   ed.meta.title = "New Level";
-  ed.setZoom(zoom_);
+  tab_ = 2;
+  scroll_[2] = 0;
+  fitView();
   dirtyLayout();
-  say("new level: place pegs from the palette, then Save to mod");
+  say("New 4:3 level. Choose art, then place objects.");
 }
 void EditorScreen::openLevel(const std::string& nameOrPath) {
   std::string err;
   if (ed.loadFromVfs(app.vfs, nameOrPath, &err)) {
     say(ed.status);
+    restoreBackground();
     fitView();
   } else {
     say("cannot open: " + err);
@@ -264,6 +287,18 @@ void EditorScreen::centerOn(V2 p) {
 
 void EditorScreen::update() {
   Panel::update();
+  if (chosenBackground_.valid() && chosenBackground_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+    auto path = chosenBackground_.get();
+    if (!path) say("Cannot open the image chooser.");
+    else if (!path->empty()) {
+      std::string err;
+      if (ed.importBackground(pathFromUtf8(*path), Editor::modDirFor(app.userDir, modName_) / "levels", &err)) {
+        syncModArt();
+        say(ed.status);
+      } else say(err);
+    }
+    dirtyLayout();
+  }
   ticks_++;
   if (++msgAge_ > 900 && !msg_.empty() && !prompt_.on) msg_.clear();
   if (playing_) { stepPlay(); return; }
@@ -412,28 +447,104 @@ static bool convexPoly(const std::vector<V2>& p) {
   return true;
 }
 
-void EditorScreen::button(Rect r, const std::string& label, std::function<void()> fn, bool active, bool enabled, uint32_t swatch) {
-  bool hot = enabled && hovered(r);
-  R(r.x, r.y, r.w, r.h, active ? kHot : hot ? kPanel2 + 0x101420 : kPanel2, enabled ? 1.0f : 0.5f);
-  F(r.x, r.y, r.w, r.h, active ? kGold : kLine, enabled ? 1.0f : 0.4f);
-  float tx = r.x + r.w * 0.5f;
-  Align al = Align::Center;
-  if (swatch) {
-    R(r.x + 5, r.y + 5, r.h - 10, r.h - 10, swatch);
-    F(r.x + 5, r.y + 5, r.h - 10, r.h - 10, 0xffffff, 0.6f);
-    tx = r.x + r.h + 2;
-    al = Align::Left;
+void EditorScreen::panel(Rect r) {
+  if (!dr_) return;
+  R(r.x + 2, r.y + 2, r.w - 4, r.h - 4, kPanel);
+  if (Tex* t = g_->img("IMAGE_DLG_DIALOGBOX")) {
+    float sw = t->lw() / 3, sh = t->lh() / 3;
+    g_->drawStretchSrc(t, sw, sh, sw, sh, r.x + 3, r.y + 3, r.w - 6, r.h - 6, Mode(0.1f));
   }
-  T(tx, r.y + (r.h - fh_) * 0.5f, label, enabled ? (active ? kGold : kText) : kDim, al);
+  if (Tex* t = g_->img("IMAGE_DLG_BLUEFRAME")) {
+    float sw = t->lw() / 3, sh = t->lh() / 3;
+    float edge = std::min(8.0f, r.h / 3);
+    float dx[4] = {r.x, r.x + edge, r.x + r.w - edge, r.x + r.w};
+    float dy[4] = {r.y, r.y + edge, r.y + r.h - edge, r.y + r.h};
+    for (int y = 0; y < 3; y++)
+      for (int x = 0; x < 3; x++)
+        g_->drawStretchSrc(t, x * sw, y * sh, sw, sh, dx[x], dy[y], dx[x + 1] - dx[x], dy[y + 1] - dy[y], Mode(0.65f));
+  } else F(r.x, r.y, r.w, r.h, kLine);
+}
+
+void EditorScreen::clippedText(Rect r, const std::string& text, uint32_t color) {
+  if (!dr_) return;
+  g_->pushClip(r.x, r.y, r.w, r.h);
+  T(r.x, r.y + (r.h - fh_) * 0.5f, text, color);
+  g_->popClip();
+}
+
+void EditorScreen::button(Rect r, const std::string& label, std::function<void()> fn, bool active, bool enabled, uint32_t swatch, bool primary, bool quiet) {
+  bool hot = enabled && hovered(r);
+  if (dr_) {
+    if (quiet && !active && !hot) R(r.x, r.y, r.w, r.h, kPanel2, 0.35f);
+    else if (Tex* t = g_->img(primary ? "IMAGE_DLG_BUTTON3" : "IMAGE_DLG_BUTTON2")) {
+      float sh = t->lh() / 3, sy = sh * (active ? 2 : hot ? 1 : 0);
+      float cap = sh * 0.7f, edge = std::min(r.h * 0.7f, r.w / 3);
+      float sx[4] = {0, cap, t->lw() - cap, t->lw()};
+      float dx[4] = {r.x, r.x + edge, r.x + r.w - edge, r.x + r.w};
+      Mode m(enabled ? (active || hot || primary ? 1.0f : 0.55f) : 0.25f);
+      for (int x = 0; x < 3; x++)
+        g_->drawStretchSrc(t, sx[x], sy, sx[x + 1] - sx[x], sh, dx[x], r.y, dx[x + 1] - dx[x], r.h, m);
+    } else {
+      R(r.x, r.y, r.w, r.h, active ? kHot : kPanel2, enabled ? 1.0f : 0.5f);
+      F(r.x, r.y, r.w, r.h, active ? kGold : kLine, enabled ? 1.0f : 0.4f);
+    }
+  }
+  float padding = r.w < 40 ? 4.0f : 10.0f;
+  float left = r.x + padding, right = r.x + r.w - padding;
+  if (swatch) {
+    R(left, r.y + (r.h - 12) * 0.5f, 12, 12, swatch);
+    F(left, r.y + (r.h - 12) * 0.5f, 12, 12, 0xffffff, 0.6f);
+    left += 22;
+  }
+  std::string text = label;
+  if (TW(text) > right - left) {
+    while (!text.empty() && TW(text + "...") > right - left) text.pop_back();
+    text += "...";
+  }
+  float tx = swatch || quiet ? left : (left + right) * 0.5f;
+  Align al = swatch || quiet ? Align::Left : Align::Center;
+  T(tx, r.y + (r.h - fh_) * 0.5f, text, enabled ? (active || primary ? kGold : kText) : kDim, al);
   if (enabled) {
     Ctl c;
     c.r = r;
+    c.tip = label;
     c.click = [fn](int b) { if (b == 1) fn(); };
     ctls_.push_back(c);
   }
 }
 
+void EditorScreen::scrollArea(Rect r, size_t first, float& offset, float bottom) {
+  float end = bottom;
+  for (size_t i = first; i < ctls_.size(); i++) {
+    Rect& c = ctls_[i].r;
+    end = std::max(end, c.y + c.h);
+    float y1 = std::max(c.y, r.y), y2 = std::min(c.y + c.h, r.y + r.h);
+    if (y2 <= y1) c = {0, 0, 0, 0};
+    else { c.y = y1; c.h = y2 - y1; }
+  }
+  float maxScroll = std::max(0.0f, end + offset - r.y - r.h + 12);
+  if (offset > maxScroll) { offset = maxScroll; dirtyLayout(); }
+  if (dr_) {
+    g_->popClip();
+    if (maxScroll > 0) {
+      R(r.x + r.w - 4, r.y, 3, r.h, kBg);
+      float thumb = std::max(28.0f, r.h * r.h / (r.h + maxScroll));
+      R(r.x + r.w - 4, r.y + (r.h - thumb) * offset / maxScroll, 3, thumb, kLine);
+    }
+  }
+  Ctl sc;
+  sc.r = r;
+  sc.wheel = [this, &offset, maxScroll](int d) { offset = std::clamp(offset - d * 48, 0.0f, maxScroll); dirtyLayout(); };
+  ctls_.insert(ctls_.begin(), sc);
+}
+
 void EditorScreen::buildUi(Gfx& g, bool draw) {
+  if (CW != g.canvasW()) {
+    CW = (float)g.canvasW();
+    w = CW;
+    cv_.w = CW - LEFTW - RIGHTW;
+    fitView();
+  }
   g_ = &g;
   dr_ = draw;
   asc_ = g.fontAscent("PLAIN");
@@ -455,6 +566,12 @@ void EditorScreen::buildUi(Gfx& g, bool draw) {
 
 void EditorScreen::drawLayer(Gfx& g) {
   g_ = &g;
+  if (playing_ && CW != g.canvasW()) {
+    CW = (float)g.canvasW();
+    w = CW;
+    cv_.w = CW - LEFTW - RIGHTW;
+    fitView();
+  }
   if (playing_) {
     dr_ = true;
     asc_ = g.fontAscent("PLAIN");
@@ -645,21 +762,23 @@ void EditorScreen::drawOverlay2() {
 }
 
 void EditorScreen::drawToolbar() {
-  R(0, 0, CW, TOP, kPanel);
-  F(0, 0, CW, TOP, kLine);
-  float x = 6, y = 5, h = TOP - 10;
+  panel({0, 0, CW, TOP});
+  float x = 12, y = 10, h = 32;
   auto add = [&](const std::string& label, float w, std::function<void()> fn, bool active = false, bool enabled = true) {
-    w = std::max(w, TW(label) + 18);
+    w = std::max(w, TW(label) + 24);
     button({x, y, w, h}, label, fn, active, enabled);
-    x += w + 4;
+    x += w + 6;
   };
-  add("New", 44, [&] { newLevel(); });
+  add("New", 48, [&] { newLevel(); });
   add("Open", 48, [&] { collectLevels(); openDlg_ = true; openFilter_.clear(); openScroll_ = 0; dirtyLayout(); });
   add("Save", 48, [&] { quickSave(); });
   add("To mod", 58, [&] { saveMod(); });
   add("Export", 56, [&] { std::string e; if (ed.saveJson(exportPath(".json"), &e)) say("exported " + pathToUtf8(exportPath(".json"))); else say(e); });
-  add("Import", 56, [&] { std::string e; if (ed.loadJson(exportPath(".json"), &e)) { say(ed.status); fitView(); } else say(e); });
-  x += 10;
+  add("Import", 56, [&] { std::string e; if (ed.loadJson(exportPath(".json"), &e)) { say(ed.status); restoreBackground(); fitView(); } else say(e); });
+  button({CW - 202, y, 118, h}, "Test play", [&] { startPlay(); }, false, true, 0, true);
+  button({CW - 76, y, 64, h}, exitArmed_ ? "Sure?" : "Exit", [&] { exitEditor(); }, exitArmed_);
+  x = 12;
+  y = 52;
   add("Undo", 46, [&] { ed.undo(); say(ed.status); }, false, ed.undoDepth() > 0);
   add("Redo", 46, [&] { ed.redo(); say(ed.status); }, false, !ed.redoLabel().empty());
   x += 10;
@@ -670,142 +789,135 @@ void EditorScreen::drawToolbar() {
   add("Animate", 62, [&] { animate_ = !animate_; builtRev_ = -1; }, animate_);
   add("Oranges", 62, [&] { ed.previewOranges = !ed.previewOranges; if (ed.previewOranges) ed.previewSeed++; ed.revision++; }, ed.previewOranges);
   add("Check", 50, [&] { ed.validate(); tab_ = 4; say("checked"); });
-  add("Test play", 74, [&] { startPlay(); });
-  x = CW - 58;
-  button({x, y, 52, h}, exitArmed_ ? "Sure?" : "Exit", [&] { exitEditor(); }, exitArmed_);
 }
 
 void EditorScreen::drawPalette() {
-  R(0, TOP, LEFTW, CH - TOP - BOTH, kPanel);
-  F(0, TOP, LEFTW, CH - TOP - BOTH, kLine);
-  float x = 7, y = TOP + 6, w = LEFTW - 14, h = 21;
-  auto head = [&](const char* s) { T(x, y, s, kGold); y += fh_ + 3; };
+  panel({0, TOP, LEFTW, CH - TOP - BOTH});
+  float x = 12, w = LEFTW - 28, h = 32;
+  button({x, TOP + 12, 80, h}, "Place", [this] { arrange_ = false; paletteScroll_ = 0; }, !arrange_);
+  button({x + 86, TOP + 12, w - 86, h}, "Arrange", [this] { arrange_ = true; paletteScroll_ = 0; }, arrange_);
+  Rect vis{4, TOP + 56, LEFTW - 8, CH - TOP - BOTH - 68};
+  if (dr_) g_->pushClip(vis.x, vis.y, vis.w, vis.h);
+  size_t first = ctls_.size();
+  float y = vis.y - paletteScroll_;
+  auto head = [&](const char* s) { y += 12; T(x + 2, y, s, kGold); y += fh_ + 8; };
   auto tool = [&](const char* label, Tool t, uint32_t sw = 0) {
-    button({x, y, w, h}, label, [&, t] { ed.tool = t; ed.cancelGesture(); }, ed.tool == t, true, sw);
-    y += h + 3;
+    button({x, y, w, h}, label, [this, t] { ed.tool = t; ed.cancelGesture(); }, ed.tool == t, true, sw, false, true);
+    y += h + 4;
   };
-  head("Tools");
-  tool("Select (V)", Tool::Select);
-  tool("Pan (H)", Tool::Pan);
-  head("Pegs");
-  tool("Blue (1)", Tool::PegBlue, pegColor(1));
-  tool("Orange (2)", Tool::PegOrange, pegColor(2));
-  tool("Green (3)", Tool::PegGreen, pegColor(4));
-  tool("Purple (4)", Tool::PegPurple, pegColor(3));
-  tool("Round (5)", Tool::PegRound, 0x5599ee);
-  tool("Bumper (6)", Tool::Bumper, 0xbbbbbb);
-  {
-    char b[32];
-    std::snprintf(b, sizeof b, "radius %g", ed.roundRadius);
-    button({x, y, 22, h}, "-", [&] { ed.roundRadius = std::max(2.0f, ed.roundRadius - 1); });
-    T(x + 26 + (w - 52) * 0.5f, y + 2, b, kText, Align::Center);
-    button({x + w - 22, y, 22, h}, "+", [&] { ed.roundRadius = std::min(200.0f, ed.roundRadius + 1); });
-    y += h + 5;
-  }
-  head("Bricks");
-  tool("Straight (B)", Tool::BrickStraight);
-  tool("Curved (K)", Tool::BrickCurved);
-  if (ed.tool == Tool::BrickStraight || ed.tool == Tool::BrickCurved) {
-    BrickParams& bp = ed.tool == Tool::BrickStraight ? ed.brickStraight : ed.brick;
-    auto field = [&](const char* label, float& v, float step, float lo, float hi) {
-      char b[40];
-      std::snprintf(b, sizeof b, "%s %g", label, v);
-      button({x, y, 20, 18}, "-", [&v, step, lo] { v = std::max(lo, v - step); });
-      T(x + 24 + (w - 48) * 0.5f, y + 1, b, kDim, Align::Center);
-      button({x + w - 20, y, 20, 18}, "+", [&v, step, hi] { v = std::min(hi, v + step); });
-      y += 21;
+  auto field = [&](const char* label, float value, float step, float lo, float hi, std::function<void(float)> set) {
+    button({x, y, 30, h}, "-", [=] { set(std::max(lo, value - step)); });
+    char b[48];
+    std::snprintf(b, sizeof b, "%s %g", label, value);
+    clippedText({x + 36, y, w - 72, h}, b, kDim);
+    button({x + w - 30, y, 30, h}, "+", [=] { set(std::min(hi, value + step)); });
+    y += h + 4;
+  };
+  if (!arrange_) {
+    tool("Select (V)", Tool::Select);
+    tool("Pan (H)", Tool::Pan);
+    head("Scoring pegs");
+    tool("Blue (1)", Tool::PegBlue, pegColor(1));
+    tool("Orange (2)", Tool::PegOrange, pegColor(2));
+    tool("Green (3)", Tool::PegGreen, pegColor(4));
+    tool("Purple (4)", Tool::PegPurple, pegColor(3));
+    tool("Round (5)", Tool::PegRound, 0x5599ee);
+    head("Collision & shapes");
+    tool("Bumper (6)", Tool::Bumper, 0xbbbbbb);
+    if (ed.tool == Tool::PegRound || ed.tool == Tool::Bumper)
+      field("radius", ed.roundRadius, 1, 2, 200, [this](float v) { ed.roundRadius = v; });
+    tool("Straight brick (B)", Tool::BrickStraight);
+    tool("Curved brick (K)", Tool::BrickCurved);
+    if (ed.tool == Tool::BrickStraight || ed.tool == Tool::BrickCurved) {
+      BrickParams* bp = ed.tool == Tool::BrickStraight ? &ed.brickStraight : &ed.brick;
+      field(ed.tool == Tool::BrickStraight ? "length" : "radius", bp->radius, 5, 5, 600, [bp](float v) { bp->radius = v; });
+      if (ed.tool == Tool::BrickCurved) field("sweep", bp->ext, 5, 5, 360, [bp](float v) { bp->ext = v; });
+      field("thick", bp->thick, 2, 2, 100, [bp](float v) { bp->thick = v; });
+      field("rotation", bp->rot, 15, -360, 720, [bp](float v) { bp->rot = v; });
+      if (ed.tool == Tool::BrickCurved) {
+        field("subdiv", (float)bp->sub, 1, 1, 20, [bp](float v) { bp->sub = (int)v; });
+        field("type", (float)bp->type, 1, 0, 4, [bp](float v) { bp->type = (int)v; });
+      }
+    }
+    tool("Polygon (P)", Tool::Poly);
+    tool("Line (L)", Tool::Line);
+    tool("Hole (O)", Tool::Hole);
+    tool("Hole exit (X)", Tool::HoleExit);
+    head("Effects & motion");
+    tool("Emitter (N)", Tool::Emitter, 0xffb040);
+    tool("Follow object (J)", Tool::Follow);
+  } else {
+    head("Transform selection");
+    auto action = [&](const char* label, std::function<void()> fn, bool enabled = true) {
+      button({x, y, w, h}, label, fn, false, enabled, 0, false, true);
+      y += h + 4;
     };
-    field(ed.tool == Tool::BrickStraight ? "length" : "radius", bp.radius, 5, 5, 600);
-    if (ed.tool == Tool::BrickCurved) field("sweep", bp.ext, 5, 5, 360);
-    field("thick", bp.thick, 2, 2, 100);
-    field("rotation", bp.rot, 15, -360, 720);
-    if (ed.tool == Tool::BrickCurved) {
-      float sub = (float)bp.sub, ty = (float)bp.type;
-      field("subdiv", sub, 1, 1, 20);
-      field("type", ty, 1, 0, 4);
-      bp.sub = (int)sub;
-      bp.type = (int)ty;
-    }
+    action("Flip horizontal", [this] { ed.mirrorSelection(true); });
+    action("Flip vertical", [this] { ed.mirrorSelection(false); });
+    action("Rotate +15", [this] { ed.rotateSelection(15); });
+    action("Rotate -15", [this] { ed.rotateSelection(-15); });
+    head("Clipboard");
+    action("Duplicate", [this] { ed.duplicateSelection(20, 20); });
+    action("Delete", [this] { ed.deleteSelection(); });
+    action("Copy", [this] { ed.copySelection(); });
+    action("Paste", [this] { ed.paste(ed.hover, false); });
+    head("Align selection");
+    const char* labels[6] = {"Left", "Horizontal center", "Right", "Top", "Vertical center", "Bottom"};
+    const char* keys[6] = {"left", "hcenter", "right", "top", "vcenter", "bottom"};
+    for (int i = 0; i < 6; i++) action(labels[i], [this, key = std::string(keys[i])] { ed.align(key); }, ed.sel.size() >= 2);
+    action("Spread horizontal", [this] { ed.distribute(true); }, ed.sel.size() >= 3);
+    action("Spread vertical", [this] { ed.distribute(false); }, ed.sel.size() >= 3);
   }
-  head("Shapes");
-  tool("Polygon (P)", Tool::Poly);
-  tool("Line (L)", Tool::Line);
-  tool("Hole (O)", Tool::Hole);
-  tool("Hole exit (X)", Tool::HoleExit);
-  head("Effects");
-  tool("Emitter (N)", Tool::Emitter, 0xffb040);
-  head("Motion");
-  tool("Follow object (J)", Tool::Follow, 0xc080ff);
-  head("Arrange");
-  float hw = (w - 4) / 2;
-  button({x, y, hw, h}, "Flip H", [&] { ed.mirrorSelection(true); }, false, true);
-  button({x + hw + 4, y, hw, h}, "Flip V", [&] { ed.mirrorSelection(false); });
-  y += h + 3;
-  button({x, y, hw, h}, "Rot +15", [&] { ed.rotateSelection(15); });
-  button({x + hw + 4, y, hw, h}, "Rot -15", [&] { ed.rotateSelection(-15); });
-  y += h + 3;
-  button({x, y, hw, h}, "Duplicate", [&] { ed.duplicateSelection(20, 20); });
-  button({x + hw + 4, y, hw, h}, "Delete", [&] { ed.deleteSelection(); });
-  y += h + 3;
-  button({x, y, hw, h}, "Copy", [&] { ed.copySelection(); });
-  button({x + hw + 4, y, hw, h}, "Paste", [&] { ed.paste(ed.hover, false); });
-  y += h + 3;
-  if (ed.sel.size() >= 2) {
-    const char* al[6] = {"Left", "HCenter", "Right", "Top", "VCenter", "Bottom"};
-    const char* ak[6] = {"left", "hcenter", "right", "top", "vcenter", "bottom"};
-    float bw = (w - 8) / 3;
-    for (int i = 0; i < 6; i++) {
-      button({x + (i % 3) * (bw + 4), y + (i / 3) * (h + 3), bw, h - 2}, al[i], [&, i] { ed.align(ak[i]); });
-    }
-    y += 2 * (h + 3);
-    button({x, y, hw, h}, "Spread H", [&] { ed.distribute(true); }, false, ed.sel.size() >= 3);
-    button({x + hw + 4, y, hw, h}, "Spread V", [&] { ed.distribute(false); }, false, ed.sel.size() >= 3);
-  }
+  scrollArea(vis, first, paletteScroll_, y);
 }
 
 void EditorScreen::propRow(float x, float& y, float w, const std::string& label, const std::string& value, std::function<void(int)> click, std::function<void(int)> wheel, bool numeric) {
-  float h = 20, vx = x + w * 0.46f, vw = w - w * 0.46f;
-  T(x + 2, y + 2, label, kDim);
+  float h = 30, vx = x + w * 0.44f, vw = w - w * 0.44f;
+  clippedText({x + 2, y, vx - x - 8, h}, label, kDim);
   Rect box{vx, y, vw, h};
   bool hot = hovered(box);
-  R(box.x, box.y, box.w, box.h, hot ? 0x242c60 : 0x10142c);
-  F(box.x, box.y, box.w, box.h, hot ? kGold : 0x3a4488);
+  R(box.x, box.y, box.w, box.h, hot ? kPanel2 : 0x141124);
+  F(box.x, box.y, box.w, box.h, hot ? kGold : kLine, hot ? 1.0f : 0.6f);
   if (numeric) {
-    T(vx + 16, y + 2, value, kText);
-    Rect l{vx, y, 14, h}, r2{vx + vw - 14, y, 14, h};
-    T(vx + 3, y + 2, "<", kGold);
-    T(vx + vw - 11, y + 2, ">", kGold);
+    clippedText({vx + 26, y, vw - 52, h}, value);
+    Rect l{vx, y, 24, h}, r2{vx + vw - 24, y, 24, h};
+    T(vx + 7, y + 5, "<", kGold);
+    T(vx + vw - 17, y + 5, ">", kGold);
     Ctl cl;
     cl.r = l;
-    cl.click = [wheel](int b) { if (b == 1) wheel(-1); };
+    cl.tip = label + " -";
+    cl.click = [wheel](int b) { if (b == 1 && wheel) wheel(-1); };
     ctls_.push_back(cl);
     Ctl cr;
     cr.r = r2;
-    cr.click = [wheel](int b) { if (b == 1) wheel(1); };
+    cr.tip = label + " +";
+    cr.click = [wheel](int b) { if (b == 1 && wheel) wheel(1); };
     ctls_.push_back(cr);
     Ctl cm;
-    cm.r = {vx + 14, y, vw - 28, h};
+    cm.r = {vx + 24, y, vw - 48, h};
+    cm.tip = label;
     cm.click = click;
     cm.wheel = wheel;
     ctls_.push_back(cm);
   } else {
-    T(vx + 5, y + 2, value, kText);
+    clippedText({vx + 8, y, vw - 16, h}, value);
     Ctl c;
     c.r = box;
+    c.tip = label;
     c.click = click;
     c.wheel = wheel;
     ctls_.push_back(c);
   }
-  y += h + 3;
+  y += h + 6;
 }
 
 void EditorScreen::tabObject(float x, float y0, float w) {
   float y = y0 - scroll_[0];
   if (ed.sel.empty()) {
-    T(x, y, "Nothing selected.", kDim);
-    T(x, y + 18, "Click an object, drag a box, or", kDim);
-    T(x, y + 34, "pick a tool and click the board.", kDim);
-    y += 64;
+    T(x, y, "Select an object", kGold);
+    T(x, y + 32, "Click an object or drag a box.", kDim);
+    T(x, y + 56, "Its role and properties appear here.", kDim);
+    y += 100;
     char b[96];
     std::snprintf(b, sizeof b, "%zu objects, %d pegs (%d orange)", ed.objects().size(), ed.pegCount(), ed.pegCount(2));
     T(x, y, b, kText);
@@ -815,9 +927,27 @@ void EditorScreen::tabObject(float x, float y0, float w) {
   char hd[96];
   std::snprintf(hd, sizeof hd, "%zu selected: %s%s", ed.sel.size(), typeName(n->type), ed.sel.size() > 1 ? " (+)" : "");
   T(x, y, hd, kGold);
-  y += fh_ + 4;
+  y += fh_ + 12;
+  const bool roles = std::all_of(ed.sel.begin(), ed.sel.end(), [this](const NodeP& node) { return !ed.collisionRole(node).empty(); });
+  if (roles) {
+    T(x, y, "Object role", kDim);
+    y += fh_ + 8;
+    static const char* keys[4] = {"peg", "bumper", "terrain", "decoration"};
+    static const char* labels[4] = {"Scoring peg", "Permanent bumper", "Solid terrain", "Decoration"};
+    for (int i = 0; i < 4; i++) {
+      const std::string role = keys[i];
+      bool active = std::all_of(ed.sel.begin(), ed.sel.end(), [this, role](const NodeP& node) { return ed.collisionRole(node) == role; });
+      bool enabled = i != 0 || std::all_of(ed.sel.begin(), ed.sel.end(), [](const NodeP& node) { return node->type == 5 || node->type == 6; });
+      button({x, y, w, 32}, labels[i], [this, role] { ed.setCollisionRole(role); say(ed.status); dirtyLayout(); }, active, enabled, 0, false, true);
+      y += 36;
+    }
+    T(x, y, "Decoration does not collide.", kDim);
+    y += fh_ + 16;
+  }
+  T(x, y, "Advanced properties", kGold);
+  y += fh_ + 8;
   if (n->type == 3 && ed.cornersEditable()) {
-    y += 3;
+    y += 12;
     T(x, y, "- Corners", kLine + 0x303030);
     y += fh_ + 2;
     const int count = ed.cornerCount(), ci = ed.cornerIndex();
@@ -847,19 +977,19 @@ void EditorScreen::tabObject(float x, float y0, float w) {
       }
     }
     float hw = (w - 4) / 2;
-    button({x, y, hw, 20}, "Add corner", [this] { ed.addCorner(); say(ed.status); });
-    button({x + hw + 4, y, hw, 20}, "Remove corner", [this] { ed.removeCorner(); say(ed.status); }, false, ci >= 0 && count > 3);
-    y += 25;
+    button({x, y, hw, 32}, "Add corner", [this] { ed.addCorner(); say(ed.status); });
+    button({x + hw + 4, y, hw, 32}, "Remove corner", [this] { ed.removeCorner(); say(ed.status); }, false, ci >= 0 && count > 3);
+    y += 40;
     T(x, y, "Drag a corner to move it.", kDim);
-    T(x, y + 15, "Double-click an edge to add one.", kDim);
-    T(x, y + 30, "Delete removes the chosen corner.", kDim);
-    y += 48;
+    T(x, y + 24, "Double-click an edge to add one.", kDim);
+    T(x, y + 48, "Delete removes the chosen corner.", kDim);
+    y += 72;
   }
   std::string group;
   for (auto& d : propsFor(*n)) {
     if (group != d.group) {
       group = d.group;
-      y += 3;
+      y += 12;
       T(x, y, std::string("- ") + group, kLine + 0x303030);
       y += fh_ + 2;
     }
@@ -899,7 +1029,7 @@ void EditorScreen::tabObject(float x, float y0, float w) {
   }
   if (pegOf(*n)) {
     const std::string cur = ed.customType(n);
-    y += 3;
+    y += 12;
     T(x, y, "- Mod peg type", kLine + 0x303030);
     y += fh_ + 2;
     propRow(x, y, w, "Custom type", cur.empty() ? "-" : cur, [this, cur](int b) {
@@ -908,7 +1038,7 @@ void EditorScreen::tabObject(float x, float y0, float w) {
     }, [](int) {}, false);
   }
   y += 4;
-  button({x, y, w, 22}, moverOf(*ed.level, *n) ? "Mover: edit..." : "Add mover...", [&] { tab_ = 1; scroll_[1] = 0; });
+  button({x, y, w, 32}, moverOf(*ed.level, *n) ? "Mover: edit..." : "Add mover...", [&] { tab_ = 1; scroll_[1] = 0; });
 }
 
 void EditorScreen::tabMover(float x, float y0, float w) {
@@ -921,11 +1051,11 @@ void EditorScreen::tabMover(float x, float y0, float w) {
     y += fh_ + 6;
     for (int t = 1; t < kMoverTypes; t++) {
       if (t == 10) continue;
-      button({x, y, w, 20}, kMoverTypeNames[t], [this, t] { if (!ed.addMover(t)) say("this object cannot take a mover"); else say(std::string("mover: ") + kMoverTypeNames[t]); dirtyLayout(); });
-      y += 23;
+      button({x, y, w, 32}, kMoverTypeNames[t], [this, t] { if (!ed.addMover(t)) say("this object cannot take a mover"); else say(std::string("mover: ") + kMoverTypeNames[t]); dirtyLayout(); });
+      y += 38;
     }
     y += 6;
-    button({x, y, w, 22}, "Only follow another object (J)", [this] { ed.tool = Tool::Follow; say("click the object that the selection should follow"); });
+    button({x, y, w, 32}, "Only follow another object (J)", [this] { ed.tool = Tool::Follow; say("click the object that the selection should follow"); });
     return;
   }
   T(x, y, std::string("Mover: ") + kMoverTypeNames[std::min(15, std::abs((int)m->i("move_type")))], kGold);
@@ -956,8 +1086,8 @@ void EditorScreen::tabMover(float x, float y0, float w) {
     propRow(x, y, w, d.label, val, click, stepVal, numeric);
   }
   y += 6;
-  button({x, y, w, 22}, "Remove mover", [this] { ed.removeMover(); dirtyLayout(); });
-  y += 28;
+  button({x, y, w, 32}, "Remove mover", [this] { ed.removeMover(); dirtyLayout(); });
+  y += 40;
   T(x, y, "- Follows another object", kLine + 0x303030);
   y += fh_ + 2;
   if (m->val("sub")) {
@@ -980,28 +1110,30 @@ void EditorScreen::tabMover(float x, float y0, float w) {
       };
       propRow(x, y, w, d.label, val, [this, key, val, def](int b) { if (b == 1) startPrompt(def.label, val, [this, key](const std::string& t) { ed.setMoverProp(key, t); dirtyLayout(); }); }, stepVal, true);
     }
-    button({x, y, w, 22}, "Stop following", [this] { ed.stopFollowing(); say(ed.status); dirtyLayout(); });
-    y += 27;
+    button({x, y, w, 32}, "Stop following", [this] { ed.stopFollowing(); say(ed.status); dirtyLayout(); });
+    y += 40;
   } else {
     T(x, y, "Not following anything.", kDim);
     y += fh_ + 4;
   }
-  button({x, y, w, 22}, "Follow an object (J)", [this] { ed.tool = Tool::Follow; say("click the object that the selection should follow"); });
-  y += 27;
+  button({x, y, w, 32}, "Follow an object (J)", [this] { ed.tool = Tool::Follow; say("click the object that the selection should follow"); });
+  y += 40;
   if (size_t cnt = ed.followersOf(n).size()) {
     T(x, y, "Followed by " + std::to_string(cnt) + " object" + (cnt == 1 ? "" : "s") + ".", kDim);
     y += fh_ + 4;
   }
   T(x, y, "A follower moves along with the object", kDim);
-  T(x, y + 15, "it follows, on top of its own motion.", kDim);
-  y += 36;
+  T(x, y + 24, "it follows, on top of its own motion.", kDim);
+  y += 56;
   T(x, y, "Tip: press Animate in the toolbar to", kDim);
-  T(x, y + 15, "watch the motion. The orange line is", kDim);
-  T(x, y + 30, "the path of the selected object.", kDim);
+  T(x, y + 24, "watch the motion. The orange line is", kDim);
+  T(x, y + 48, "the path of the selected object.", kDim);
 }
 
 void EditorScreen::tabLevel(float x, float y0, float w) {
   float y = y0 - scroll_[2];
+  T(x, y, "Level & artwork", kGold);
+  y += fh_ + 10;
   auto text = [&](const char* label, const std::string& value, const char* key) {
     std::string k = key;
     propRow(x, y, w, label, value.empty() ? "-" : value, [this, label, value, k](int b) {
@@ -1017,12 +1149,13 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   text("Name", ed.meta.name, "name");
   text("Title", ed.meta.title, "title");
   propRow(x, y, w, "Art of level", ed.meta.background.empty() ? "-" : ed.meta.background, [this](int b) { if (b == 1) openArtDialog(Editor::ArtSlot::Background); }, nullptr, false);
+  button({x, y, w, 32}, "Import Background...", [this] { chooseBackground(); });
+  y += 40;
   text("Master", ed.meta.master, "master");
-  num("Board width", ed.meta.boardWidth, "board_width", 1);
-  float hw = (w - 4) / 2;
-  button({x, y, hw, 20}, "Classic 650", [this] { ed.setMeta("board_width", "650"); fitView(); });
-  button({x + hw + 4, y, hw, 20}, "Wide 917", [this] { ed.setMeta("board_width", "917"); fitView(); });
-  y += 25;
+  T(x, y, "Stock art may keep a classic crop.", kDim);
+  y += fh_ + 12;
+  T(x, y, std::to_string(ed.meta.boardWidth) + " px playfield", kDim);
+  y += fh_ + 6;
   num("Balls (0=10)", ed.meta.balls, "balls", 1);
   num("Orange target", ed.meta.orange, "orange", 1);
   y += 4;
@@ -1037,9 +1170,9 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   y += 4;
   T(x, y, "Mod folder", kGold);
   y += fh_ + 2;
-  propRow(x, y, w, "Mod name", modName_, [this](int b) { if (b == 1) startPrompt("Mod name", modName_, [this](const std::string& t) { if (!t.empty()) modName_ = t; dirtyLayout(); }); }, nullptr, false);
-  button({x, y, w, 22}, "Save to mod (shows in Quick Play)", [this] { saveMod(); });
-  y += 27;
+  propRow(x, y, w, "Mod name", modName_, [this](int b) { if (b == 1) startPrompt("Mod name", modName_, [this](const std::string& t) { if (!t.empty()) setModName(t); dirtyLayout(); }); }, nullptr, false);
+  button({x, y, w, 32}, "Save to mod (shows in Quick Play)", [this] { saveMod(); });
+  y += 40;
   T(x, y, pathToUtf8(app.userDir / "mods" / modName_), kDim);
   y += fh_ + 6;
   char b[160];
@@ -1057,8 +1190,8 @@ void EditorScreen::tabGen(float x, float y0, float w) {
                                      {"count", "inner radius", "outer radius", "turns", "centre x", "centre y"},
                                      {"count", "length", "amplitude", "periods", "origin x", "origin y"}};
   float hw = (w - 4) / 2;
-  for (int i = 0; i < 4; i++) button({x + (i % 2) * (hw + 4), y + (i / 2) * 24, hw, 20}, kinds[i], [this, i] { genKind_ = i; dirtyLayout(); }, genKind_ == i);
-  y += 52;
+  for (int i = 0; i < 4; i++) button({x + (i % 2) * (hw + 4), y + (i / 2) * 38, hw, 32}, kinds[i], [this, i] { genKind_ = i; dirtyLayout(); }, genKind_ == i);
+  y += 88;
   for (int i = 0; i < 6; i++) {
     if (!labels[genKind_][i][0]) continue;
     float* v = &genArg_[genKind_][i];
@@ -1068,12 +1201,12 @@ void EditorScreen::tabGen(float x, float y0, float w) {
             [v, this](int d) { *v += d * (std::fabs(*v) >= 100 ? 10 : 1); dirtyLayout(); }, true);
   }
   y += 4;
-  button({x, y, hw, 20}, "Blue", [this] { genColor_ = 1; }, genColor_ == 1, true, pegColor(1));
-  button({x + hw + 4, y, hw, 20}, "Orange", [this] { genColor_ = 2; }, genColor_ == 2, true, pegColor(2));
-  y += 26;
+  button({x, y, hw, 32}, "Blue", [this] { genColor_ = 1; }, genColor_ == 1, true, pegColor(1));
+  button({x + hw + 4, y, hw, 32}, "Orange", [this] { genColor_ = 2; }, genColor_ == 2, true, pegColor(2));
+  y += 40;
   T(x, y, "Pegs use the Round radius.", kDim);
   y += fh_ + 6;
-  button({x, y, w, 24}, "Create", [this] {
+  button({x, y, w, 32}, "Create", [this] {
     static const char* names[4] = {"grid", "circle", "spiral", "sine"};
     std::vector<float> a(genArg_[genKind_], genArg_[genKind_] + 6);
     int n = ed.generate(names[genKind_], a, genColor_);
@@ -1084,8 +1217,8 @@ void EditorScreen::tabGen(float x, float y0, float w) {
 
 void EditorScreen::tabChecks(float x, float y0, float w) {
   float y = y0 - scroll_[4];
-  button({x, y, w, 22}, "Run checks", [this] { ed.validate(); say("checked"); dirtyLayout(); });
-  y += 28;
+  button({x, y, w, 32}, "Run checks", [this] { ed.validate(); say("checked"); dirtyLayout(); });
+  y += 44;
   if (ed.issues.empty()) { T(x, y, "Press Run checks (or the Check button).", kDim); return; }
   for (auto& i : ed.issues) {
     uint32_t c = i.sev == Issue::Error ? kRed : i.sev == Issue::Warn ? kGold : kDim;
@@ -1114,67 +1247,63 @@ void EditorScreen::tabChecks(float x, float y0, float w) {
 
 void EditorScreen::drawRight() {
   float x0 = CW - RIGHTW;
-  R(x0, TOP, RIGHTW, CH - TOP - BOTH, kPanel);
-  F(x0, TOP, RIGHTW, CH - TOP - BOTH, kLine);
-  static const char* tabs[5] = {"Object", "Mover", "Level", "Gen", "Checks"};
-  float tw = (RIGHTW - 8) / 5;
-  for (int i = 0; i < 5; i++) button({x0 + 4 + i * tw, TOP + 4, tw - 2, 20}, tabs[i], [this, i] { tab_ = i; }, tab_ == i);
-  float cy = TOP + 30, ch = CH - BOTH - cy;
-  if (dr_) g_->pushClip(x0 + 2, cy, RIGHTW - 4, ch);
+  panel({x0, TOP, RIGHTW, CH - TOP - BOTH});
+  static const char* tabs[5] = {"Object", "Motion", "Level", "Generate", "Checks"};
+  float tw = (RIGHTW - 32) / 3;
+  for (int i = 0; i < 5; i++) {
+    float width = i < 3 ? tw : (RIGHTW - 26) / 2;
+    float x = x0 + 10 + (i < 3 ? i : i - 3) * (width + 6);
+    button({x, TOP + 12 + (i / 3) * 38.0f, width, 32}, tabs[i], [this, i] { tab_ = i; }, tab_ == i);
+  }
+  float cy = TOP + 98, ch = CH - BOTH - cy - 12;
+  Rect vis{x0 + 4, cy, RIGHTW - 8, ch};
+  if (dr_) g_->pushClip(vis.x, vis.y, vis.w, vis.h);
   size_t before = ctls_.size();
-  float x = x0 + 8, w = RIGHTW - 16;
+  float x = x0 + 14, w = RIGHTW - 36;
+  contentBottom_ = cy;
   switch (tab_) {
-    case 0: tabObject(x, cy + 2, w); break;
-    case 1: tabMover(x, cy + 2, w); break;
-    case 2: tabLevel(x, cy + 2, w); break;
-    case 3: tabGen(x, cy + 2, w); break;
-    default: tabChecks(x, cy + 2, w); break;
+    case 0: tabObject(x, cy, w); break;
+    case 1: tabMover(x, cy, w); break;
+    case 2: tabLevel(x, cy, w); break;
+    case 3: tabGen(x, cy, w); break;
+    default: tabChecks(x, cy, w); break;
   }
-  Rect vis{x0 + 2, cy, RIGHTW - 4, ch};
-  for (size_t i = before; i < ctls_.size(); i++) {
-    Rect& r = ctls_[i].r;
-    float y1 = std::max(r.y, vis.y), y2 = std::min(r.y + r.h, vis.y + vis.h);
-    if (y2 <= y1) { r = {0, 0, 0, 0}; }
-    else { r.h = y2 - y1; r.y = y1; }
-  }
-  if (dr_) g_->popClip();
-  Ctl sc;
-  sc.r = {x0, cy, RIGHTW, ch};
-  sc.wheel = [this](int d) { scroll_[tab_] = std::max(0.0f, scroll_[tab_] - d * 40); dirtyLayout(); };
-  ctls_.insert(ctls_.begin(), sc);
+  scrollArea(vis, before, scroll_[tab_], contentBottom_);
 }
 
 void EditorScreen::drawStatus() {
   float y = CH - BOTH;
   R(0, y, CW, BOTH, kPanel);
-  F(0, y, CW, BOTH, kLine);
   V2 p = ed.hover;
   char b[200];
-  std::snprintf(b, sizeof b, "x %.0f  y %.0f   zoom %d%%   grid %g%s   %zu sel   %zu obj   %s", p.x, p.y, (int)(zoom_ * 100), ed.grid, ed.snap ? " snap" : "", ed.sel.size(), ed.objects().size(),
-                ed.dirty() ? "modified" : "saved");
-  T(8, y + 4, b, kDim);
+  std::snprintf(b, sizeof b, "x %.0f y %.0f  %d%%  grid %g%s  %zu/%zu  %s", p.x, p.y, (int)(zoom_ * 100), ed.grid, ed.snap ? " snap" : "", ed.sel.size(), ed.objects().size(), ed.dirty() ? "modified" : "saved");
+  clippedText({12, y, CW * 0.52f - 24, BOTH}, b, kDim);
   std::string m = msg_.empty() ? ed.status : msg_;
-  T(CW - 8, y + 4, m, msg_.empty() ? kDim : kGold, Align::Right);
+  for (auto& c : ctls_)
+    if (!c.tip.empty() && hovered(c.r)) m = c.tip;
+  clippedText({CW * 0.52f, y, CW * 0.48f - 12, BOTH}, m, kGold);
 }
 
 void EditorScreen::drawPrompt() {
-  float x = cv_.x + 40, y = cv_.y + 12, w = cv_.w - 80, h = 30;
-  R(x, y, w, h, 0x000010, 0.95f);
-  F(x, y, w, h, kGold);
-  std::string t = prompt_.label + ": " + prompt_.text + ((ticks_ / 40) % 2 ? "_" : " ");
-  T(x + 8, y + 6, t, kText);
-  T(x + w - 8, y + 6, "Enter = ok   Esc = cancel", kDim, Align::Right);
+  ctls_.clear();
+  float w = std::min(740.0f, CW - 48), x = (CW - w) * 0.5f, y = TOP + 48;
+  R(0, 0, CW, CH, 0x000000, 0.55f);
+  panel({x, y, w, 128});
+  T(x + 18, y + 14, prompt_.label, kGold);
+  R(x + 16, y + 44, w - 32, 36, kBg);
+  clippedText({x + 24, y + 44, w - 48, 36}, prompt_.text + ((ticks_ / 40) % 2 ? "_" : " "));
+  T(x + 18, y + 94, "Enter = apply    Esc = cancel", kDim);
 }
 
 void EditorScreen::drawOpenDialog() {
-  float x = 300, y = 80, w = 680, h = 560;
+  ctls_.clear();
+  float w = std::min(800.0f, CW - 48), h = CH - 96, x = (CW - w) * 0.5f, y = 48;
   R(0, 0, CW, CH, 0x000000, 0.55f);
-  R(x, y, w, h, kPanel);
-  F(x, y, w, h, kGold);
-  T(x + 12, y + 8, "Open a level   (type to filter, Esc closes)", kGold);
-  T(x + 12, y + 30, "filter: " + openFilter_ + "_", kText);
-  float ly = y + 56 - openScroll_;
-  Rect clip{x + 4, y + 52, w - 8, h - 58};
+  panel({x, y, w, h});
+  T(x + 20, y + 16, "Open a level   (type to filter, Esc closes)", kGold);
+  T(x + 20, y + 46, "filter: " + openFilter_ + "_", kText);
+  float ly = y + 82 - openScroll_;
+  Rect clip{x + 12, y + 78, w - 24, h - 90};
   if (dr_) g_->pushClip(clip.x, clip.y, clip.w, clip.h);
   float colW = (w - 24) / 2;
   std::vector<std::pair<std::string, std::string>> items;
@@ -1187,10 +1316,10 @@ void EditorScreen::drawOpenDialog() {
   int rows = ((int)items.size() + 1) / 2;
   for (int i = 0; i < (int)items.size(); i++) {
     int col = i / std::max(1, rows), row = i % std::max(1, rows);
-    Rect r{x + 12 + col * colW, ly + row * 20, colW - 6, 19};
+    Rect r{x + 16 + col * colW, ly + row * 32, colW - 12, 30};
     if (r.y + r.h < clip.y || r.y > clip.y + clip.h) continue;
     if (hovered(r) && clip.contains(app.mouseX, app.mouseY)) R(r.x, r.y, r.w, r.h, kHot);
-    T(r.x + 4, r.y + 2, items[i].second, kText);
+    clippedText({r.x + 8, r.y, r.w - 16, r.h}, items[i].second);
     Ctl c;
     c.r = {r.x, std::max(r.y, clip.y), r.w, std::min(r.y + r.h, clip.y + clip.h) - std::max(r.y, clip.y)};
     std::string nm = items[i].first;
@@ -1224,6 +1353,28 @@ void EditorScreen::openArtDialog(Editor::ArtSlot s) {
   artDlg_ = true;
   dirtyLayout();
 }
+void EditorScreen::chooseBackground() {
+  if (chosenBackground_.valid()) return;
+  using Choice = std::promise<std::optional<std::string>>;
+  auto pending = std::make_unique<Choice>();
+  chosenBackground_ = pending->get_future();
+  static const SDL_DialogFileFilter filters[] = {{"Background images", "png;jpg;jpeg;gif;tga;jp2;j2k"}};
+  SDL_ShowOpenFileDialog([](void* data, const char* const* files, int) {
+    std::unique_ptr<Choice> choice(static_cast<Choice*>(data));
+    if (files) choice->set_value(files[0] ? files[0] : "");
+    else choice->set_value(std::nullopt);
+  }, pending.release(), SDL_GetKeyboardFocus(), filters, 1, nullptr, false);
+}
+
+void EditorScreen::restoreBackground() {
+  std::string name = ed.meta.background, err;
+  if (!ed.hasImportedBackground()) return;
+  if (ed.prepareBackground(Editor::modDirFor(app.userDir, modName_) / "levels", name, &err)) {
+    ed.meta.background = name;
+    syncModArt();
+  } else say(err);
+}
+
 void EditorScreen::syncModArt() {
   fs::path dir = Editor::modDirFor(app.userDir, modName_);
   std::error_code ec;
@@ -1261,14 +1412,14 @@ void EditorScreen::chooseArt(const Editor::ArtItem* it) {
 }
 void EditorScreen::drawArtDialog() {
   using S = Editor::ArtSlot;
-  const float x = 230, y = 50, w = 980, h = 710;
+  ctls_.clear();
+  const float w = std::min(980.0f, CW - 48), h = CH - 64, x = (CW - w) * 0.5f, y = 32;
   R(0, 0, CW, CH, 0x000000, 0.55f);
-  R(x, y, w, h, kPanel);
-  F(x, y, w, h, kGold);
+  panel({x, y, w, h});
   const char* what = artSlot_ == S::Background ? "the picture of the level" : artSlot_ == S::Emitter ? "the picture of the emitter" : "the picture of the object";
   T(x + 12, y + 8, std::string("Choose ") + what + "   (type to filter, Esc closes)", kGold);
   T(x + 12, y + 30, "filter: " + artFilter_ + "_", kText);
-  const float listW = 470;
+  const float listW = w * 0.46f;
   Rect clip{x + 4, y + 52, listW, h - 60};
   std::string f = artFilter_;
   for (auto& c : f) c = (char)std::tolower((unsigned char)c);
@@ -1281,7 +1432,7 @@ void EditorScreen::drawArtDialog() {
   const std::string cur = artCurrent();
   std::string curLo = cur;
   for (auto& c : curLo) c = (char)std::tolower((unsigned char)c);
-  const float rowH = 19;
+  const float rowH = 30;
   float maxScroll = std::max(0.0f, (items.size() + 1) * rowH - clip.h + 8);
   artScroll_ = std::min(artScroll_, maxScroll);
   float ly = clip.y + 4 - artScroll_;
@@ -1300,8 +1451,7 @@ void EditorScreen::drawArtDialog() {
     if (isCur) R(r.x, r.y, r.w, r.h, 0x203860);
     if (hot) { R(r.x, r.y, r.w, r.h, kHot); hoverItem = it; hoverNone = !it; }
     std::string label = it ? it->value : (artSlot_ == S::Background ? "(the level's own picture)" : "(no picture)");
-    T(r.x + 4, r.y + 2, label, it ? kText : kGold);
-    if (it) T(r.x + r.w - 4, r.y + 2, it->source, kDim, Align::Right);
+    clippedText({r.x + 8, r.y, r.w - 16, r.h}, label, it ? kText : kGold);
     Ctl c;
     c.r = {r.x, std::max(r.y, clip.y), r.w, std::min(r.y + r.h, clip.y + clip.h) - std::max(r.y, clip.y)};
     c.click = [this, it](int b) { if (b == 1) chooseArt(it); };
@@ -1314,7 +1464,7 @@ void EditorScreen::drawArtDialog() {
   if (!shown && !hoverNone)
     for (auto& it : artList_)
       if (normKey(it.value) == normKey(cur)) shown = &it;
-  const float px = x + listW + 24, py = y + 56, pw = w - listW - 40, ph = 400;
+  const float px = x + listW + 24, py = y + 56, pw = w - listW - 40, ph = 300;
   R(px, py, pw, ph, 0x0a1020);
   F(px, py, pw, ph, kLine);
   Tex* t = nullptr;
@@ -1339,16 +1489,14 @@ void EditorScreen::drawArtDialog() {
   }
   iy += 56;
   if (artSlot_ == S::Background) {
-    T(px, iy, "The level file holds no picture. The game looks for a", kDim);
-    T(px, iy + 15, "file called levels/<level name> in the game or a mod", kDim);
-    T(px, iy + 30, "folder, or uses the one named here (saved as 'background').", kDim);
-    T(px, iy + 45, "646 x 543 fits the classic board, 800 x 600 fills the screen.", kDim);
+    T(px, iy, "Art and game canvas are separate.", kDim);
+    T(px, iy + 24, "Stock art may keep a classic crop.", kDim);
   } else {
     T(px, iy, "Pictures of the game and of your mod folder (levels and", kDim);
     T(px, iy + 15, "images). Put your own .png or .jpg into the mod folder", kDim);
     T(px, iy + 30, "first, then pick it here.", kDim);
   }
-  button({px, y + h - 34, 220, 24}, "Type a name instead...", [this] {
+  button({px, y + h - 48, 220, 32}, "Type a name instead...", [this] {
     artDlg_ = false;
     Editor::ArtSlot sl = artSlot_;
     startPrompt("Picture name (empty = none)", artCurrent(), [this, sl](const std::string& t) {
@@ -1358,7 +1506,7 @@ void EditorScreen::drawArtDialog() {
       dirtyLayout();
     });
   });
-  button({px + 232, y + h - 34, 120, 24}, "Close", [this] { artDlg_ = false; dirtyLayout(); });
+  button({px + 232, y + h - 48, 120, 32}, "Close", [this] { artDlg_ = false; dirtyLayout(); });
   Ctl sc;
   sc.r = {x, y, w, h};
   sc.wheel = [this](int d) { artScroll_ = std::max(0.0f, artScroll_ - d * 40); };
@@ -1388,7 +1536,7 @@ void EditorScreen::saveMod() {
   if (ed.saveToMod(dir, &err)) {
     int errors = 0;
     for (auto& i : ed.issues) errors += i.sev == Issue::Error;
-    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + "  enable it in Options, Mods to play it");
+    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + "  enable it in Mods on the main menu to play it");
     thumbDir_ = dir;
     indexMod(dir);
   } else {
@@ -1486,20 +1634,19 @@ void EditorScreen::drawPlay() {
   if (!playOk_) return;
   renderBoard(play_, playLb_, playGuide_, 2);
   int cw = 800 + (play_.W - 650);
-  float areaH = CH - TOP - BOTH, s = std::min(CW / (float)cw, areaH / 600.0f);
-  float ox = (CW - cw * s) * 0.5f, oy = TOP + (areaH - 600 * s) * 0.5f;
+  float areaH = CH - PLAYTOP - BOTH, s = std::min(CW / (float)cw, areaH / 600.0f);
+  float ox = (CW - cw * s) * 0.5f, oy = PLAYTOP + (areaH - 600 * s) * 0.5f;
   if (target_) {
     auto S = [&](float x, float y) { return V2(g_->offX() + x * g_->scale(), g_->offY() + y * g_->scale()); };
     V2 a = S(ox, oy), b = S(ox + cw * s, oy + 600 * s);
     SDL_FRect dst{a.x, a.y, b.x - a.x, b.y - a.y};
     SDL_RenderTexture(g_->renderer(), target_, nullptr, &dst);
   }
-  R(0, 0, CW, TOP, kPanel);
-  T(10, 9, "TEST PLAY  -  " + ed.meta.title, kGold);
-  T(CW - 10, 9, "click = shoot   R = restart   G = guide   Esc = back to the editor", kDim, Align::Right);
+  panel({0, 0, CW, PLAYTOP});
+  clippedText({12, 8, CW - 24, 24}, "TEST PLAY  -  " + ed.meta.title, kGold);
+  T(12, 36, "click = shoot   R = restart   G = guide   Esc = back to the editor", kDim);
   if (play_.phase == Phase::Over || play_.result.finished) {
-    R(CW / 2 - 200, CH / 2 - 30, 400, 60, 0x000010, 0.85f);
-    F(CW / 2 - 200, CH / 2 - 30, 400, 60, kGold);
+    panel({CW / 2 - 200, CH / 2 - 30, 400, 60});
     T(CW / 2, CH / 2 - 20, play_.result.won ? "Level cleared!" : "Out of balls", kGold, Align::Center);
     T(CW / 2, CH / 2 + 2, "R plays again, Esc returns to the editor", kText, Align::Center);
   }
@@ -1531,6 +1678,7 @@ bool EditorScreen::handleText(const std::string& t) {
 }
 
 bool EditorScreen::input(const Input& in) {
+  if (chosenBackground_.valid()) return true;
   auto rebuild = [&] { if (layoutDirty_) buildUi(app.gfx, false); };
   switch (in.type) {
     case Input::Text: handleText(in.text); return true;
@@ -1545,9 +1693,9 @@ bool EditorScreen::input(const Input& in) {
       lastX_ = in.x;
       lastY_ = in.y;
       if (playing_) {
-        float areaH = CH - TOP - BOTH;
+        float areaH = CH - PLAYTOP - BOTH;
         int cw = 800 + (play_.W - 650);
-        float s = std::min(CW / (float)cw, areaH / 600.0f), ox = (CW - cw * s) * 0.5f, oy = TOP + (areaH - 600 * s) * 0.5f;
+        float s = std::min(CW / (float)cw, areaH / 600.0f), ox = (CW - cw * s) * 0.5f, oy = PLAYTOP + (areaH - 600 * s) * 0.5f;
         playMouseX_ = (int)std::floor((in.x - ox) / s - 75);
         playMouseY_ = (int)std::floor((in.y - oy) / s - 40);
         if (playOk_) play_.gunMouse(playMouseX_, playMouseY_);
@@ -1764,11 +1912,9 @@ std::string EditorScreen::run(const std::string& line) {
     if (!rest.empty()) {
       std::istringstream r2(rest);
       std::string nm;
-      int bw = 650;
-      r2 >> nm >> bw;
+      r2 >> nm;
       ed.meta.name = nm;
       ed.meta.title = nm;
-      ed.setMeta("board_width", std::to_string(bw));
       ed.metaDirty = false;
       fitView();
     }
@@ -1780,9 +1926,9 @@ std::string EditorScreen::run(const std::string& line) {
   if (c == "center") { float a = 0, b = 0; std::sscanf(rest.c_str(), "%f %f", &a, &b); centerOn(V2(a, b)); return "centered"; }
   if (c == "tab") { static const char* t[5] = {"object", "mover", "level", "gen", "checks"}; for (int i = 0; i < 5; i++) if (rest == t[i]) tab_ = i; if (rest == "checks") ed.validate(); dirtyLayout(); return "tab " + rest; }
   if (c == "open") { openLevel(rest); return msg_; }
-  if (c == "savemod") { if (!rest.empty()) modName_ = rest; saveMod(); return msg_; }
+  if (c == "savemod") { if (!rest.empty() && !setModName(rest)) return msg_; saveMod(); return msg_; }
   if (c == "save" && rest.empty()) { quickSave(); return msg_; }
-  if (c == "modname") { modName_ = rest; return "mod " + rest; }
+  if (c == "modname") { return setModName(rest) ? "mod " + rest : msg_; }
   if (c == "testplay") { startPlay(); return playing_ ? "test play" : msg_; }
   if (c == "stop") { if (playing_) stopPlay(); return "stopped"; }
   if (c == "play") {
@@ -1804,6 +1950,7 @@ std::string EditorScreen::run(const std::string& line) {
   ed.setZoom(zoom_);
   bool ok = true;
   std::string m = ed.exec(line, &ok);
+  if (ok && (c == "loaddat" || c == "import")) restoreBackground();
   dirtyLayout();
   return m;
 }

@@ -47,10 +47,19 @@ class Dialog : public Panel {
   void cycleFocus(int dir);
   bool focusKey(int key);
   void drawOverlay(Gfx& g) override;
+  static constexpr float kOptionsFooterTop = 536;
+  bool usesConsoleOptionsChrome() const;
+  float chromeOpacity() const;
+  void styleConsoleAction(Button& button);
   float contentLeft() const { return insL; }
   float contentWidth() const { return w - insL - insR; }
   float contentTop(Gfx& g) const;
   void setYesNo(const std::string& yes, const std::string& no);
+
+ private:
+  bool usesConsoleQuestion() const;
+  bool usesConsoleTip() const;
+  bool usesConsoleLock() const;
 };
 
 }

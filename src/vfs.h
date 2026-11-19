@@ -58,6 +58,7 @@ void vfsLogMiss(const char* kind, std::string_view path);
 class Vfs {
  public:
   bool mountGame(const std::filesystem::path& gameDir, std::string* err);
+  bool mountPresentation(const std::filesystem::path& dataDir);
   bool mountMod(const std::filesystem::path& modDir, std::string* err);
   bool unmountMod(const std::filesystem::path& modDir);
   size_t unmountMods();
@@ -71,7 +72,7 @@ class Vfs {
   std::string describe() const;
 
  private:
-  static void indexDir(Layer& L);
+  static void indexDir(Layer& L, std::string_view prefix = {});
   std::vector<Layer> layers_;
 };
 

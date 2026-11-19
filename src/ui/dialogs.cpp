@@ -15,6 +15,8 @@
 
 #include "ui/game_screen.h"
 #include "ui/screens.h"
+#include "ui/secondary_art.h"
+
 
 namespace pp::ui {
 
@@ -281,11 +283,14 @@ void NewUserDialog::onButton(int id) {
 }
 
 
-OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? "MENU" : "OPTIONS", "", fg ? "Back To Game" : "Done", BUTTONS_FOOTER), fromGame(fg) {
+OptionsDialog::OptionsDialog(App& a, bool fg)
+    : Dialog(a, D_Options, true, fg ? "MENU" : "OPTIONS", "", fg ? "Back To Game" : "Done", BUTTONS_FOOTER),
+      fromGame(fg), consolePresentation_(a.widescreenMode() != WidescreenMode::Classic4x3 && a.screen() && a.screen()->canvasWidth() >= 960) {
   rope = true;
   auto mkSlider = [&](int id, const char* label, float v) {
     auto s = std::make_unique<Slider>();
     s->id = id;
+    s->thumb = a.gfx.img("IMAGE_DLG_SLIDERORB");
     s->label = label;
     s->value = v;
     s->w = 0xa2;
@@ -313,11 +318,13 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   vsync = mkCheck(5, "Vertical Sync", a.settings.vsync);
   colorblind = mkCheck(6, "Colorblind Mode", a.curProfile ? a.curProfile->colorblind : false);
   help = patchButton(7, "Help", "IMAGE_DLG_BUTTON3", 0, 0);
+  if (!fg) {
+    modsBtn = patchButton(12, "Mods", "IMAGE_DLG_BUTTON3", 0, 0);
+    modsBtn->visible = !consolePresentation_;
+  }
   mainMenu = patchButton(8, "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   newLevel = patchButton(9, "New Level", "IMAGE_DLG_BUTTON3", 0, 0);
   newChallenge = patchButton(10, "New Challenge", "IMAGE_DLG_BUTTON3", 0, 0);
-  modsBtn = patchButton(12, "Mods", "IMAGE_DLG_BUTTON3", 0, 0);
-  modsBtn->visible = !fg;
   editor = patchButton(13, "Level Editor", "IMAGE_DLG_BUTTON3", 0, 0);
   editor->visible = !fg;
   gamesBtn = patchButton(15, "Game Folders...", "IMAGE_DLG_BUTTON3", 0, 0);
@@ -326,18 +333,8 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   visuals = patchButton(14, "Enhanced Visuals...", "IMAGE_DLG_BUTTON3", 0, 0);
   homeBtn = patchButton(16, "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   homeBtn->visible = !fg && a.bothGames;
-  demoBtn = patchButton(17, "Demo", "IMAGE_DLG_BUTTON3", 0, 0);
-  demoBtn->visible = !fg && a.game == Game::Nights;
   updateWidescreenLabel();
   updateHomeLabel();
-  if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
-    yesBtn->image = pb;
-    yesBtn->kind = Button::Kind::Embedded;
-    yesBtn->w = pb->lw();
-    yesBtn->h = pb->lh() / 2;
-    yesBtn->labelOnEmbedded = true;
-    yesBtn->font = "BUTTON";
-  }
   bool adv = a.gameMode == GameMode::Adventure, chal = a.gameMode == GameMode::Challenge;
   const auto* board = dynamic_cast<GameScreen*>(a.screen());
   const bool watching = a.gameMode == GameMode::Demo || (board && board->viewing());
@@ -349,22 +346,96 @@ OptionsDialog::OptionsDialog(App& a, bool fg) : Dialog(a, D_Options, true, fg ? 
   help->visible = true;
   if (fg && watching) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
+  if (consolePresentation_) stylePresentation();
   extraH = (float)(0xdc + (fg ? 0x24 : 0x50));
   if (editor->visible) extraH += 0x20;
   if (homeBtn->visible) extraH += 0x20;
-  if (demoBtn->visible) extraH += 0x20;
   if (mainMenu->visible) extraH += 0x20;
   if (help->visible) extraH += 0x20;
   if (fg && chal) extraH += 0x20;
+}
+
+void OptionsDialog::stylePresentation() {
+  header = fromGame ? "PAUSED" : consolePresentation_ ? "HELP & OPTIONS" : "OPTIONS";
+  help->label = consolePresentation_ ? "How to Play" : "Help";
+  sfx->label = consolePresentation_ ? "Sound" : "Sound Effects";
+  music->label = consolePresentation_ ? "Music" : "Music Volume";
+  fever->label = consolePresentation_ ? "Fever" : "Fever Volume";
+  if (fromGame) yesBtn->label = "Resume Game";
+  for (Button* b : {help, mainMenu, newLevel, newChallenge, editor, gamesBtn, widescreen, visuals, homeBtn, yesBtn}) {
+    if (consolePresentation_) styleConsoleAction(*b);
+    else {
+      b->image = modsBtn->image;
+      b->labelStyle = modsBtn->labelStyle;
+      b->labelFullGradient = modsBtn->labelFullGradient;
+      b->textOffY = modsBtn->textOffY;
+    }
+  }
+}
+
+void OptionsDialog::syncPresentation(int canvasWidth) {
+  if (fromGame || scrollingOff || consolePresentation_ == (canvasWidth >= 960)) return;
+  consolePresentation_ = canvasWidth >= 960;
+  modsBtn->visible = !consolePresentation_;
+  if (!modsBtn->visible && focusW == modsBtn) {
+    modsBtn->focused = false;
+    focusW = help;
+    help->focused = true;
+  }
+  if (capture == modsBtn && !modsBtn->visible) {
+    modsBtn->mouseLeave();
+    capture = nullptr;
+  }
+  releaseHover();
+  stylePresentation();
+  app.positionDialog(this, preferredWidth(), consolePresentation_);
+  layout();
 }
 
 void OptionsDialog::updateHomeLabel() { homeBtn->label = std::string("Main Menu: ") + (app.homeGame == Game::Nights ? "Peggle Nights" : "Peggle Deluxe"); }
 
 void OptionsDialog::updateWidescreenLabel() { widescreen->label = std::string("Widescreen: ") + widescreenName(app.widescreenMode()); }
 
-float OptionsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH; }
+float OptionsDialog::preferredHeight(float width) {
+  if (hasConsoleColumns(width)) return 410;
+  return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH;
+}
+
+void OptionsDialog::layoutConsole() {
+  const float top = 88, actionX = insL + 360, actionW = w - actionX - insR;
+  float rowY = top;
+  for (Slider* slider : {music, sfx, fever}) {
+    slider->x = insL + 170;
+    slider->y = rowY;
+    rowY += 36;
+  }
+  rowY = 230;
+  for (Checkbox* box : {fullscreen, vsync, cursors, colorblind}) {
+    box->x = insL;
+    box->y = rowY;
+    box->w = 237;
+    rowY += 38;
+  }
+  rowY = top;
+  auto action = [&](Button* button) {
+    if (!button->visible) return;
+    button->x = actionX;
+    button->y = rowY;
+    button->w = actionW;
+    button->h = buttonH;
+    rowY += 38;
+  };
+  if (fromGame) {
+    for (Button* button : {yesBtn, help, visuals, newLevel, newChallenge, mainMenu}) action(button);
+  } else {
+    for (Button* button : {help, visuals, widescreen, homeBtn, editor, gamesBtn}) action(button);
+    rowY = h - insB - buttonH;
+    action(yesBtn);
+  }
+}
 
 void OptionsDialog::layout() {
+  if (hasConsoleColumns(w)) { layoutConsole(); return; }
   Gfx& g = app.gfx;
   float left = insL, top = contentTop(g) - 10, W = w - insL - insR;
   float sx = left + W / 2 - 2;
@@ -378,17 +449,17 @@ void OptionsDialog::layout() {
   widescreen->x = left;   widescreen->y = cursors->y + cursors->h + 6;   widescreen->w = W;   widescreen->h = help->h;
   visuals->x = left;      visuals->y = fromGame ? widescreen->y : widescreen->y + help->h + 2;   visuals->w = W;   visuals->h = help->h;
   homeBtn->x = left;      homeBtn->y = visuals->y + help->h + 2;   homeBtn->w = W;   homeBtn->h = help->h;
-  demoBtn->x = left;      demoBtn->y = (homeBtn->visible ? homeBtn->y : visuals->y) + help->h + 2;   demoBtn->w = W;   demoBtn->h = help->h;
   if (yesBtn) {
     yesBtn->x = (w - yesBtn->w) / 2;
     yesBtn->y = h - insB - yesBtn->h - 6;
   }
   float bw = W / 2 - 2, bh = help->h;
   if (!fromGame) {
-    help->x = yesBtn->x; help->y = yesBtn->y - 0x1e - bh + 0; help->w = yesBtn->w;
-    help->y = yesBtn->y - bh - 24;
-    help->w = bw;
-    modsBtn->x = help->x + bw; modsBtn->y = help->y; modsBtn->w = bw; modsBtn->h = bh;
+    help->x = yesBtn->x; help->y = yesBtn->y - bh - 24; help->w = yesBtn->w;
+    if (modsBtn->visible) {
+      help->w = bw;
+      modsBtn->x = help->x + bw; modsBtn->y = help->y; modsBtn->w = bw; modsBtn->h = bh;
+    }
     if (editor->visible) { editor->x = help->x; editor->w = bw; editor->y = help->y - bh; }
     if (gamesBtn->visible) { gamesBtn->x = help->x + bw; gamesBtn->w = bw; gamesBtn->y = help->y - bh; }
   } else {
@@ -404,13 +475,63 @@ void OptionsDialog::layout() {
       help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y - bh;
     }
   }
-  for (Button* b : {help, mainMenu, newLevel, newChallenge, modsBtn, editor, gamesBtn}) b->h = bh;
+  for (Button* b : {help, mainMenu, newLevel, newChallenge, editor, gamesBtn}) b->h = bh;
+}
+
+void OptionsDialog::drawChromeFooter(Gfx& g, bool nested, float fade) const {
+  const float opacity = chromeOpacity() * fade;
+  if (opacity <= 0) return;
+  const float left = -g.originX(), width = static_cast<float>(g.canvasW());
+  const float barY = kOptionsFooterTop - g.originY();
+  auto art = [&](const char* path) { return g.vfs().exists(path) ? g.img(path) : nullptr; };
+  Tex* footerArt = art("console/menu/footer_rail.png");
+  const float railH = footerArt ? 72 : 600 - kOptionsFooterTop;
+  if (!footerArt) footerArt = art("console/secondary/help_bar.png");
+  if (!footerArt) footerArt = art("console/menu/footer.png");
+  if (footerArt) g.drawStretch(footerArt, left, barY, width, railH, Mode(opacity));
+  else {
+    g.fill(left, barY, width, 600 - kOptionsFooterTop, 0x281749, opacity);
+    g.fill(left, barY, width, 12, 0x3d82b9, opacity);
+    g.fill(left, barY, width, 3, 0xabecff, opacity);
+  }
+  Tex* sleeve = art("console/menu/footer_sleeve.png");
+  constexpr const char* font = "OVERLOAD16OUTLINE";
+  float badgeX = left + 66;
+  auto hint = [&](int glyph, const char* key, const char* action) {
+    const float keyW = g.textWidth(font, key) + 18;
+    const float actionW = g.textWidth(font, action);
+    if (sleeve && sleeve->lw() > 80) {
+      if (glyph < 0 && app.pad.pad != Pad::Keys) return;
+      badgeX += drawPromptSleeve(g, badgeX, barY, glyph, key, action, app.pad, opacity);
+      return;
+    }
+    g.fill(badgeX, barY + 14, keyW, 31, 0x231744, opacity);
+    g.frame(badgeX, barY + 14, keyW, 31, 0xd8a55d, opacity);
+    g.fill(badgeX + 2, barY + 16, keyW - 4, 1, 0x75b1df, opacity);
+    g.drawString(font, badgeX + keyW / 2, barY + 35, key, 0xffe7b6, opacity, Align::Center);
+    g.drawString(font, badgeX + keyW + 8, barY + 35, action, 0xffffff, opacity);
+    badgeX += keyW + 24 + actionW;
+  };
+  const bool styled = sleeve && sleeve->lw() > 80;
+  hint(-1, "TAB", styled ? "Move" : "MOVE");
+  hint(0, "ENTER", styled ? "Select" : "SELECT");
+  hint(1, "ESC", nested ? (styled ? "Back" : "BACK") : fromGame ? (styled ? "Resume" : "RESUME") : (styled ? "Done" : "DONE"));
 }
 
 void OptionsDialog::drawLayer(Gfx& g) {
   layout();
+  if (usesConsoleOptionsChrome())
+    g.fill(-g.originX(), -g.originY(), static_cast<float>(g.canvasW()), 600, 0x100d2e,
+           chromeOpacity() * (fromGame ? 0.35f : 0.50f));
   Dialog::drawLayer(g);
-  if (Tex* pw = g.img("IMAGE_DLG_PLAYWIDGET1")) g.drawBox(pw, 0x24, h - pw->lh() - 6, 0x172, pw->lh());
+  if (hasConsoleColumns(w)) {
+    g.fill(insL + 346, 52, 1, h - 82, 0x080f41, 0.8f);
+    g.fill(insL + 347, 52, 1, h - 82, 0x6094cf, 0.28f);
+    g.drawString("OVERLOAD16OUTLINE", insL + 10, music->y - 7, "SOUND OPTIONS", 0xb6efff);
+    g.drawString("OVERLOAD16OUTLINE", insL + 10, fullscreen->y - 8, "DISPLAY, COLOR & CONTROLS", 0xb6efff);
+    g.drawString("OVERLOAD16OUTLINE", yesBtn->x + yesBtn->w / 2, music->y - 7,
+                 fromGame ? "GAME" : "ACTIONS", 0xb6efff, 1, Align::Center);
+  }
 }
 
 void OptionsDialog::sliderChanged(int id, double v) {
@@ -427,18 +548,29 @@ void OptionsDialog::checkboxChanged(int id, bool on) {
   app.applySettings();
 }
 
+void OptionsDialog::fitConsoleQuestion(int id) {
+  if (!usesConsoleOptionsChrome()) return;
+  if (auto* question = app.getDialog(id); question && question->scrollActive && !question->scrollingOff) {
+    const float width = std::max(440.0f, question->w), height = question->preferredHeight(width);
+    question->resize(x + (w - width) / 2, 600, width, height);
+    question->scrollTarget = (kOptionsFooterTop + 40 - height) / 2;
+  }
+}
+
 void OptionsDialog::onButton(int id) {
   if (scrollActive && !scrollingOff) return;
   switch (id) {
-    case 7: app.showHelpScreen(app.hasBoard()); if (!app.hasBoard()) app.finishOptionsDialog(true, true); break;
-    case 12: app.showModsScreen(); app.finishOptionsDialog(true, true); break;
-    case 8: app.doConfirmMainMenuDialog(); break;
-    case 9: app.doConfirmRestartLevelDialog(); break;
-    case 10: app.doConfirmNewChallengeDialog(); break;
+    case 7:
+      app.showHelpScreen(app.hasBoard());
+      if (!app.hasBoard() && app.consoleCanvasWidth() == 800) app.finishOptionsDialog(true, true);
+      break;
+    case 8: app.doConfirmMainMenuDialog(); fitConsoleQuestion(D_ReturnToMenu); break;
+    case 9: app.doConfirmRestartLevelDialog(); fitConsoleQuestion(D_RestartLevel); break;
+    case 10: app.doConfirmNewChallengeDialog(); fitConsoleQuestion(D_NewChallenge); break;
+    case 12: if (modsBtn && modsBtn->visible) app.showModsScreen(); break;
     case 13: app.finishOptionsDialog(true, true); app.showEditor(); break;
     case 14: app.doVisualsDialog(); break;
     case 15: app.requestGameFolders(); break;
-    case 17: app.startDemo(); break;
     case 16:
       app.setHomeGame(app.homeGame == Game::Nights ? Game::Deluxe : Game::Nights);
       updateHomeLabel();

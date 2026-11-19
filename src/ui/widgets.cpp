@@ -171,12 +171,13 @@ bool Checkbox::mouseDown(float lx, float ly, int button, int clicks) {
 
 
 void Slider::setFromX(float lx) {
+  if (!enabled) return;
   float tw = thumb ? thumb->lw() : 20;
   value = std::clamp((lx - tw / 2) / std::max(1.0f, w - tw), 0.0f, 1.0f);
   if (host) host->sliderChanged(id, value);
 }
 bool Slider::mouseDown(float lx, float ly, int button, int clicks) {
-  if (button != 1) return false;
+  if (!enabled || button != 1) return false;
   dragging = true;
   setFromX(lx);
   return true;
@@ -184,7 +185,7 @@ bool Slider::mouseDown(float lx, float ly, int button, int clicks) {
 bool Slider::mouseUp(float lx, float ly, int button) {
   if (!dragging) return false;
   dragging = false;
-  if (host) host->sliderChanged(id, value);
+  if (enabled && host) host->sliderChanged(id, value);
   return true;
 }
 void Slider::mouseMove(float lx, float ly) {
@@ -194,15 +195,16 @@ void Slider::draw(Gfx& g) {
   Tex* bar = g.img("IMAGE_DLG_SLIDER");
   Tex* hi = g.img("IMAGE_DLG_SLIDERHILIGHT");
   Tex* orb = thumb ? thumb : g.img("IMAGE_DLG_SLIDERORB");
+  Mode mode(alpha * (enabled ? 1.0f : 0.4f));
   float bx = -170, by = -2;
-  if (bar) g.draw(bar, bx, by);
-  if (!label.empty()) drawControlLabel(g, *this, "BUTTON", bx + 18, by + 31, label, 1.0f);
+  if (bar) g.draw(bar, bx, by, mode);
+  if (!label.empty()) drawControlLabel(g, *this, "BUTTON", bx + 18, by + 31, label, mode.alpha);
   if (hi && orb) {
     float tw = orb->lw();
-    float cw = std::clamp((float)(int)(value * (w - tw) + 2), 0.0f, hi->lw());
-    g.drawSrc(hi, 0, 0, cw, hi->lh(), 0, 9);
     float ox = (float)(value * (w - tw));
-    g.draw(orb, ox, (h - orb->lh()) / 2);
+    float cw = std::clamp(std::ceil(ox + tw / 2), 0.0f, hi->lw());
+    g.drawSrc(hi, 0, 0, cw, hi->lh(), 0, 9, mode);
+    g.draw(orb, ox, (h - orb->lh()) / 2, mode);
   }
 }
 
@@ -258,18 +260,18 @@ void EditBox::draw(Gfx& g) {
   }
   float asc = g.fontAscent(font);
   float ty = (h + asc * 0.8f) / 2;
-  const float shift = textShift(g);
-  if (clipText) g.pushClip(textPad - 1, 0, w - 2 * textPad + 2, h);
+  const bool clip = clipText || g.textWidth(font, value) > w - 2 * textPad;
+  const float shift = clip ? textShift(g) : 0;
+  if (clip) g.pushClip(textPad - 1, 0, w - 2 * textPad + 2, h);
   if (selectAll && !value.empty()) g.fill(textPad - shift, 0, g.textWidth(font, value) + 2, h, 0x000080);
   g.drawString(font, textPad - shift, ty, value, selectAll ? 0xffffff : ink);
   if (focused && (tick / 40) % 2 == 0) {
     float cx = textPad - shift + g.textWidth(font, value.substr(0, caret));
     g.fill(cx, 3, 1, h - 6, ink);
   }
-  if (clipText) g.popClip();
+  if (clip) g.popClip();
 }
 float EditBox::textShift(Gfx& g) const {
-  if (!clipText) return 0;
   const float room = w - 2 * textPad, all = g.textWidth(font, value);
   if (all <= room) return 0;
   return std::clamp(g.textWidth(font, value.substr(0, (size_t)std::max(0, caret))) - room, 0.0f, all - room);

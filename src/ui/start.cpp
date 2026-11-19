@@ -171,11 +171,13 @@ int gameMessage(App& app, const GameWait& wait, const std::string& text, const s
   FolderBox* raw = box.get();
   const bool alone = !app.anyDialog();
   app.positionDialog(raw, (float)(alone ? 366 : 440));
-  if (alone && app.screenName() == "mainmenu") {
-    raw->x = 410 - raw->w / 2;
-    raw->y = 280;
+  if (app.classicDialogPositions()) {
+    if (alone && app.screenName() == "mainmenu") {
+      raw->x = 410 - raw->w / 2;
+      raw->y = 280;
+    }
+    raw->y = std::max(10.0f, std::min(raw->y, 590 - raw->h));
   }
-  raw->y = std::max(10.0f, std::min(raw->y, 590 - raw->h));
   raw->place();
   raw->doScroll(true);
   app.addDialog(kFolderDialog, std::move(box));

@@ -35,7 +35,7 @@ class DatagramPort {
   virtual int localPort() const = 0;
   virtual void releaseObservers() {}
 };
-std::unique_ptr<DatagramPort> openUdpPort(int bindPort, std::string* err);
+std::unique_ptr<DatagramPort> openUdpPort(int bindPort, std::string* err, bool ipv4Broadcast = false);
 
 struct LinkSim {
   uint32_t seed = 1;
