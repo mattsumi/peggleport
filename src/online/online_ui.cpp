@@ -302,6 +302,7 @@ class OnlineScreen : public Screen {
       if (create) w->y = base.y + (extra > 0 ? kCreateWideDown + (id == B_Go || id == B_Cancel ? kCreateFooterGap : 0) : 0);
     }
     for (auto* b : {bBack_, bCopy_, bReady_, bStart_, bLeave_}) b->y = extra > 0 ? 557.0f : 520.0f;
+    bBack_->visible = bRefresh_->visible = !room_ && !create_ && !console() && (flow_ == Flow::Browse || flow_ == Flow::Custom);
     const bool roomButtons = room_ && !console();
     bCopy_->visible = bLeave_->visible = roomButtons;
     bReady_->visible = roomButtons && !isHost_;
@@ -752,12 +753,11 @@ class OnlineScreen : public Screen {
     bool browse = !room_ && !create_;
     const bool console = flow_ != Flow::Browse, join = flow_ == Flow::Join && browse;
     codeEdit_->visible = browse && (!console || join);
-    for (Button* b : {bRefresh_, bJoin_, bPaste_, bCreate_, bTest_}) b->visible = browse && !console;
+    bCreate_->visible = browse && !console;
     bJoin_->visible = bPaste_->visible = bTest_->visible = codeEdit_->visible;
     if (codeEdit_->visible && !linksRegistered_.has_value()) startOwnerCheck();
     bRegister_->visible = codeEdit_->visible && kUrlRegistration && !linksRegistered_.value_or(false);
     discordCheck_->visible = !console || join;
-    bBack_->visible = browse && !console;
     for (Button* b : {bMode_, bLvlPrev_, bLvlNext_, bMasPrev_, bMasNext_, bGo_, bCancel_, bDestination_}) b->visible = create_;
     if (console) {
       bMode_->visible = create_ && party_;

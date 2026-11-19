@@ -1007,6 +1007,20 @@ static bool aboveOptions(const Panel* p, bool wide, const Dialog* options) {
   return (wide && dynamic_cast<const HelpScreen*>(p)) || (options && dynamic_cast<const ModsScreen*>(p));
 }
 
+bool App::refreshInputCanvas() {
+  int oldW, oldH, w, h;
+  gfx.outputSize(oldW, oldH);
+  gfx.refreshOutputSize();
+  gfx.outputSize(w, h);
+  const int width = canvasOverride_ ? canvasOverride_ : (cur_ ? cur_->canvasWidth() : 800);
+  if (w <= 0 || h <= 0 || (width == canvasW_ && w == oldW && h == oldH)) return false;
+  const float wx = gfx.offX() + mouseX * gfx.scale(), wy = gfx.offY() + mouseY * gfx.scale();
+  gfx.begin(width, cur_ ? cur_->canvasHeight() : 600);
+  canvasW_ = static_cast<float>(width);
+  gfx.toCanvas(wx, wy, mouseX, mouseY);
+  return true;
+}
+
 void App::input(const Input& in) {
   if (in.type == Input::MouseMove || in.type == Input::MouseDown) { mouseX = in.x; mouseY = in.y; }
   if (in.type == Input::KeyDown && in.key == SDLK_F10) {
@@ -1029,19 +1043,9 @@ void App::input(const Input& in) {
   auto* options = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
   Input din = in;
   if (options && !options->fromGame) {
-    int oldW, oldH, w, h;
-    gfx.outputSize(oldW, oldH);
-    gfx.refreshOutputSize();
-    gfx.outputSize(w, h);
-    const int width = canvasOverride_ ? canvasOverride_ : (cur_ ? cur_->canvasWidth() : 800);
-    if (w > 0 && h > 0 && (width != canvasW_ || w != oldW || h != oldH)) {
-      const float s = gfx.scale(), x = gfx.offX(), y = gfx.offY();
-      gfx.begin(width, cur_ ? cur_->canvasHeight() : 600);
-      canvasW_ = static_cast<float>(width);
-      gfx.toCanvas(x + in.x * s, y + in.y * s, din.x, din.y);
-      gfx.toCanvas(x + mouseX * s, y + mouseY * s, mouseX, mouseY);
-    }
-    options->syncPresentation(width);
+    const float wx = gfx.offX() + in.x * gfx.scale(), wy = gfx.offY() + in.y * gfx.scale();
+    if (refreshInputCanvas()) gfx.toCanvas(wx, wy, din.x, din.y);
+    options->syncPresentation(gfx.canvasW());
   }
   din.x -= (canvasW_ - 800) * 0.5f;
   if (overlay_ && overlay_->mouseVisible) {
