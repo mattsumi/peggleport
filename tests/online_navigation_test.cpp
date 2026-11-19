@@ -56,6 +56,7 @@ struct FixtureBrowser {
 #undef RoomBrowser
 #undef Session
 #undef private
+#include "ui/run.cpp"
 
 using namespace pp;
 using namespace pp::ui;
@@ -112,9 +113,25 @@ static void menu(App& app, int width) {
   require(app.screenName() == "online" && !app.anyDialog() && button(app, "Create Room"), "Online footer did not open Browse");
 }
 
-static void resizeWindow(App& app, SDL_Window* window, int width) {
-  require(SDL_SetWindowSize(window, width, 600) && SDL_SyncWindow(window), "resize failed");
-  SDL_PumpEvents(); app.frame();
+static void resizeWindow(SDL_Window* window, int width, int height = 600) {
+  require(SDL_SetWindowSize(window, width, height) && SDL_SyncWindow(window), "resize failed");
+  SDL_PumpEvents();
+}
+
+static void mouse(App& app, SDL_Window* window, Uint32 type, float x, float y) {
+  Live live{window, app.gfx.renderer(), &app, &app.gfx};
+  SDL_Event e{};
+  e.type = type;
+  if (type == SDL_EVENT_MOUSE_MOTION) {
+    e.motion.windowID = SDL_GetWindowID(window);
+    e.motion.x = x; e.motion.y = y;
+  } else {
+    e.button.windowID = SDL_GetWindowID(window);
+    e.button.button = SDL_BUTTON_LEFT;
+    e.button.clicks = 1;
+    e.button.x = x; e.button.y = y;
+  }
+  handleEvent(live, e);
 }
 
 static void roomResize(App& app, SDL_Window* window, bool host) {
@@ -130,7 +147,7 @@ static void roomResize(App& app, SDL_Window* window, bool host) {
   app.setScreen(std::move(screen), App::Stay); settle(app);
   require(view->seated_ == 2 && !button(app, "Leave Room"), "wide room setup");
   auto resize = [&](int width) {
-    resizeWindow(app, window, width);
+    resizeWindow(window, width); app.frame();
     require(app.gfx.canvasW() == width && app.screen() == view && view->sess_.get() == session && view->seated_ == 2, "resize lost room");
   };
   resize(800);
@@ -140,11 +157,19 @@ static void roomResize(App& app, SDL_Window* window, bool host) {
   SeatedSession::ready = SeatedSession::starts = SeatedSession::leaves = 0;
   press(app, action); app.tick();
   require(host ? SeatedSession::starts == 1 : SeatedSession::ready == 1 && button(app, "Ready - waiting") && !button(app, "Ready - waiting")->enabled, "Classic primary action missed");
-  Input held; held.type = Input::MouseDown; held.x = 670; held.y = 535; app.input(held);
-  require(view->capture == view->bLeave_, "Classic Leave did not capture press");
-  resize(1067);
-  held.type = Input::MouseUp; held.x = 937; held.y = 570; app.input(held);
-  require(app.screen() == view && !SeatedSession::leaves, "hidden Classic Leave consumed release");
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, 670, 535);
+  require(view->capture == view->bLeave_ && view->bLeave_->down, "Classic Leave did not capture press");
+  resizeWindow(window, 1067);
+  if (!host) {
+    mouse(app, window, SDL_EVENT_MOUSE_MOTION, 670, 535);
+    require(!view->capture && !view->bLeave_->down, "hidden Leave still captured after motion");
+  }
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, 670, 535);
+  require(app.screen() == view && view->sess_.get() == session && view->seated_ == 2 && !SeatedSession::leaves,
+          "pre-draw release at old Leave rectangle lost session");
+  require(app.gfx.canvasW() == 1067 && !view->capture && !view->bLeave_->down, "hidden Leave retained capture");
+  std::cout << "pre-draw Leave cancelled; same " << (host ? "host" : "guest") << " session\n";
+  app.frame();
   require(!button(app, "Leave Room") && !button(app, "Copy Invite") && !view->bReady_->visible && !view->bStart_->visible &&
           onlinePadKey(app, SDL_GAMEPAD_BUTTON_EAST) == SDLK_ESCAPE, "wide room actions not restored");
   if (host) {
@@ -157,6 +182,27 @@ static void roomResize(App& app, SDL_Window* window, bool host) {
   std::cout << "room click counts: ready=" << SeatedSession::ready << " start=" << SeatedSession::starts << " leave=" << SeatedSession::leaves << '\n';
   require(SeatedSession::leaves == 1 && app.screenName() == "mainmenu" && !app.anyDialog(), "Leave missed");
   settle(app);
+}
+
+static void emptyCustom(App& app, SDL_Window* window) {
+  showOnline(app, Flow::Custom, false);
+  settle(app);
+  auto* view = dynamic_cast<OnlineScreen*>(app.screen());
+  require(view && view->console() && view->rooms_.empty() && !button(app, "Main Menu") && !button(app, "Refresh"), "wide Custom setup");
+  for (int i = 0; i <= 200; ++i) app.tick();
+  resizeWindow(window, 800); app.frame();
+  require(view->flow_ == Flow::Custom && view->prompts_.empty() && button(app, "Main Menu") && button(app, "Refresh"),
+          "empty narrowed Custom list has no Classic navigation");
+  view->hold("Waiting", 0, true);
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, 650, 95);
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, 650, 95);
+  require(!view->held_ && app.screen() == view && view->rooms_.empty(), "empty Custom Refresh missed");
+  resizeWindow(window, 600, 450);
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, 90, 405);
+  require(view->capture == view->bBack_, "scaled pre-draw press missed Main Menu");
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, 90, 405);
+  require(app.screenName() == "mainmenu" && !app.anyDialog(), "empty Custom mouse exit missed");
+  std::cout << "empty Custom: Refresh and scaled Main Menu clicks passed\n";
 }
 
 static void quick(App& app, bool back) {
@@ -189,11 +235,7 @@ static void quick(App& app, bool back) {
           app.screenName() == (back ? "mainmenu" : "online") && !app.anyDialog(), "Quick Match list completion");
 }
 
-int main(int argc, char** argv) {
-  if (argc != 5) return 2;
-  SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy", SDL_HINT_OVERRIDE);
-  if (!SDL_Init(SDL_INIT_VIDEO)) return 2;
-  auto scratch = fs::path(argv[4]) / ("nav-" + std::to_string(SDL_GetPerformanceCounter()));
+static int navigation(char** argv, const fs::path& scratch) {
   int failures = 0;
   for (auto game : {Game::Deluxe, Game::Nights}) {
     const bool nights = game == Game::Nights;
@@ -218,17 +260,37 @@ int main(int argc, char** argv) {
       };
       check([&] { menu(app, width); });
       if (width > 800) for (bool host : {true, false}) check([&] {
-        resizeWindow(app, window.get(), width);
+        resizeWindow(window.get(), width); app.frame();
         roomResize(app, window.get(), host);
       });
       if (width > 800) {
-        resizeWindow(app, window.get(), width);
+        resizeWindow(window.get(), width); app.frame();
+        check([&] { emptyCustom(app, window.get()); });
+        resizeWindow(window.get(), width); app.frame();
         for (bool back : {false, true}) check([&] { quick(app, back); });
       }
     }
   }
-  fs::remove_all(scratch);
-  SDL_Quit();
   std::cout << "failures=" << failures << '\n';
   return failures != 0;
+}
+
+int main(int argc, char** argv) {
+  if (argc != 5) return 2;
+  SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy", SDL_HINT_OVERRIDE);
+  if (!SDL_Init(SDL_INIT_VIDEO)) return 2;
+  const fs::path parent = argv[4], scratch = parent / "navigation";
+  std::error_code ec;
+  fs::create_directories(parent, ec);
+  int result = 1;
+  if (ec || !fs::create_directory(scratch, ec)) {
+    std::cerr << "Need a fresh navigation fixture: " << scratch << '\n';
+  } else {
+    try { result = navigation(argv, scratch); }
+    catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; }
+    fs::remove_all(scratch, ec);
+    if (ec) { std::cerr << ec.message() << '\n'; result = 1; }
+  }
+  SDL_Quit();
+  return result;
 }

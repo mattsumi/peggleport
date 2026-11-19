@@ -186,6 +186,8 @@ static void handleEvent(Live& L, SDL_Event& e) {
   if (handleGamepad(L, e)) return;
   App& app = *L.app;
   Gfx& gfx = *L.gfx;
+  const bool mouse = e.type == SDL_EVENT_MOUSE_MOTION || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP;
+  if (mouse) app.refreshInputCanvas();
   SDL_ConvertEventToRenderCoordinates(L.ren, &e);
   Input in;
   bool have = false;
@@ -227,7 +229,7 @@ static void handleEvent(Live& L, SDL_Event& e) {
     default: break;
   }
   if (!have) return;
-  if (in.type == Input::MouseMove || in.type == Input::MouseDown || in.type == Input::MouseUp) gfx.toCanvas(in.wx, in.wy, in.x, in.y);
+  if (mouse) gfx.toCanvas(in.wx, in.wy, in.x, in.y);
   else if (in.type == Input::Wheel) { in.x = app.mouseX; in.y = app.mouseY; }
   app.input(in);
 }

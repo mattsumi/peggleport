@@ -107,7 +107,10 @@ int main(int argc, char** argv) {
   }
   try {
     const auto source = fs::canonical(pathFromUtf8(argv[2]));
-    const auto output = fs::weakly_canonical(fs::absolute(pathFromUtf8(argv[3])));
+    const auto requested = pathFromUtf8(argv[3]);
+    if (std::find(requested.begin(), requested.end(), fs::path("..")) != requested.end())
+      throw std::runtime_error("Choose an output folder without .. components");
+    const auto output = fs::weakly_canonical(fs::absolute(requested));
     for (auto parent = output; ; parent = parent.parent_path()) {
       if (fs::exists(parent / ".git")) throw std::runtime_error("Choose a new output folder outside any Git checkout");
       if (parent == parent.root_path()) break;

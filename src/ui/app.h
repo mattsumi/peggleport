@@ -127,6 +127,7 @@ class App : public WidgetHost {
   int frameCanvasWidth(int boardCanvas) const;
   float pointerOnCanvas(int canvasW) const;
   void frame(int canvasW = 0);
+  bool refreshInputCanvas();
   void input(const Input& in);
   void shutdown();
   bool wantsQuit() const { return quit_; }

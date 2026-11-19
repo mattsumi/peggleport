@@ -28,6 +28,11 @@ def check(executable):
         assert b'IMAGE_TEST' in index and (staged / 'LEVELS/TEST.tga').is_file()
         assert export(staged).returncode != 0 and (staged / 'art.tsv').read_bytes() == index
         assert export(game / 'reference').returncode != 0 and not (game / 'reference').exists()
+        parent = root / 'ordinary'
+        parent.mkdir()
+        result = export(parent / '..' / 'ambiguous-output')
+        assert result.returncode != 0 and 'without ..' in result.stderr, result
+        assert not (root / 'ambiguous-output').exists()
         for output, cwd in ((checkout / 'nested/reference', root), ('relative', checkout), (checkout, root)):
             result = export(output, cwd)
             assert result.returncode != 0 and 'outside any Git checkout' in result.stderr, (output, result)
