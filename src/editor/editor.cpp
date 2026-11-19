@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <climits>
+#include <charconv>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -242,8 +243,19 @@ std::string Editor::artPath(ArtSlot slot, const std::string& value) const {
   return "";
 }
 bool Editor::hasImportedBackground() const {
-  const auto& name = meta.background;
-  return name.starts_with("imported_") && name.size() > 9 && name.find_first_not_of("0123456789_", 9) == std::string::npos;
+  std::string_view name(meta.background);
+  if (!name.starts_with("imported_")) return false;
+  name.remove_prefix(9);
+  auto canonical = [](std::string_view s, auto value) {
+    if (s.empty() || (s.size() > 1 && s.front() == '0')) return false;
+    auto [p, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+    return ec == std::errc{} && p == s.data() + s.size();
+  };
+  const auto split = name.find('_');
+  if (!canonical(name.substr(0, split), uint64_t{})) return false;
+  if (split == name.npos) return true;
+  const auto suffix = name.substr(split + 1);
+  return suffix != "0" && canonical(suffix, unsigned{});
 }
 
 static std::string backgroundKey(const std::vector<uint8_t>& bytes) {

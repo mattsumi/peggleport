@@ -99,7 +99,31 @@ static void backgroundFiles(const fs::path& root) {
   fs::create_directories(exports);
   std::ofstream(exports / (a + ".tga")) << "unrelated";
   check(e.saveJson(exports / "Travel.json", &err) && e.saveDat(dat, &err), "export JSON and DAT after moving originals");
+  const fs::path named = folder / "Named", portable = folder / "NamedCopy";
+  fs::create_directories(named / "levels");
+  fs::copy_file(library / (a + ".tga"), named / "levels/imported_01.tga");
+  Editor legacy;
+  legacy.newLevel("Legacy");
+  Vfs mounted;
+  check(mounted.mountMod(named, &err), "mount hand-named background");
+  legacy.setVfs(&mounted);
+  legacy.setArt(Editor::ArtSlot::Background, "imported_01");
+  const auto loose = named / "Legacy.dat", json = named / "Legacy.json";
+  check(legacy.saveDat(loose, &err) && legacy.loadDatFile(loose, &err) && legacy.meta.background == "imported_01", "hand-named DAT save and reload");
+  check(legacy.saveJson(json, &err) && legacy.loadJson(json, &err) && legacy.meta.background == "imported_01", "hand-named JSON save and reload");
+  check(legacy.saveToMod(portable, &err) && legacy.loadDatFile(portable / "levels/Legacy.dat", &err) && legacy.meta.background == "imported_01" && fileBytes(portable / "levels/imported_01.tga") == one, "mod reload keeps the hand-named background and its exact bytes");
+  {
+    const auto managed = library / (a + ".tga");
+    const auto probe = folder / "damaged" / "Travel.dat";
+    fs::create_directories(probe.parent_path());
+    fs::copy_file(dat, probe);
+    fs::copy_file(dat.parent_path() / "Travel.ini", probe.parent_path() / "Travel.ini");
+    fs::copy_file(library / (b + ".tga"), probe.parent_path() / managed.filename());
+    Editor damaged;
+    check(damaged.loadDatFile(probe, &err) && !damaged.saveToMod(folder / "Corrupt", &err) && err.find(a) != err.npos, "reopened generated key with substituted bytes still fails closed");
+  }
   fs::remove_all(library);
+  check(!e.saveToMod(folder / "Missing", &err) && err.find(a) != std::string::npos && !fs::exists(folder / "Missing/levels/Travel.dat"), "missing managed import still blocks export");
   for (bool json : {false, true}) {
     Editor reopened;
     check(json ? reopened.loadJson(exports / "Travel.json", &err) : reopened.loadDatFile(dat, &err), "fresh editor loads portable export");
