@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 
 #include "profile.h"
@@ -26,7 +27,7 @@ struct GameCopyResult {
 
 std::filesystem::path gameCopyFolder(const std::filesystem::path& dataDir, Game g);
 GameCopyCheck checkGameCopy(const std::filesystem::path& copyDir);
-GameCopyResult collectGameFiles(const std::filesystem::path& installDir, const std::filesystem::path& copyDir);
+GameCopyResult collectGameFiles(const std::filesystem::path& installDir, const std::filesystem::path& copyDir, Game game, const std::function<bool()>& saveSelection);
 void discardGameCopy(const std::filesystem::path& copyDir);
 bool sameFolder(const std::filesystem::path& a, const std::filesystem::path& b);
 bool foldersOverlap(const std::filesystem::path& a, const std::filesystem::path& b);

@@ -48,6 +48,7 @@ class GameFolders {
   void setHome(Game g);
   const FoundGames& lastSearch() const { return lastSearch_; }
   bool gameToOpen(Game& g) const;
+  bool recoverLaunch(Game& game, bool required, const std::string& problem);
   bool askForAnyGame(const std::string& problem = std::string());
   bool askForGame(Game g);
   std::optional<Game> chooseFolders(Game running);
@@ -57,11 +58,10 @@ class GameFolders {
 
  private:
   int ask(const std::string& title, const std::string& text, const std::vector<std::string>& buttons, bool problem);
-  int adopt(const std::filesystem::path& chosen);
+  int adopt(const std::filesystem::path& chosen, std::string& problem);
   std::filesystem::path writeStartLog() const;
   std::filesystem::path copyFolder(Game g) const;
-  void keepCopy(Game g);
-  void remember(Game g, const std::filesystem::path& dir);
+  bool remember(Game g, const std::filesystem::path& dir, std::string& problem);
   void tellNoChooser();
   std::filesystem::path startFolder(Game g) const;
 
@@ -73,7 +73,6 @@ class GameFolders {
   std::filesystem::path install_[kGameCount];
   bool fromCopy_[kGameCount] = {};
   bool retried_[kGameCount] = {};
-  bool copyBlocked_ = false;
   FoundGames lastSearch_;
   SDL_Window* window_ = nullptr;
   App* app_ = nullptr;

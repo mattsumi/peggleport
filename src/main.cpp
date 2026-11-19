@@ -87,6 +87,7 @@ int main(int argc, char** argv) {
     if (edition) {
       request.game = *edition;
       play = folders.has(*edition) || folders.askForGame(*edition);
+      if (!play) exitCode = 1;
       if (play && pp::combinedEdition(*edition)) folders.setHome(*edition);
     } else {
       play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
@@ -101,13 +102,10 @@ int main(int argc, char** argv) {
         window.dropLeftGame();
         if (folders.copyFailed(request.game)) continue;
         std::string problem = std::string("The game files in ") + pp::pathToUtf8(dir) + " could not be loaded: " + reason;
-        folders.drop(request.game);
-        request = pp::ui::GameRequest();
-        if (folders.gameToOpen(request.game)) {
-          folders.tell(problem);
+        if (folders.recoverLaunch(request.game, edition.has_value(), problem)) {
+          request.start = {};
           continue;
         }
-        if (folders.askForAnyGame(problem + "\n\nChoose the folder that holds main.pak.") && folders.gameToOpen(request.game)) continue;
         exitCode = 1;
         break;
       }
@@ -122,6 +120,7 @@ int main(int argc, char** argv) {
       }
       if (result != pp::ui::RunResult::SwitchGame) break;
       window.keepFiles(vfs);
+      edition.reset();
       request = next;
     }
   }

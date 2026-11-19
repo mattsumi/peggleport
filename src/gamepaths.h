@@ -32,7 +32,7 @@ std::filesystem::path pathFromUtf8(const std::string& s);
 
 bool hasMainPak(const std::filesystem::path& dir);
 std::filesystem::path resolveGameDir(const std::filesystem::path& given);
-std::optional<Game> classifyGameDir(const std::filesystem::path& dir);
+std::optional<Game> classifyGameDir(const std::filesystem::path& dir, bool* wowDonor = nullptr);
 std::vector<std::string> gameFolderNames(Game g);
 std::filesystem::path findGameIn(const std::filesystem::path& parent, Game g);
 

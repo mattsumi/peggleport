@@ -6,10 +6,13 @@
 #include <exception>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <system_error>
 #include <utility>
 
 #include "gamepaths.h"
+#include "level.h"
+#include "ui/cfg.h"
 #include "vfs.h"
 
 #ifdef _WIN32
@@ -266,9 +269,10 @@ struct Finder {
     FindLook& l = out.looks[add(kind, dir, from, spot.seen, guessed, i)];
     l.there = spot.there;
     if (!wanted(i) || spot.game.empty()) return;
-    const auto seen = classifyGameDir(spot.game);
+    bool donor;
+    const auto seen = classifyGameDir(spot.game, &donor);
     if (!seen) {
-      l.seen = "World of Warcraft Edition is a level pack source, not a built-in game";
+      l.seen = donor ? "World of Warcraft Edition is a level pack source, not a built-in game" : "main.pak is unreadable or not a recognized Peggle game";
       return;
     }
     if (seen != gameAt(i)) {
@@ -632,31 +636,54 @@ fs::path resolveGameDir(const fs::path& given) {
   return {};
 }
 
-std::optional<Game> classifyGameDir(const fs::path& dir) {
+std::optional<Game> classifyGameDir(const fs::path& dir, bool* wowDonor) {
+  if (wowDonor) *wowDonor = false;
   Pak pak;
-  if (loadPak(dir / "main.pak", pak, nullptr)) {
-    for (const auto& e : pak.entries) {
-      const auto key = normKey(e.name);
-      if (key == "LEVELS\\BJORNNHEAVY.DAT") return Game::Extreme;
-      if (key == "LEVELS\\HOGGER.DAT") return std::nullopt;
-      if (key == "LEVELS\\BJORN1.DAT") return Game::Nights;
-      if (key == "LEVELS\\LEVEL1.DAT") return Game::Deluxe;
+  if (dir.empty() || !loadPak(dir / "main.pak", pak, nullptr)) return {};
+  const PakEntry* stages = nullptr;
+  std::map<std::string, const PakEntry*> boards;
+  for (const auto& e : pak.entries) {
+    auto key = normKey(e.name);
+    if (key == "LEVELS\\STAGES.CFG") {
+      if (stages) return {};
+      stages = &e;
+    }
+    if (key.starts_with("LEVELS\\") && key.ends_with(".DAT") && !boards.emplace(key, &e).second) return {};
+  }
+  const PakEntry* signature = nullptr;
+  std::optional<Game> game;
+  const std::pair<const char*, std::optional<Game>> markers[] = {
+      {"LEVELS\\LEVEL1.DAT", Game::Deluxe}, {"LEVELS\\BJORN1.DAT", Game::Nights}, {"LEVELS\\BJORNNHEAVY.DAT", Game::Extreme}, {"LEVELS\\HOGGER.DAT", {}}};
+  for (const auto& [key, edition] : markers) {
+    auto it = boards.find(key);
+    if (it == boards.end()) continue;
+    if (signature) return {};
+    signature = it->second;
+    game = edition;
+  }
+  auto base = boards.find("LEVELS\\_BASE.DAT");
+  if (!signature || !stages || base == boards.end()) return {};
+  auto validLevel = [&](const PakEntry& e) {
+    auto first = pak.data.begin() + e.offset;
+    return parseLevel({first, first + e.size}).has_value();
+  };
+  if (!validLevel(*base->second)) return {};
+  const auto first = pak.data.begin() + stages->offset;
+  bool listed = false;
+  for (const auto& stage : ui::cfgParse({first, first + stages->size})) {
+    if (!stage.isGroup || lower(stage.key) != "stage") continue;
+    for (const auto& item : stage.kids) {
+      if (item.isGroup || lower(item.key) != "level") continue;
+      auto fields = ui::cfgValues(item.label);
+      if (fields.empty()) return {};
+      auto board = boards.find(normKey("levels/" + fields.front() + ".dat"));
+      if (board == boards.end() || !validLevel(*board->second)) return {};
+      if (board->second == signature) listed = true;
     }
   }
-  auto isNights = [](const std::string& n) { return lower(n).find("nights") != std::string::npos; };
-  if (isNights(leafName(dir))) return Game::Nights;
-  fs::path p = dir;
-  if (!p.has_filename()) p = p.parent_path();
-  if (lower(leafName(p)) == "resources" && lower(leafName(p.parent_path())) == "contents" && isNights(leafName(p.parent_path().parent_path()))) return Game::Nights;
-  std::error_code ec;
-  for (fs::directory_iterator it(dir / "levelpacks", ec), end; !ec && it != end; it.increment(ec)) {
-    std::error_code e2;
-    if (it->is_regular_file(e2) && lower(pathToUtf8(it->path().extension())) == ".pak") return Game::Nights;
-  }
-  ec.clear();
-  for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
-    if (isNights(pathToUtf8(it->path().filename()))) return Game::Nights;
-  return Game::Deluxe;
+  if (!listed) return {};
+  if (wowDonor) *wowDonor = !game;
+  return game;
 }
 
 std::vector<std::string> gameFolderNames(Game g) {
@@ -867,7 +894,8 @@ bool GameFolderStore::save(const fs::path& file) const {
     if (!o) return false;
     for (int i = 0; i < kGameCount; ++i) o << gameKey(gameAt(i)) << '=' << pathToUtf8(dir[i]) << '\n';
     o << "Home=" << gameKey(home) << '\n';
-    if (!o) return false;
+    o.close();
+    if (!o) { fs::remove(tmp, ec); return false; }
   }
   fs::rename(tmp, file, ec);
   if (ec) {

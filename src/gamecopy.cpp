@@ -7,15 +7,12 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
-#include <set>
 #include <string>
 #include <system_error>
-#include <thread>
 #include <utility>
 #include <vector>
 
 #include "gamepaths.h"
-#include "vfs.h"
 
 namespace pp {
 
@@ -30,7 +27,6 @@ constexpr int kMaxDepth = 8;
 constexpr std::uintmax_t kMaxManifestBytes = 4u << 20;
 constexpr std::uint64_t kReserveBytes = 4u << 20;
 constexpr std::uint32_t kPakMagic = 0xBAC04AC0u;
-constexpr int kRenameTries = 6;
 
 struct Item {
   std::string rel;
@@ -143,24 +139,6 @@ bool parseHex(const std::string& s, std::uint32_t& out) {
   return true;
 }
 
-bool replaceFile(const fs::path& from, const fs::path& to) {
-  for (int attempt = 0; attempt < kRenameTries; attempt++) {
-    std::error_code ec;
-    fs::rename(from, to, ec);
-    if (!ec) return true;
-    fs::remove(to, ec);
-    ec.clear();
-    fs::rename(from, to, ec);
-    if (!ec) return true;
-#ifdef _WIN32
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-#else
-    break;
-#endif
-  }
-  return false;
-}
-
 bool listFolder(const fs::path& dir, const std::string& rel, int depth, std::vector<Item>& out, std::string& why) {
   std::error_code ec;
   std::vector<fs::path> entries;
@@ -246,7 +224,7 @@ bool listGameFiles(const fs::path& install, std::vector<Item>& out, std::string&
   return true;
 }
 
-bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::string& why) {
+bool copyOne(Item& item, const fs::path& copyDir, std::string& why) {
   const fs::path dest = copyDir / pathFromUtf8(item.rel);
   std::error_code ec;
   fs::create_directories(dest.parent_path(), ec);
@@ -259,12 +237,12 @@ bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::str
   bool ok = true;
   {
     std::ifstream in(item.path, std::ios::binary);
-    std::ofstream out(part, std::ios::binary | std::ios::trunc);
+    std::ofstream out(dest, std::ios::binary | std::ios::trunc);
     if (!in) {
       why = "cannot read " + pathToUtf8(item.path);
       ok = false;
     } else if (!out) {
-      why = "cannot write " + pathToUtf8(part);
+      why = "cannot write " + pathToUtf8(dest);
       ok = false;
     } else {
       std::vector<char> buf(kChunk);
@@ -274,7 +252,7 @@ bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::str
         if (n <= 0) break;
         out.write(buf.data(), n);
         if (!out) {
-          why = "cannot write " + pathToUtf8(part);
+          why = "cannot write " + pathToUtf8(dest);
           ok = false;
           break;
         }
@@ -288,7 +266,7 @@ bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::str
       if (ok) {
         out.close();
         if (out.fail()) {
-          why = "cannot write " + pathToUtf8(part);
+          why = "cannot write " + pathToUtf8(dest);
           ok = false;
         }
       }
@@ -298,15 +276,7 @@ bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::str
     why = pathToUtf8(item.path) + " changed while it was copied";
     ok = false;
   }
-  if (!ok) {
-    fs::remove(part, ec);
-    return false;
-  }
-  if (!replaceFile(part, dest)) {
-    fs::remove(part, ec);
-    why = "cannot put " + pathToUtf8(dest) + " in place";
-    return false;
-  }
+  if (!ok) return false;
   const std::uintmax_t written = fs::file_size(dest, ec);
   if (ec || (std::uint64_t)written != got) {
     why = pathToUtf8(dest) + " was not written completely";
@@ -316,53 +286,17 @@ bool copyOne(Item& item, const fs::path& copyDir, const fs::path& part, std::str
   return true;
 }
 
-bool writeManifest(const fs::path& copyDir, const fs::path& source, const std::vector<Item>& items, std::uint64_t total, const fs::path& part, std::string& why) {
+bool writeManifest(const fs::path& copyDir, const fs::path& source, const std::vector<Item>& items, std::uint64_t total, std::string& why) {
   std::string text = std::string(kManifestHead) + "\n";
   text += "source=" + pathToUtf8(source) + "\n";
   for (auto& item : items) text += "file=" + std::to_string(item.size) + "\t" + hex8(item.crc) + "\t" + item.rel + "\n";
   text += "end=" + std::to_string(items.size()) + "\t" + std::to_string(total) + "\n";
-  {
-    std::ofstream o(part, std::ios::binary | std::ios::trunc);
-    if (!o) {
-      why = "cannot write " + pathToUtf8(part);
-      return false;
-    }
-    o.write(text.data(), (std::streamsize)text.size());
-    o.close();
-    if (o.fail()) {
-      why = "cannot write " + pathToUtf8(part);
-      std::error_code ec;
-      fs::remove(part, ec);
-      return false;
-    }
-  }
-  if (!replaceFile(part, copyDir / kManifestName)) {
-    std::error_code ec;
-    fs::remove(part, ec);
-    why = "cannot put the manifest in place";
-    return false;
-  }
-  return true;
-}
-
-void pruneCopy(const fs::path& copyDir, const std::set<std::string>& keep) {
-  std::error_code ec;
-  std::vector<fs::path> files, dirs;
-  for (fs::recursive_directory_iterator walk(copyDir, ec), end; !ec && walk != end; walk.increment(ec)) {
-    std::error_code e2;
-    if (walk->is_directory(e2) && !walk->is_symlink(e2)) dirs.push_back(walk->path());
-    else files.push_back(walk->path());
-  }
-  for (auto& f : files) {
-    std::error_code e2;
-    const std::string rel = genericUtf8(f.lexically_relative(copyDir));
-    if (!keep.count(rel)) fs::remove(f, e2);
-  }
-  std::sort(dirs.begin(), dirs.end(), [](const fs::path& a, const fs::path& b) { return a.native().size() > b.native().size(); });
-  for (auto& d : dirs) {
-    std::error_code e2;
-    fs::remove(d, e2);
-  }
+  const auto manifest = copyDir / kManifestName;
+  std::ofstream out(manifest, std::ios::binary);
+  out.write(text.data(), (std::streamsize)text.size());
+  out.close();
+  if (out.fail()) why = "cannot write " + pathToUtf8(manifest);
+  return !out.fail();
 }
 
 bool pakStartsRight(const fs::path& pak) {
@@ -523,7 +457,7 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
   return c;
 }
 
-GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copyDir) {
+GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copyDir, Game game, const std::function<bool()>& saveSelection) {
   GameCopyResult r;
   if (foldersOverlap(installDir, copyDir)) {
     r.why = "the game folder and its copy overlap";
@@ -544,40 +478,57 @@ GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copy
     total += item.size;
   }
   std::error_code ec;
-  fs::create_directories(copyDir, ec);
-  if (ec || !fs::is_directory(copyDir, ec)) {
-    r.why = "cannot make the folder " + pathToUtf8(copyDir);
+  const auto parent = copyDir.parent_path();
+  fs::create_directories(parent, ec);
+  if (ec) {
+    r.why = "cannot make the folder " + pathToUtf8(parent);
     return r;
   }
-  const fs::space_info room = fs::space(copyDir, ec);
+  const fs::space_info room = fs::space(parent, ec);
   if (!ec && room.available != static_cast<std::uintmax_t>(-1) && (std::uint64_t)room.available < total + kReserveBytes) {
     r.why = "there is no room: " + megabytes(total) + " are needed and " + megabytes((std::uint64_t)room.available) + " are free";
     return r;
   }
-  const fs::path manifest = copyDir / kManifestName;
-  fs::remove(manifest, ec);
-  if (fs::exists(manifest, ec)) {
-    r.why = "cannot update the copy in " + pathToUtf8(copyDir);
-    return r;
-  }
-  std::set<std::string> keep;
-  for (auto& item : items) keep.insert(item.rel);
-  pruneCopy(copyDir, keep);
-  const fs::path staging = copyDir / ".collect-part";
+  fs::path staging = copyDir;
+  staging += ".collect-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
   if (!fs::create_directory(staging, ec)) {
     r.why = "cannot make the folder " + pathToUtf8(staging);
     return r;
   }
-  const fs::path part = staging / "file";
+  const auto next = staging / "next", previous = staging / "previous";
   for (auto& item : items) {
-    if (!copyOne(item, copyDir, part, r.why)) {
+    if (!copyOne(item, next, r.why)) {
       fs::remove_all(staging, ec);
       return r;
     }
   }
-  const bool written = writeManifest(copyDir, installDir, items, total, part, r.why);
+  if (!writeManifest(next, installDir, items, total, r.why) || classifyGameDir(next) != game || checkGameCopy(next).state != GameCopyCheck::State::Intact) {
+    if (r.why.empty()) r.why = "the copied files are not a valid copy of " + std::string(gameTitle(game));
+    fs::remove_all(staging, ec);
+    return r;
+  }
+  const bool replacing = fs::exists(copyDir, ec);
+  if (replacing && !ec) fs::rename(copyDir, previous, ec);
+  if (ec) {
+    r.why = "cannot move the previous copy: " + ec.message();
+  } else {
+    fs::rename(next, copyDir, ec);
+    if (ec) {
+      r.why = "cannot replace the copy: " + ec.message();
+    } else if (!saveSelection()) {
+      r.why = "cannot save the game folders";
+      fs::rename(copyDir, next, ec);
+    }
+    if (!r.why.empty() && replacing) {
+      fs::rename(previous, copyDir, ec);
+      if (ec) {
+        r.why += "; the previous copy is still in " + pathToUtf8(previous);
+        return r;
+      }
+    }
+  }
   fs::remove_all(staging, ec);
-  if (!written) return r;
+  if (!r.why.empty()) return r;
   r.ok = true;
   r.files = items.size();
   r.bytes = total;

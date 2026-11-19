@@ -12,9 +12,12 @@
 #include <string>
 #include <string_view>
 
+int launcherTest(const std::filesystem::path& scratch);
+
 int main(int argc, char** argv) {
+  if (argc == 3 && std::string_view(argv[1]) == "--launcher") return launcherTest(pp::pathFromUtf8(argv[2]));
   if (argc != 4 && argc != 7 && argc != 8) {
-    std::cerr << "Usage: pp_edition_test EXTREME WOW STEAM [DELUXE NIGHTS PEGO_MOD [WOW_MOD]]\n";
+    std::cerr << "Usage: pp_edition_test EXTREME WOW STEAM [DELUXE NIGHTS PEGO_MOD [WOW_MOD]]\n       pp_edition_test --launcher NEW_ABSOLUTE_SCRATCH_DIR\n";
     return 2;
   }
   const auto check = [](bool pass, std::string_view why) {
