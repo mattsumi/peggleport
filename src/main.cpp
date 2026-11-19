@@ -88,7 +88,6 @@ int main(int argc, char** argv) {
       request.game = *edition;
       play = folders.has(*edition) || folders.askForGame(*edition);
       if (!play) exitCode = 1;
-      if (play && pp::combinedEdition(*edition)) folders.setHome(*edition);
     } else {
       play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
     }
@@ -110,6 +109,7 @@ int main(int argc, char** argv) {
         exitCode = 1;
         break;
       }
+      if (edition && pp::combinedEdition(*edition)) folders.setHome(*edition);
       if (!base.empty()) vfs->mountPresentation(base / "presentation");
       pp::log::info("start", std::string("Opening ") + pp::gameTitle(request.game) + " from " + pp::pathToUtf8(dir));
       std::string error;

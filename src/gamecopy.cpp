@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "gamepaths.h"
+#include "gamefind.h"
 
 namespace pp {
 
@@ -299,6 +299,12 @@ bool writeManifest(const fs::path& copyDir, const fs::path& source, const std::v
   return !out.fail();
 }
 
+bool managedFolder(const fs::path& dir) {
+  std::ifstream in(dir / kManifestName, std::ios::binary);
+  char head[32];
+  return in.getline(head, sizeof head) && std::string(head) == kManifestHead;
+}
+
 bool pakStartsRight(const fs::path& pak) {
   std::ifstream f(pak, std::ios::binary);
   unsigned char h[8];
@@ -342,10 +348,15 @@ std::vector<std::string> splitLines(const std::string& text) {
 
 }
 
-fs::path gameCopyFolder(const fs::path& dataDir, Game g) { return dataDir / "gamefiles" / gameTitle(g); }
+fs::path gameCopyFolder(const fs::path& dataDir, Game g, bool alternate) {
+  fs::path copy = dataDir / "gamefiles" / gameTitle(g);
+  if (alternate) copy += ".alternate";
+  return copy;
+}
 
 bool sameFolder(const fs::path& a, const fs::path& b) {
   if (a.empty() || b.empty()) return false;
+  if (a == b) return true;
   std::error_code ec;
   if (fs::equivalent(a, b, ec)) return true;
   const fs::path ca = fs::weakly_canonical(a, ec);
@@ -369,12 +380,6 @@ bool foldersOverlap(const fs::path& a, const fs::path& b) {
     if (p == p.parent_path()) break;
   }
   return false;
-}
-
-void discardGameCopy(const fs::path& copyDir) {
-  if (!pathHasNoLinks(copyDir)) return;
-  std::error_code ec;
-  fs::remove(copyDir / kManifestName, ec);
 }
 
 GameCopyCheck checkGameCopy(const fs::path& copyDir) {
@@ -457,9 +462,11 @@ GameCopyCheck checkGameCopy(const fs::path& copyDir) {
   return c;
 }
 
-GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copyDir, Game game, const std::function<bool()>& saveSelection) {
+GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& dataDir, Game game, bool activeAlternate, const std::function<bool()>& saveSelection) {
   GameCopyResult r;
-  if (foldersOverlap(installDir, copyDir)) {
+  const auto active = gameCopyFolder(dataDir, game, activeAlternate);
+  const auto copyDir = gameCopyFolder(dataDir, game, !activeAlternate);
+  if (foldersOverlap(installDir, active) || foldersOverlap(installDir, copyDir)) {
     r.why = "the game folder and its copy overlap";
     return r;
   }
@@ -471,7 +478,7 @@ GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copy
   if (!listGameFiles(installDir, items, r.why)) return r;
   std::uint64_t total = 0;
   for (auto& item : items) {
-    if (foldersOverlap(item.path, copyDir)) {
+    if (foldersOverlap(item.path, active) || foldersOverlap(item.path, copyDir)) {
       r.why = "a game file and its copy overlap";
       return r;
     }
@@ -495,38 +502,35 @@ GameCopyResult collectGameFiles(const fs::path& installDir, const fs::path& copy
     r.why = "cannot make the folder " + pathToUtf8(staging);
     return r;
   }
-  const auto next = staging / "next", previous = staging / "previous";
+  const auto next = staging / "next";
   for (auto& item : items) {
     if (!copyOne(item, next, r.why)) {
       fs::remove_all(staging, ec);
       return r;
     }
   }
-  if (!writeManifest(next, installDir, items, total, r.why) || classifyGameDir(next) != game || checkGameCopy(next).state != GameCopyCheck::State::Intact) {
+  if (!writeManifest(next, installDir, items, total, r.why) || !validateCampaign(next, game, r.why) || checkGameCopy(next).state != GameCopyCheck::State::Intact) {
     if (r.why.empty()) r.why = "the copied files are not a valid copy of " + std::string(gameTitle(game));
     fs::remove_all(staging, ec);
     return r;
   }
-  const bool replacing = fs::exists(copyDir, ec);
-  if (replacing && !ec) fs::rename(copyDir, previous, ec);
-  if (ec) {
-    r.why = "cannot move the previous copy: " + ec.message();
-  } else {
-    fs::rename(next, copyDir, ec);
-    if (ec) {
-      r.why = "cannot replace the copy: " + ec.message();
-    } else if (!saveSelection()) {
-      r.why = "cannot save the game folders";
-      fs::rename(copyDir, next, ec);
+  if (fs::exists(copyDir, ec) && !ec) {
+    if (!fs::is_directory(copyDir, ec) || (!fs::is_empty(copyDir, ec) && !managedFolder(copyDir))) {
+      r.why = "the copy destination is not a managed folder: " + pathToUtf8(copyDir);
+      fs::remove_all(staging, ec);
+      return r;
     }
-    if (!r.why.empty() && replacing) {
-      fs::rename(previous, copyDir, ec);
-      if (ec) {
-        r.why += "; the previous copy is still in " + pathToUtf8(previous);
-        return r;
-      }
-    }
+    if (!ec) fs::rename(copyDir, staging / "retired", ec);
   }
+  if (!ec) fs::rename(next, copyDir, ec);
+  if (ec) {
+    r.why = "cannot publish the copy: " + ec.message();
+  } else if (!saveSelection()) {
+    r.why = "cannot save the game folders";
+    fs::rename(copyDir, next, ec);
+    if (ec) r.why += "; the unselected copy remains in " + pathToUtf8(copyDir);
+  }
+  if (r.why.empty() && copyHasNoLinks(active) && managedFolder(active)) fs::rename(active, staging / "old", ec);
   fs::remove_all(staging, ec);
   if (!r.why.empty()) return r;
   r.ok = true;

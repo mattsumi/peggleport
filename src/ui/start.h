@@ -53,7 +53,6 @@ class GameFolders {
   bool askForGame(Game g);
   std::optional<Game> chooseFolders(Game running);
   bool readyFor(Game g);
-  void drop(Game g);
   void tell(const std::string& text, bool problem = true);
 
  private:
@@ -62,6 +61,8 @@ class GameFolders {
   std::filesystem::path writeStartLog() const;
   std::filesystem::path copyFolder(Game g) const;
   bool remember(Game g, const std::filesystem::path& dir, std::string& problem);
+  void exclude(Game g);
+  bool useSource(Game g, const std::filesystem::path& source);
   void tellNoChooser();
   std::filesystem::path startFolder(Game g) const;
 
@@ -69,10 +70,10 @@ class GameFolders {
   std::function<FindSources()> sources_;
   StartDialogs dialogs_;
   GameFolderStore store_;
+  bool selectionUnavailable_ = false;
   std::filesystem::path dir_[kGameCount];
   std::filesystem::path install_[kGameCount];
   bool fromCopy_[kGameCount] = {};
-  bool retried_[kGameCount] = {};
   FoundGames lastSearch_;
   SDL_Window* window_ = nullptr;
   App* app_ = nullptr;

@@ -79,11 +79,13 @@ std::string steamInstallDir(const std::filesystem::path& manifest);
 
 FindSources systemFindSources(const std::filesystem::path& programDir);
 FoundGames findGames(const FindSources& sources);
+bool validateCampaign(const std::filesystem::path& dir, Game game, std::string& why);
 std::vector<std::string> searchReport(const FoundGames& found);
 std::vector<std::string> searchSummary(const FoundGames& found, size_t maxLines = 14);
 
 struct GameFolderStore {
   std::filesystem::path dir[kGameCount];
+  bool alternate[kGameCount] = {};
   Game home = Game::Deluxe;
   bool load(const std::filesystem::path& file);
   bool save(const std::filesystem::path& file) const;

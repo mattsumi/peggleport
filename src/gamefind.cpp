@@ -5,13 +5,13 @@
 #include <cstdlib>
 #include <exception>
 #include <fstream>
-#include <iterator>
 #include <map>
+#include <sstream>
 #include <system_error>
 #include <utility>
 
+#include "content.h"
 #include "gamepaths.h"
-#include "level.h"
 #include "ui/cfg.h"
 #include "vfs.h"
 
@@ -71,8 +71,8 @@ bool readText(const fs::path& file, std::string& out) {
   if (ec || size > kMaxRecordBytes) return false;
   std::ifstream f(file, std::ios::binary);
   if (!f) return false;
-  out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-  return true;
+  out.resize(static_cast<size_t>(size));
+  return bool(f.read(out.data(), static_cast<std::streamsize>(size)));
 }
 
 struct VdfReader {
@@ -636,7 +636,7 @@ fs::path resolveGameDir(const fs::path& given) {
   return {};
 }
 
-std::optional<Game> classifyGameDir(const fs::path& dir, bool* wowDonor) {
+static std::optional<Game> inspectCampaign(const fs::path& dir, bool* wowDonor, std::vector<std::string>* campaign) {
   if (wowDonor) *wowDonor = false;
   Pak pak;
   if (dir.empty() || !loadPak(dir / "main.pak", pak, nullptr)) return {};
@@ -679,11 +679,38 @@ std::optional<Game> classifyGameDir(const fs::path& dir, bool* wowDonor) {
       auto board = boards.find(normKey("levels/" + fields.front() + ".dat"));
       if (board == boards.end() || !validLevel(*board->second)) return {};
       if (board->second == signature) listed = true;
+      if (campaign) campaign->push_back(fields.front());
     }
   }
   if (!listed) return {};
   if (wowDonor) *wowDonor = !game;
   return game;
+}
+
+std::optional<Game> classifyGameDir(const fs::path& dir, bool* wowDonor) {
+  return inspectCampaign(dir, wowDonor, nullptr);
+}
+
+bool validateCampaign(const fs::path& dir, Game game, std::string& why) {
+  std::vector<std::string> boards;
+  if (inspectCampaign(dir, nullptr, &boards) != game) {
+    why = "not a valid campaign for " + std::string(gameTitle(game));
+    return false;
+  }
+  Vfs vfs;
+  if (!vfs.mountGame(dir, &why)) return false;
+  for (const auto& name : boards) {
+    if (lower(name).ends_with(".dat")) {
+      why = "expected a campaign level name, not a DAT path";
+      return false;
+    }
+    LevelBundle bundle;
+    if (!loadLevelBundle(vfs, name, bundle, &why)) {
+      why = name + ": " + why;
+      return false;
+    }
+  }
+  return true;
 }
 
 std::vector<std::string> gameFolderNames(Game g) {
@@ -866,8 +893,9 @@ FindSources systemFindSources(const fs::path& programDir) {
 bool GameFolderStore::load(const fs::path& file) {
   *this = GameFolderStore();
   if (file.empty()) return false;
-  std::ifstream f(file);
-  if (!f) return false;
+  std::string text;
+  if (!readText(file, text)) return false;
+  std::istringstream f(std::move(text));
   std::string line;
   while (std::getline(f, line)) {
     while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
@@ -877,6 +905,7 @@ bool GameFolderStore::load(const fs::path& file) {
     for (int i = 0; i < kGameCount; ++i) {
       const std::string key = lower(gameKey(gameAt(i)));
       if (k == key) dir[i] = pathFromUtf8(v);
+      if (k == key + "_alternate") alternate[i] = v == "1";
       if (k == "home" && lower(v) == key) home = gameAt(i);
     }
   }
@@ -892,7 +921,10 @@ bool GameFolderStore::save(const fs::path& file) const {
   {
     std::ofstream o(tmp, std::ios::trunc);
     if (!o) return false;
-    for (int i = 0; i < kGameCount; ++i) o << gameKey(gameAt(i)) << '=' << pathToUtf8(dir[i]) << '\n';
+    for (int i = 0; i < kGameCount; ++i) {
+      o << gameKey(gameAt(i)) << '=' << pathToUtf8(dir[i]) << '\n';
+      if (alternate[i]) o << gameKey(gameAt(i)) << "_alternate=1\n";
+    }
     o << "Home=" << gameKey(home) << '\n';
     o.close();
     if (!o) { fs::remove(tmp, ec); return false; }
