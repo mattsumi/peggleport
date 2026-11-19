@@ -15,7 +15,11 @@
 
 namespace pp {
 struct SeatedSession : Session {
-  static inline std::atomic<int> joins;
+  static inline std::atomic<int> joins, hosts;
+  bool hostViaLobby(const std::string&, int, const std::string&, const MatchInfo&, std::string*, const std::atomic<bool>*) {
+    ++hosts;
+    return false;
+  }
   static bool listRooms(const std::string&, int, std::vector<std::string>*, std::string*, const std::atomic<bool>*) { return false; }
   bool joinViaLobby(const std::string&, int, const std::string&, std::string*, const std::atomic<bool>*) {
     ++joins;
@@ -57,6 +61,8 @@ struct FixtureBrowser {
 #undef Session
 #undef private
 #include "ui/run.cpp"
+
+pp::ui::PadGlyphs pp::ui::readPad(SDL_Gamepad*) { return {Pad::PlayStation, {}}; }
 
 using namespace pp;
 using namespace pp::ui;
@@ -134,6 +140,14 @@ static void mouse(App& app, SDL_Window* window, Uint32 type, float x, float y) {
   handleEvent(live, e);
 }
 
+static void south(Live& live, Uint32 type) {
+  SDL_Event e{};
+  e.type = type;
+  e.gbutton.which = 1;
+  e.gbutton.button = SDL_GAMEPAD_BUTTON_SOUTH;
+  handleEvent(live, e);
+}
+
 static void roomResize(App& app, SDL_Window* window, bool host) {
   auto screen = std::make_unique<OnlineScreen>(app, "", false, host ? Flow::Host : Flow::Join);
   auto* view = screen.get();
@@ -157,18 +171,26 @@ static void roomResize(App& app, SDL_Window* window, bool host) {
   SeatedSession::ready = SeatedSession::starts = SeatedSession::leaves = 0;
   press(app, action); app.tick();
   require(host ? SeatedSession::starts == 1 : SeatedSession::ready == 1 && button(app, "Ready - waiting") && !button(app, "Ready - waiting")->enabled, "Classic primary action missed");
-  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, 670, 535);
-  require(view->capture == view->bLeave_ && view->bLeave_->down, "Classic Leave did not capture press");
-  resizeWindow(window, 1067);
-  if (!host) {
+  Live live{window, app.gfx.renderer(), &app, &app.gfx};
+  for (bool pad : {false, true}) {
+    resize(800);
     mouse(app, window, SDL_EVENT_MOUSE_MOTION, 670, 535);
-    require(!view->capture && !view->bLeave_->down, "hidden Leave still captured after motion");
+    if (pad) south(live, SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+    else mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, 670, 535);
+    require(view->capture == view->bLeave_ && view->bLeave_->down, "Classic Leave did not capture press");
+    resizeWindow(window, 1067);
+    if (!pad && !host) {
+      mouse(app, window, SDL_EVENT_MOUSE_MOTION, 670, 535);
+      require(!view->capture && !view->bLeave_->down, "hidden Leave still captured after motion");
+    }
+    if (pad) south(live, SDL_EVENT_GAMEPAD_BUTTON_UP);
+    else mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, 670, 535);
+    const std::string source = pad ? "South" : "mouse";
+    require(app.screen() == view && view->sess_.get() == session && view->seated_ == 2 && !SeatedSession::leaves,
+            source + " pre-draw release at old Leave rectangle lost session");
+    require(app.gfx.canvasW() == 1067 && !view->capture && !view->bLeave_->down, "hidden Leave retained capture");
+    std::cout << source << " pre-draw Leave cancelled; same " << (host ? "host" : "guest") << " session\n";
   }
-  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, 670, 535);
-  require(app.screen() == view && view->sess_.get() == session && view->seated_ == 2 && !SeatedSession::leaves,
-          "pre-draw release at old Leave rectangle lost session");
-  require(app.gfx.canvasW() == 1067 && !view->capture && !view->bLeave_->down, "hidden Leave retained capture");
-  std::cout << "pre-draw Leave cancelled; same " << (host ? "host" : "guest") << " session\n";
   app.frame();
   require(!button(app, "Leave Room") && !button(app, "Copy Invite") && !view->bReady_->visible && !view->bStart_->visible &&
           onlinePadKey(app, SDL_GAMEPAD_BUTTON_EAST) == SDLK_ESCAPE, "wide room actions not restored");
@@ -177,7 +199,12 @@ static void roomResize(App& app, SDL_Window* window, bool host) {
     require(quit != view->prompts_.end(), "no wide Quit prompt");
     click(app, quit->x + quit->w / 2, 565);
   } else {
-    resize(800); press(app, "Leave Room");
+    south(live, SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+    resizeWindow(window, 800);
+    mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, 670, 535);
+    south(live, SDL_EVENT_GAMEPAD_BUTTON_UP);
+    require(view->capture == view->bLeave_ && !SeatedSession::leaves, "console South release stole Classic mouse press");
+    mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, 670, 535);
   }
   std::cout << "room click counts: ready=" << SeatedSession::ready << " start=" << SeatedSession::starts << " leave=" << SeatedSession::leaves << '\n';
   require(SeatedSession::leaves == 1 && app.screenName() == "mainmenu" && !app.anyDialog(), "Leave missed");
@@ -205,7 +232,45 @@ static void emptyCustom(App& app, SDL_Window* window) {
   std::cout << "empty Custom: Refresh and scaled Main Menu clicks passed\n";
 }
 
-static void quick(App& app, bool back) {
+static bool narrowExit(App& app, SDL_Window* window, OnlineScreen& view) {
+  const auto flow = view.flow_;
+  const bool host = flow == Flow::Host;
+  resizeWindow(window, 800);
+  const float x = host ? 480.0f : 130.0f, y = host ? 405.0f : 535.0f;
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_DOWN, x, y);
+  const auto* exit = host ? view.bCancel_ : view.bBack_;
+  const bool captured = view.flow_ == flow && view.capture == exit && exit->visible && !view.bRefresh_->visible;
+  mouse(app, window, SDL_EVENT_MOUSE_BUTTON_UP, x, y);
+  return captured && app.screenName() == "mainmenu" && !app.anyDialog();
+}
+
+static void formExit(App& app, SDL_Window* window, Flow flow) {
+  const bool host = flow == Flow::Host;
+  SeatedSession::hosts = SeatedSession::joins = 0;
+  showOnline(app, flow, false);
+  settle(app);
+  auto* view = dynamic_cast<OnlineScreen*>(app.screen());
+  require(view && view->console() && view->create_ == host && view->codeEdit_->value.empty() &&
+          !view->bBack_->visible && !view->bCancel_->visible, "wide form setup");
+  if (host) {
+    const auto level = view->levelIdx_;
+    const float x = view->bLvlPrev_->x + view->bLvlPrev_->w / 2, y = view->bLvlPrev_->y + view->bLvlPrev_->h / 2;
+    resizeWindow(window, 600, 450);
+    mouse(app, window, SDL_EVENT_MOUSE_MOTION, x, y);
+    resizeWindow(window, 1067);
+    Live live{window, app.gfx.renderer(), &app, &app.gfx};
+    south(live, SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+    south(live, SDL_EVENT_GAMEPAD_BUTTON_UP);
+    require(view->levelIdx_ != level && !view->job_, "pre-draw wide South missed Host level arrow");
+  }
+  require(narrowExit(app, window, *view), host ? "narrow Host Cancel missed" : "narrow empty Join Main Menu missed");
+  settle(app);
+  require(!SeatedSession::hosts && !SeatedSession::joins, "exiting form submitted it");
+  std::cout << (host ? "Host Cancel" : "empty Join Main Menu") << ": no host or join submitted\n";
+}
+
+static void quick(App& app, SDL_Window* window, int exitWidth) {
+  const bool back = exitWidth != 0;
   SeatedSession::joins = 0;
   showOnline(app, Flow::Quick, false);
   auto* view = dynamic_cast<OnlineScreen*>(app.screen());
@@ -221,7 +286,11 @@ static void quick(App& app, bool back) {
   }).share();
   view->browser_.listing = listing;
   settle(app);
-  if (back) {
+  bool exited = true;
+  if (exitWidth == 800) {
+    require(view->flow_ == Flow::Quick && view->browse_.busy(), "Quick listing not pending");
+    exited = narrowExit(app, window, *view);
+  } else if (back) {
     click(app, 80, 565);
     require(app.screenName() == "mainmenu" && app.moving() && !app.anyDialog(), "Back did not start menu slide");
   }
@@ -230,8 +299,8 @@ static void quick(App& app, bool back) {
   app.tick();
   if (view->job_ && view->job_->th.joinable()) view->job_->th.join();
   settle(app);
-  std::cout << "Quick " << (back ? "Back" : "active") << " cancelled=" << cancelled << " join calls=" << SeatedSession::joins << '\n';
-  require(SeatedSession::joins == (back ? 0 : 1) && cancelled == back &&
+  std::cout << "Quick " << (back ? (exitWidth == 800 ? "Classic Main Menu" : "Back") : "active") << " cancelled=" << cancelled << " join calls=" << SeatedSession::joins << '\n';
+  require(exited && SeatedSession::joins == (back ? 0 : 1) && cancelled == back &&
           app.screenName() == (back ? "mainmenu" : "online") && !app.anyDialog(), "Quick Match list completion");
 }
 
@@ -267,7 +336,11 @@ static int navigation(char** argv, const fs::path& scratch) {
         resizeWindow(window.get(), width); app.frame();
         check([&] { emptyCustom(app, window.get()); });
         resizeWindow(window.get(), width); app.frame();
-        for (bool back : {false, true}) check([&] { quick(app, back); });
+        for (int exitWidth : {0, 1067, 800}) check([&] { quick(app, window.get(), exitWidth); });
+        for (auto flow : {Flow::Join, Flow::Host}) check([&] {
+          resizeWindow(window.get(), width); app.frame();
+          formExit(app, window.get(), flow);
+        });
       }
     }
   }
