@@ -14,7 +14,7 @@ The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs
 
 1. Put the mod folder, or the `.zip`, into the `mods` folder of the game. The **Mods** screen has an **Open Folder** button that opens it. The folder sits next to your profiles: `<save folder>/userdata/mods` (see the FAQ for the save folders).
    A zip may hold the mod at its top level or inside one folder. It is unpacked into `mods/.cache` the first time.
-2. Open **Options, then Mods**. Every mod is listed with a tick box, its state, the result of the scan and a **Scan report** or **Allow...** button. Tick the mods you want. Up and Down change the load order.
+2. From the main menu, select **Options → Mods** in Classic 4:3 or **Mods** in widescreen. Every mod is listed with a tick box, its state, the result of the scan and a **Scan report** or **Allow...** button. Tick the mods you want. Up and Down change the load order.
 3. That is all. Ticking a mod, Up and Down, and **Allow...** take effect the moment you press them. You do not leave the game or restart it. The line at the bottom of the Mods screen says what happened, for example `Applied: 3 of 4 mods active`.
 
 The choices are saved in `userdata/mods.json`.
@@ -76,6 +76,7 @@ Each mod gets a content hash (a fingerprint over all its files). The folder and 
 Files in a mod folder are looked up before the game's own files, using the same relative path they have in the game. Put a file at the same path and yours is used instead of the original. A mod can also add new files, such as extra levels.
 
 * `image_scale = 2` in `mod.ini` tells the game that your art is twice the size of the original and should be drawn at the original size.
+* `image_alpha = baked` in `mod.ini` tells the game to use the replacement image's own alpha instead of loading separate masks. See the [HD mod guide](hd-mod.md) for the local pack generator and widescreen artwork.
 * Levels go in `levels/` as `.dat` files. Add a `mod_levels.cfg` there to list them as extra Quick Play stages, or let the level editor write all of this for you.
 * A level can have an `.ini` next to it with `title`, `board_width` (650 is the classic width, a larger number makes that level's board wider), `balls`, `orange`, `background` and `master`. The same file can also change how the ball moves with `gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed` and `ball_radius`, see [Physics](#physics), and give pegs a mod peg type with `peg` lines, see [Peg types](#peg-types).
 

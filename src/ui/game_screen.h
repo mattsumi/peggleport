@@ -69,11 +69,13 @@ class GameScreen : public Screen {
   void update() override;
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
+  void drawBarePause(Gfx& g);
   bool input(const Input& in) override;
   void menuThroughDialog(const Input& in);
+  Renderer::View consoleView() const;
   void onButton(int id) override;
   void keyDown(int key, int mod) override;
-  void lostFocus() override;
+  void lostFocus() override { beginBarePause(); }
   void onLeave() override;
   void startChallengeLevel();
   void restartLevel(bool fromMenu = true);
@@ -94,6 +96,8 @@ class GameScreen : public Screen {
   bool canSaveReplay() const { return recording_ && !duel_ && haveSnap_ && !log_.empty(); }
   bool startViewer(const ReplayData& d);
   bool viewing() const { return viewer_; }
+  bool replaying() const { return replaying_; }
+  bool consoleReplayPanel() const { return replayPanel_ && hudInset() != 0; }
   void pause(bool on);
   bool paused() const { return pauseCount_ > 0; }
   int pauseFade() const { return pauseFade_; }
@@ -106,7 +110,7 @@ class GameScreen : public Screen {
   int overTicks = 0;
 
  private:
-  bool startLevel(const std::string& name);
+  bool startLevel(const std::string& name, SimRules rules = SimRules::FairCoin);
   void finishLevel();
   void applyProgress(const LevelOutcome& o, bool won);
   void submitStats();
@@ -130,8 +134,10 @@ class GameScreen : public Screen {
   std::string oppName() const { return human2_ ? "Player 2" : "Computer"; }
   bool humanTurn() const { return !demo_ && (!duel_ || board_.cur == 0 || human2_); }
   Board snap_, replay_;
+  std::optional<BoardEffects> pausedEffects_;
   bool haveSnap_ = false, replaying_ = false, replayRan_ = false, mouseOverReplay_ = false;
   int replayTicks_ = 0;
+  bool watchedReplay_ = false;
   void clickBoard();
   std::vector<ReplayEvent> log_;
   bool recording_ = false, viewer_ = false, replayPanel_ = false;
@@ -163,7 +169,8 @@ class GameScreen : public Screen {
   void countLevelStart();
   int stageDialogDelay_ = 0;
   bool tipPaused_ = false;
-  bool focusPaused_ = false;
+  void beginBarePause();
+  bool barePaused_ = false;
   void showStageDialog();
   void aiTurn();
   std::string cornerText() const;
@@ -176,6 +183,7 @@ class GameScreen : public Screen {
   int pauseCount_ = 0, pauseFade_ = 0;
   int mouseBx_ = 0, mouseBy_ = 0;
   int boardLeft() const { return 75 + (canvasWidth() - 800 - (board_.W - 650)) / 2; }
+  int hudInset() const { return Renderer::hudInset(canvasWidth(), board_.W); }
   bool haveMouse_ = false;
   std::string levelFile_;
   int pendingMode_ = 0, pendingRank_ = 0;

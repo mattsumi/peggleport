@@ -890,11 +890,12 @@ void Renderer::masterBadge() {
       if (e.type == 7 && e.age < 0) { e.type = 0x21; e.y = 275.0f; }
 }
 
-void Renderer::advance(const Board& b) {
-  bool fresh = b.fxTotal < fx_.seen || b.frames < fx_.lastFrame || fx_.lastFrame < 0;
+void Renderer::advance(const Board& b, bool seek) {
+  bool fresh = seek || b.fxTotal < fx_.seen || b.frames < fx_.lastFrame || fx_.lastFrame < 0;
   if (fresh) {
-    fx_.clear();
-    fx_.seen = 0;
+    if (seek) fx_ = {};
+    else fx_.clear();
+    fx_.seen = seek && b.frames > 0 ? b.fxTotal : 0;
     fx_.lastFrame = b.frames;
     fx_.lastTick = b.tick;
   }

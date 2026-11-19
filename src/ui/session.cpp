@@ -28,7 +28,7 @@ namespace pp::ui {
 namespace {
 
 constexpr uint32_t kMagic = 0x53535050;
-constexpr uint32_t kVersion = 2;
+constexpr uint32_t kLegacyVersion = 2, kFairCoinVersion = 3, kVersion = 4;
 constexpr size_t kHeadBytes = 20;
 
 struct Ar {
@@ -268,11 +268,16 @@ std::vector<uint8_t> SavedSession::bytes() const {
   Ar w;
   w.out = &body;
   SavedSession copy = *this;
+  uint32_t version = cfg.simRules == SimRules::Unspecified ? kLegacyVersion : kVersion;
+  if (version == kVersion) {
+    uint8_t rules = static_cast<uint8_t>(cfg.simRules);
+    w.u8(rules);
+  }
   syncBody(w, copy);
   std::vector<uint8_t> file;
   Ar h;
   h.out = &file;
-  uint32_t magic = kMagic, version = kVersion, size = (uint32_t)body.size();
+  uint32_t magic = kMagic, size = (uint32_t)body.size();
   uint64_t sum = digest(body.data(), body.size());
   h.u32(magic); h.u32(version); h.u32(size); h.u64(sum);
   file.insert(file.end(), body.begin(), body.end());
@@ -287,13 +292,21 @@ bool SavedSession::parse(const std::vector<uint8_t>& data, SavedSession& out) {
   uint32_t magic = 0, version = 0, size = 0;
   uint64_t sum = 0;
   h.u32(magic); h.u32(version); h.u32(size); h.u64(sum);
-  if (h.bad || magic != kMagic || version != kVersion) return false;
+  if (h.bad || magic != kMagic || (version != kLegacyVersion && version != kFairCoinVersion && version != kVersion)) return false;
   if ((size_t)size != data.size() - kHeadBytes) return false;
   if (digest(data.data() + kHeadBytes, size) != sum) return false;
   Ar r;
   r.in = data.data() + kHeadBytes;
   r.n = size;
   SavedSession s;
+  if (version == kVersion) {
+    uint8_t rules = 0;
+    r.u8(rules);
+    if (r.bad || !knownSimRules(rules)) return false;
+    s.cfg.simRules = static_cast<SimRules>(rules);
+  } else {
+    s.cfg.simRules = version == kLegacyVersion ? SimRules::Unspecified : SimRules::FairCoin;
+  }
   syncBody(r, s);
   if (r.bad || r.pos != r.n || !bodySane(s)) return false;
   out = std::move(s);
@@ -341,9 +354,19 @@ bool SavedSession::load(const std::filesystem::path& file, SavedSession& out) {
 
 bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap, Board& aiSnap) const {
   if (lb.contentHash != content) return false;
+  if (cfg.simRules != SimRules::Unspecified) return rebuildWith(cfg.simRules, lb, board, snap, haveSnap, aiSnap);
+  for (const auto rules : {SimRules::FullStroke, SimRules::HD, SimRules::Classic})
+    if (rebuildWith(rules, lb, board, snap, haveSnap, aiSnap)) return true;
+  return false;
+}
+
+bool SavedSession::rebuildWith(SimRules rules, const LevelBundle& lb, Board& board, Board& snap, bool& haveSnap, Board& aiSnap) const {
   std::string err;
   Board b;
-  if (!b.load(lb.base, lb.level, cfg, &err)) return false;
+  BoardConfig restored = cfg;
+  restored.simRules = rules;
+  restored.authoredWidth = lb.cfg.authoredWidth;
+  if (!b.load(lb.base, lb.level, restored, &err)) return false;
   haveSnap = false;
   bool begun = false;
   size_t next = 0;
@@ -427,8 +450,7 @@ bool SessionKeeper::find(GameMode m) {
     r->saved.levelNo = li->index;
   }
   if (!ok) {
-    pp::log::warn("game", "the saved level in " + pathToUtf8(path) + " could not be used and was removed");
-    std::filesystem::remove(path, ec);
+    pp::log::warn("game", "the saved level in " + pathToUtf8(path) + " could not be used and was preserved");
     return false;
   }
   ready_ = std::move(r);
@@ -728,7 +750,7 @@ GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
   seed = r.saved.cfg.seed;
   levelFile_ = r.saved.level;
   lb_ = r.bundle;
-  cfg_ = r.saved.cfg;
+  cfg_ = r.board.cfg;
   log_ = r.saved.log;
   board_ = r.board;
   snap_ = r.snap;

@@ -1,10 +1,12 @@
 #pragma once
 #include <SDL3/SDL.h>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <string>
 #include <vector>
@@ -31,6 +33,9 @@ struct Hud {
   std::vector<std::string> players;
   bool showGuide = true;
   bool menuOver = false, replayOver = false;
+  bool replayReady = false, replayTriangle = false;
+  char replayFace = 'R';
+  std::string replayGlyph;
   bool clearedBefore = false;
   enum Mode { ModeStage = 0, ModeQuick = 1, ModeChallenge = 2, ModeDemo = 3, ModeDuel = 4, ModeParty = 5 } mode = ModeStage;
   int topScore = 0, totalScore = 0;
@@ -46,7 +51,31 @@ struct Hud {
 
 struct EmitFx;
 
-class Renderer {
+struct BoardEffects {
+  FxState fx_;
+  std::shared_ptr<EmitFx> emit_;
+  V2 strikeRod_{};
+  struct HatSnap { V2 pos, prev; };
+  std::map<int, HatSnap> hatSnap_;
+  int chCountBlink_ = 0, chPowerBlink_ = 0, chTick_ = 0, chLastCount_[4]{-2, -2, -2, -2};
+  int aimTicks_ = 0, hintTick_ = -1;
+  bool zenOn_ = false;
+  int guideAge_ = 1, guideRack_ = 0;
+  struct ObjViz {
+    bool wasPopped = false;
+    int pulseStart = -1, pulseKind = 0;
+    int pegType = 0;
+    int blinkStart = -1, blinkN = 0;
+  };
+  struct BlinkReq { int type = 0, n = 0, tick = -1; } blinkReq_;
+  int shotsFired0_ = 0;
+  int shotMeter_ = 0, shotMeterTarget_ = 0;
+  std::vector<ObjViz> viz_;
+  int lastTick_ = -1;
+  size_t lastObjs_ = 0;
+};
+
+class Renderer : private BoardEffects {
   friend struct ModOverlayAccess;
  public:
   Renderer(SDL_Renderer* r, const Vfs& v) : r_(r), vfs_(v) {}
@@ -62,8 +91,14 @@ class Renderer {
   int canvasWidth() const { return canvasW_; }
   float boardLeft() const { return BX; }
   void setFrameCanvas(int w) { frameCanvas_ = w; }
+  static int hudInset(int frameWidth, int boardWidth) {
+    return boardWidth == 650 && frameWidth >= 1064 && frameWidth <= 1068 ? (frameWidth - 800) / 2 : 0;
+  }
+  struct View { float k = 1, x = 0, y = 0; };
+  View consoleView(int frameWidth, int boardWidth) const;
   V2 toBoard(float px, float py) const;
-  void advance(const Board& b);
+  void advance(const Board& b, bool seek = false);
+  BoardEffects exchangeEffects(BoardEffects next = {}) { return std::exchange(static_cast<BoardEffects&>(*this), std::move(next)); }
   std::vector<FxSound> takeSounds() { return std::exchange(fx_.sounds, {}); }
 
   Font* font(const std::string& id) { return fonts_.get(id); }
@@ -71,6 +106,7 @@ class Renderer {
   int drawTextWrapped(Font* f, float x, float y, int wrapWidth, std::string_view s, uint32_t rgba, TextAlign al = TextAlign::Left,
                       int lineSpacing = -1, float scale = 1);
   int wrappedHeight(Font* f, int wrapWidth, std::string_view s, int lineSpacing = -1) const;
+  void drawPauseBackdrop(float amount, const SDL_Rect& area, const std::function<void()>& drawScene);
   void beginCanvas(int canvasW = 800);
   void reloadAssets(const VfsChange& change);
 
@@ -89,6 +125,7 @@ class Renderer {
   Tex* tex(const std::string& path, int rows = 1, int cols = 1, const std::string& mask = "", int alphaColor = -1);
   Tex* tex(const std::string& path, int rows, int cols, const std::string& mask, int alphaColor, bool limited);
   Tex* img(const std::string& resId);
+  Tex* fileTex(const std::string& file);
   Tex* grayImg(const std::string& resId);
   void put(Tex* t, SDL_FRect srcLogical, float x, float y, Paint p = {}, float w = -1, float h = -1, float rotRad = 0, float pivotX = 0, float pivotY = 0);
   void putCel(Tex* t, int cel, float x, float y, Paint p = {});
@@ -97,6 +134,7 @@ class Renderer {
   void putCelCentered(Tex* t, int cel, float cx, float cy, Paint p = {});
   Tex* objImage(const std::string& name);
   Tex* wideBackground(const std::string& path, int targetW, float* topY = nullptr);
+  std::pair<Tex*, Tex*> consoleGutters(int frameWidth, int boardWidth, const std::string& background);
   VisualOptions vis_;
   struct BloomRec {
     SDL_Texture* t;
@@ -115,7 +153,6 @@ class Renderer {
   float texS_ = 1;
   void fxPegSparks(const Obj& o, float cx, float cy);
   void fxChainBolt(const Board& b, int from, int to, int delay, bool fire);
-  V2 strikeRod_{};
   void drawRod(const Board& b);
   void drawRodRings(const Board& b, Tex* ring);
   void drawRodSparks(const Board& b);
@@ -132,23 +169,14 @@ class Renderer {
   void drawBigPulse(int pegType, float cx, float cy, int age, int kind, uint32_t tint = 0xffffffffu);
   void drawBall(const Board& b, const Ball& bl, bool inGun);
   void drawGuide(const Board& b);
-  void doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0, float y0, float ang, float speed, int hitStep, int len, int start,
-                   bool far, bool fireball, bool superCol);
-  int chCountBlink_ = 0, chPowerBlink_ = 0, chTick_ = 0, chLastCount_[4]{-2, -2, -2, -2};
-  struct HatSnap { V2 pos, prev; };
-  std::map<int, HatSnap> hatSnap_;
-  int aimTicks_ = 0;
-  int hintTick_ = -1;
   bool flipX_ = false;
-  bool zenOn_ = false;
-  int guideAge_ = 1, guideRack_ = 0;
   void drawBoardShadow();
   void drawWallMarks(float padL);
   void drawBoardShadowBottom(float rows, float top);
   void drawZoomFrame(const Board& b);
   void brickMesh(const Obj& o, Tex* t, int row, float dx, float dy, uint32_t rgba, Blend mode, float inflate = 0);
   void drawHud(const Board& b, const Hud& hud);
-  void drawFrame(int dw);
+  void drawFrame(const Board& b, int dw);
   void drawPortrait(const Board& b, int dw);
   void drawModPortrait(const Board& b, int dw);
   void drawOrbFront(const Board& b, int dw);
@@ -164,7 +192,6 @@ class Renderer {
   Portrait portrait_;
   std::vector<CharInfo> chars_;
   bool charsLoaded_ = false;
-  FxState fx_;
   void fxSpawn(const Board& b, const Board::FxRec& r);
   void fxTick(const Board& b, int mode = 0, float frac = 0);
   void fxBallTrails(const Board& b);
@@ -175,7 +202,6 @@ class Renderer {
   void fxDrawEffects(const Board& b, int layer);
   void emitAdvance(const Board& b, int ticks, bool fresh);
   void emitDraw(const Board& b, int layer, size_t at);
-  std::shared_ptr<EmitFx> emit_;
   void fxDrawTexts(const Board& b, int layer);
   FxText& fxText(const std::string& s, float x, float y, int font = -1);
   FxEffect& fxAdd(int type, float x, float y, int prio, bool front = false);
@@ -184,7 +210,7 @@ class Renderer {
   void xformSprite(Tex* t, float x, float y, float sx, float sy, float tx, float ty, float rot, Paint p);
   void fxStyleText(const Board& b, const std::string& name, int pts, float x, float y, bool big);
   void fxUpdateOne(const Board& b, FxEffect& e, std::vector<FxEffect>& out);
-  void drawBallColumn(const Board& b);
+  void drawBallColumn(const Board& b, bool console);
   void drawShotMeter();
   void shotMeterTick(const Board& b);
   void drawOrbBack(const Board& b, const Hud& hud, int dw);
@@ -192,6 +218,7 @@ class Renderer {
   float BX = 75;
   static constexpr float BY = 40;
   int stageCel_ = 0, stageNo_ = 0, levelNo_ = 0;
+  std::optional<SDL_Rect> trimClip_;
   std::string stageFor_;
   SDL_Texture* fontTexture(const Image* img);
   void blitGlyphs(const std::vector<GlyphQuad>& q, float x, float y, float scale);
@@ -199,18 +226,6 @@ class Renderer {
   float px(float cx) const { return ox_ + cx * s_; }
   float py(float cy) const { return oy_ + cy * s_; }
 
-  struct ObjViz {
-    bool wasPopped = false;
-    int pulseStart = -1, pulseKind = 0;
-    int pegType = 0;
-    int blinkStart = -1, blinkN = 0;
-  };
-  struct BlinkReq { int type = 0, n = 0, tick = -1; } blinkReq_;
-  int shotsFired0_ = 0;
-  int shotMeter_ = 0, shotMeterTarget_ = 0;
-  std::vector<ObjViz> viz_;
-  int lastTick_ = -1;
-  size_t lastObjs_ = 0;
   SDL_Renderer* r_;
   const Vfs& vfs_;
   std::map<std::string, Tex> cache_, modCache_;
@@ -219,6 +234,7 @@ class Renderer {
   std::map<const Image*, SDL_Texture*> fontTex_;
   float s_ = 1, ox_ = 0, oy_ = 0;
   int canvasW_ = 800, boardW_ = 650, frameCanvas_ = 0;
+  SDL_Texture* pauseTargets_[4]{};
 };
 
 inline void (*g_modOverlay)(Renderer&, const Board&) = nullptr;

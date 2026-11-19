@@ -14,6 +14,7 @@ namespace pp {
 
 std::string normKey(std::string_view path);
 std::string genericUtf8(const std::filesystem::path& p);
+bool resolveDiskSpelling(const std::filesystem::path& requested, std::filesystem::path& actual, std::string* err);
 std::map<std::string, std::string> readIni(const std::string& text);
 
 struct PakEntry {
@@ -58,20 +59,22 @@ void vfsLogMiss(const char* kind, std::string_view path);
 class Vfs {
  public:
   bool mountGame(const std::filesystem::path& gameDir, std::string* err);
+  bool mountPresentation(const std::filesystem::path& dataDir);
   bool mountMod(const std::filesystem::path& modDir, std::string* err);
   bool unmountMod(const std::filesystem::path& modDir);
   size_t unmountMods();
   std::string modSignature() const;
   void modKeys(std::set<std::string>& out) const;
   std::optional<VfsHit> read(std::string_view path) const;
-  std::optional<VfsHit> read(std::string_view path, std::size_t maxBytes) const;
+  std::optional<VfsHit> read(std::string_view path, std::size_t maxBytes, std::string* spellingError = nullptr) const;
+  std::optional<VfsHit> readEditorLevelIni(const std::string& levelKey, const Layer& boardLayer, std::string& err) const;
   bool exists(std::string_view path) const;
   std::vector<std::string> keys() const;
   const std::vector<Layer>& layers() const { return layers_; }
   std::string describe() const;
 
  private:
-  static void indexDir(Layer& L);
+  static void indexDir(Layer& L, std::string_view prefix = {});
   std::vector<Layer> layers_;
 };
 

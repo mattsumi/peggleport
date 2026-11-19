@@ -75,22 +75,31 @@ class OptionsDialog : public Dialog {
   Slider *music, *sfx, *fever;
   Checkbox *fullscreen, *cursors, *vsync, *colorblind;
   Button *help, *mainMenu, *newLevel, *newChallenge;
-  Button* modsBtn = nullptr;
   Button *editor;
+  Button* modsBtn = nullptr;
   Button* gamesBtn = nullptr;
   Button* visuals = nullptr;
   Button* widescreen;
   Button* homeBtn = nullptr;
-  Button* demoBtn = nullptr;
   float extraH = 0;
+  float preferredWidth() const { return consolePresentation_ ? 720.0f : 440.0f; }
+  void syncPresentation(int canvasWidth);
   void updateWidescreenLabel();
   void updateHomeLabel();
   void layout();
   void drawLayer(Gfx& g) override;
+  void drawChromeFooter(Gfx& g, bool nested, float fade) const;
   float preferredHeight(float width) override;
   void onButton(int id) override;
   void sliderChanged(int id, double v) override;
   void checkboxChanged(int id, bool on) override;
+
+ private:
+  bool consolePresentation_;
+  bool hasConsoleColumns(float width) const { return consolePresentation_ && width >= preferredWidth(); }
+  void stylePresentation();
+  void layoutConsole();
+  void fitConsoleQuestion(int id);
 };
 
 }

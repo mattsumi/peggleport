@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,8 @@
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "render.h"
+#include "ui/screens.h"
+#include "ui/game_screen.h"
 
 namespace pp::ui {
 
@@ -36,6 +39,8 @@ struct Live {
   App* app = nullptr;
   Gfx* gfx = nullptr;
   std::vector<SDL_Gamepad*> pads;
+  std::set<std::pair<SDL_JoystickID, Uint8>> consolePadButtons;
+  std::set<std::pair<SDL_JoystickID, Uint8>> helpAxes;
   bool hidden = false;
   GameWindow* window = nullptr;
   int leftTicks = 0;
@@ -52,6 +57,11 @@ struct Busy {
   Busy& operator=(const Busy&) = delete;
   Live& live;
 };
+
+static bool consoleHelp(const Live& L) {
+  return L.gfx->canvasW() >= 960 && L.app->widescreenMode() != WidescreenMode::Classic4x3 &&
+         dynamic_cast<HelpScreen*>(L.app->helpOverlay());
+}
 
 static bool handleGamepad(Live& L, const SDL_Event& e) {
   App& app = *L.app;
@@ -73,10 +83,66 @@ static bool handleGamepad(Live& L, const SDL_Event& e) {
     app.input(in);
   };
   static bool stickL = false, stickR = false, trig = false;
+  if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) app.pad = readPad(SDL_GetGamepadFromID(e.gbutton.which));
   switch (e.type) {
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
     case SDL_EVENT_GAMEPAD_BUTTON_UP: {
       bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+      const auto press = std::pair{e.gbutton.which, e.gbutton.button};
+      if (!down && L.consolePadButtons.erase(press)) return true;
+      if (consoleHelp(L)) {
+        if (!down || !L.consolePadButtons.insert(press).second) return true;
+        switch (e.gbutton.button) {
+          case SDL_GAMEPAD_BUTTON_DPAD_LEFT: key(SDLK_LEFT, true); break;
+          case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: key(SDLK_RIGHT, true); break;
+          case SDL_GAMEPAD_BUTTON_EAST:
+          case SDL_GAMEPAD_BUTTON_START: key(SDLK_ESCAPE, true); break;
+          default: break;
+        }
+        return true;
+      }
+      if (down && (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH)) {
+        auto* game = dynamic_cast<GameScreen*>(app.screen());
+        if (game && game->consoleReplayPanel() && !app.helpOverlay()) {
+          const bool save = e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER;
+          const auto* dialog = app.topDialog();
+          const bool saving = dialog && dialog->dialogId == D_SaveReplay && !dialog->scrollActive;
+          if (!dialog || (!save && saving)) {
+            L.consolePadButtons.insert(press);
+            key(save ? SDLK_F2 : saving ? SDLK_RETURN : SDLK_ESCAPE, true);
+            return true;
+          }
+        }
+      }
+      if (down) {
+        if (const auto k = online::onlinePadKey(app, static_cast<SDL_GamepadButton>(e.gbutton.button))) {
+          if (L.consolePadButtons.insert(press).second && !app.moving()) key(k, true);
+          return true;
+        }
+      }
+      if (auto* title = dynamic_cast<LoadingScreen*>(app.screen()); title && title->canvasWidth() > 800 &&
+          !app.anyDialog() && (e.gbutton.button == SDL_GAMEPAD_BUTTON_START || e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH)) {
+        if (down) { L.consolePadButtons.insert(press); key(SDLK_RETURN, true); }
+        return true;
+      }
+      if (auto* menu = dynamic_cast<MainMenu*>(app.screen()); menu && menu->canvasWidth() > 800 &&
+          !app.anyDialog() && !app.helpOverlay() && !app.moving()) {
+        int direction = 0;
+        switch (e.gbutton.button) {
+          case SDL_GAMEPAD_BUTTON_DPAD_UP: direction = SDLK_UP; break;
+          case SDL_GAMEPAD_BUTTON_DPAD_DOWN: direction = SDLK_DOWN; break;
+          case SDL_GAMEPAD_BUTTON_DPAD_LEFT: direction = SDLK_LEFT; break;
+          case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: direction = SDLK_RIGHT; break;
+          case SDL_GAMEPAD_BUTTON_SOUTH: direction = SDLK_RETURN; break;
+          case SDL_GAMEPAD_BUTTON_EAST: direction = SDLK_ESCAPE; break;
+          default: break;
+        }
+        if (direction && down) {
+          L.consolePadButtons.insert(press);
+          key(direction, true);
+          return true;
+        }
+      }
       switch (e.gbutton.button) {
         case SDL_GAMEPAD_BUTTON_DPAD_LEFT: key(SDLK_UP, down); break;
         case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: key(SDLK_DOWN, down); break;
@@ -84,6 +150,7 @@ static bool handleGamepad(Live& L, const SDL_Event& e) {
         case SDL_GAMEPAD_BUTTON_DPAD_DOWN: if (down) key(SDLK_RIGHT, true); break;
         case SDL_GAMEPAD_BUTTON_SOUTH: mouse(1, down); break;
         case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: mouse(3, down); break;
+        case SDL_GAMEPAD_BUTTON_NORTH: if (down) key(SDLK_R, true); break;
         case SDL_GAMEPAD_BUTTON_EAST:
         case SDL_GAMEPAD_BUTTON_START: if (down) key(SDLK_ESCAPE, true); break;
         default: break;
@@ -92,6 +159,15 @@ static bool handleGamepad(Live& L, const SDL_Event& e) {
     }
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
       int v = e.gaxis.value;
+      const auto axis = std::pair{e.gaxis.which, e.gaxis.axis};
+      if (consoleHelp(L) || L.helpAxes.contains(axis)) {
+        if (std::abs(v) <= 12000) {
+          L.helpAxes.erase(axis);
+          if (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX) stickL = stickR = false;
+          else if (e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) trig = false;
+        } else if (L.helpAxes.insert(axis).second) app.pad = readPad(SDL_GetGamepadFromID(e.gaxis.which));
+        return true;
+      }
       if (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX) {
         bool l = v < -12000, r = v > 12000;
         if (l != stickL) { stickL = l; key(SDLK_UP, l); }
@@ -107,9 +183,12 @@ static bool handleGamepad(Live& L, const SDL_Event& e) {
 }
 
 static void handleEvent(Live& L, SDL_Event& e) {
-  if (handleGamepad(L, e)) return;
   App& app = *L.app;
   Gfx& gfx = *L.gfx;
+  const bool mouse = e.type == SDL_EVENT_MOUSE_MOTION || e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP;
+  if (mouse || e.type == SDL_EVENT_MOUSE_WHEEL || e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION ||
+      e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) app.refreshInputCanvas();
+  if (handleGamepad(L, e)) return;
   SDL_ConvertEventToRenderCoordinates(L.ren, &e);
   Input in;
   bool have = false;
@@ -118,12 +197,18 @@ static void handleEvent(Live& L, SDL_Event& e) {
     case SDL_EVENT_DROP_FILE:
       if (e.drop.data && pp::online::isInviteLike(e.drop.data)) pp::ui::online::setPendingInvite(e.drop.data);
       break;
-    case SDL_EVENT_MOUSE_MOTION: in.type = Input::MouseMove; in.wx = e.motion.x; in.wy = e.motion.y; have = true; break;
+    case SDL_EVENT_MOUSE_MOTION:
+      if (consoleHelp(L) && (e.motion.xrel || e.motion.yrel)) app.pad = {};
+      in.type = Input::MouseMove; in.wx = e.motion.x; in.wy = e.motion.y; have = true; break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
+      app.pad = {};
       in.type = Input::MouseDown; in.wx = e.button.x; in.wy = e.button.y; in.button = e.button.button; in.clicks = e.button.clicks; have = true; break;
     case SDL_EVENT_MOUSE_BUTTON_UP: in.type = Input::MouseUp; in.wx = e.button.x; in.wy = e.button.y; in.button = e.button.button; have = true; break;
-    case SDL_EVENT_MOUSE_WHEEL: in.type = Input::Wheel; in.wheel = e.wheel.y; have = true; break;
+    case SDL_EVENT_MOUSE_WHEEL:
+      if (consoleHelp(L) && (e.wheel.x || e.wheel.y)) app.pad = {};
+      in.type = Input::Wheel; in.wheel = e.wheel.y; have = true; break;
     case SDL_EVENT_KEY_DOWN:
+      app.pad = {};
       in.type = Input::KeyDown; in.key = (int)e.key.key; in.mod = (int)e.key.mod;
       have = !e.key.repeat || e.key.key == SDLK_LEFT || e.key.key == SDLK_RIGHT || e.key.key == SDLK_BACKSPACE || e.key.key == SDLK_DELETE;
       break;
@@ -145,7 +230,7 @@ static void handleEvent(Live& L, SDL_Event& e) {
     default: break;
   }
   if (!have) return;
-  if (in.type == Input::MouseMove || in.type == Input::MouseDown || in.type == Input::MouseUp) gfx.toCanvas(in.wx, in.wy, in.x, in.y);
+  if (mouse) gfx.toCanvas(in.wx, in.wy, in.x, in.y);
   else if (in.type == Input::Wheel) { in.x = app.mouseX; in.y = app.mouseY; }
   app.input(in);
 }

@@ -14,6 +14,7 @@
 #include "profile.h"
 #include "ui/gfx.h"
 #include "ui/fireworks.h"
+#include "ui/pad.h"
 #include "ui/stages.h"
 #include "ui/start_target.h"
 #include "ui/widescreen.h"
@@ -110,6 +111,7 @@ class App : public WidgetHost {
     uint32_t seed = 0;
     bool noAudio = false;
     bool noSave = false;
+    bool noRoomDiscovery = false;
   };
   App(Gfx& gfx, Vfs& vfs, Audio* audio, Renderer* boardRenderer, Config cfg);
   ~App();
@@ -120,10 +122,12 @@ class App : public WidgetHost {
   void clearDiscord();
   std::string takeDiscordInvite();
   WidescreenMode widescreenMode() const;
+  int consoleCanvasWidth() const;
   int boardWidthForNewBoard() const;
   int frameCanvasWidth(int boardCanvas) const;
   float pointerOnCanvas(int canvasW) const;
   void frame(int canvasW = 0);
+  bool refreshInputCanvas();
   void input(const Input& in);
   void shutdown();
   bool wantsQuit() const { return quit_; }
@@ -175,6 +179,8 @@ class App : public WidgetHost {
   std::filesystem::path userDir;
 
   GameMode gameMode = GameMode::None;
+  PadGlyphs pad;
+  int menuPage = 0, menuRow = 0;
   int curStage = 0, curLevel = 0;
   int curChallenge = 0;
   int maxStage = 0, maxLevel = 0;
@@ -191,7 +197,7 @@ class App : public WidgetHost {
   Screen* screen() const { return cur_.get(); }
   std::string screenName() const { return cur_ ? cur_->name() : "none"; }
   void showLoadingScreen();
-  void showMainMenu();
+  void showMainMenu(bool nightsHub = false);
   void showAdventureScreen();
   void showLevelScreen(bool fromTrophy = false);
   void showTrophyScreen();
@@ -211,15 +217,16 @@ class App : public WidgetHost {
   int modApplyCount() const { return modApplyCount_; }
   std::function<void()> modAssetsHook;
   void showBoard(bool fromAdventure, bool newLevel);
-  void startDemo();
+
   void startAdventureGame();
   void showIntroScreen();
-  void showProgressScreen(int mode);
+  void showProgressScreen(int mode, bool fromNightsHub = false);
   void showCreditsScreen();
   bool moving() const { return !movers_.empty(); }
 
   Dialog* doDialog(int id, bool modal, const std::string& header, const std::string& lines, const std::string& footer, int buttonMode);
   Dialog* getDialog(int id) const;
+  Dialog* topDialog() const;
   void killDialog(int id);
   void addDialog(int id, std::unique_ptr<Dialog> d);
   bool hasModal() const;
@@ -281,6 +288,7 @@ class App : public WidgetHost {
   void playReplayFile(const std::filesystem::path& path);
   void dialogButton(int dialogId, int buttonId);
   void finishOptionsDialog(bool apply, bool scrollOff);
+  bool classicDialogPositions() const { return consoleCanvasWidth() < 960; }
   void positionDialog(Dialog* d, float width, bool fromMenu = false);
 
   void incLevel(int delta);
@@ -357,6 +365,7 @@ class App : public WidgetHost {
   bool foldersWanted_ = false;
   GameRequest switchTo_;
   std::unique_ptr<OtherGame> other_;
+  int canvasOverride_ = 0;
   float canvasW_ = 800;
   uint32_t rng_ = 0x2545f491;
   CrtRand crt_;

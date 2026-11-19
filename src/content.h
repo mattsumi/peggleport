@@ -39,6 +39,7 @@ class ImageManifest {
   explicit ImageManifest(const Vfs& v);
   const ImageRes* find(const std::string& id) const;
   size_t size() const { return res_.size(); }
+  const std::map<std::string, ImageRes>& images() const { return res_; }
  private:
   std::map<std::string, ImageRes> res_;
 };
@@ -51,7 +52,7 @@ struct CharInfo {
 };
 std::vector<CharInfo> loadCharacters(const Vfs& vfs);
 
-bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err);
+bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err, bool checkDiskSpelling = false);
 std::vector<StageLevel> listStageLevels(const Vfs& vfs);
 
 }

@@ -14,8 +14,21 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shlwapi.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#else
+#include "online/invite_desktop.h"
+#include <cerrno>
+#include <chrono>
+#include <fcntl.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sstream>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 #endif
 
 namespace pp::online {
@@ -194,7 +207,7 @@ std::string selfExePath(const char* argv0) {
   fs::path p = fs::read_symlink("/proc/self/exe", ec);
   if (!ec) return p.string();
 #endif
-  return fs::absolute(argv0 ? argv0 : "peggleport", ec).string();
+  return argv0 && *argv0 ? fs::absolute(argv0, ec).string() : std::string();
 }
 
 std::string registrationCommandLine(const std::string& exePath) { return "\"" + exePath + "\" \"%1\""; }
@@ -214,8 +227,24 @@ std::string macInfoPlistSnippet() {
 }
 
 #ifdef _WIN32
-bool registerUrlHandler(const std::string& exe, std::string* report) {
-  HKEY k = nullptr;
+static const std::string inviteSchemes[] = {"peggleport", "discord-1571022918392225882"};
+
+bool urlHandlerRegistered(const std::string& exe, const std::atomic<bool>*) {
+  if (exe.empty()) return false;
+  const std::wstring expected = wideText(registrationCommandLine(exe));
+  std::vector<wchar_t> value(expected.size() + 1);
+  for (const auto& scheme : inviteSchemes) {
+    const auto protocol = wideText(scheme);
+    if (RegGetValueW(HKEY_CLASSES_ROOT, protocol.c_str(), L"URL Protocol", RRF_RT_REG_SZ, nullptr, nullptr, nullptr) != ERROR_SUCCESS) return false;
+    DWORD chars = static_cast<DWORD>(value.size());
+    if (AssocQueryStringW(ASSOCF_IS_PROTOCOL | ASSOCF_NOTRUNCATE | ASSOCF_NOFIXUPS, ASSOCSTR_COMMAND, protocol.c_str(), nullptr,
+                          value.data(), &chars) != S_OK ||
+        CompareStringOrdinal(value.data(), -1, expected.c_str(), -1, TRUE) != CSTR_EQUAL) return false;
+  }
+  return true;
+}
+
+bool registerUrlHandler(const std::string& exe, std::string* report, const std::atomic<bool>*) {
   std::string cmd = registrationCommandLine(exe);
   auto set = [&](const char* path, const char* name, const std::string& v) {
     HKEY h;
@@ -226,9 +255,8 @@ bool registerUrlHandler(const std::string& exe, std::string* report) {
     RegCloseKey(h);
     return r == ERROR_SUCCESS;
   };
-  (void)k;
   bool ok = true;
-  for (const std::string& scheme : {std::string("peggleport"), std::string("discord-1571022918392225882")}) {
+  for (const auto& scheme : inviteSchemes) {
     const std::string path = "Software\\Classes\\" + scheme;
     const bool written = set(path.c_str(), nullptr, "URL:PegglePort invite") && set(path.c_str(), "URL Protocol", "") && set((path + "\\shell\\open\\command").c_str(), nullptr, cmd);
     ok = written && ok;
@@ -244,7 +272,8 @@ bool unregisterUrlHandler(std::string* report) {
   return r == ERROR_SUCCESS;
 }
 #elif defined(__APPLE__)
-bool registerUrlHandler(const std::string&, std::string* report) {
+bool urlHandlerRegistered(const std::string&, const std::atomic<bool>*) { return false; }
+bool registerUrlHandler(const std::string&, std::string* report, const std::atomic<bool>*) {
   if (report) *report = macInfoPlistSnippet();
   return false;
 }
@@ -256,10 +285,77 @@ bool unregisterUrlHandler(std::string* report) {
 static fs::path desktopFile() {
   const char* xdg = std::getenv("XDG_DATA_HOME");
   const char* home = std::getenv("HOME");
-  fs::path base = xdg && *xdg ? fs::path(xdg) : fs::path(home ? home : ".") / ".local" / "share";
-  return base / "applications" / "peggleport-url.desktop";
+  if (xdg && fs::path(xdg).is_absolute()) return fs::path(xdg) / "applications" / "peggleport-url.desktop";
+  if (home && fs::path(home).is_absolute()) return fs::path(home) / ".local/share/applications/peggleport-url.desktop";
+  return {};
 }
-bool registerUrlHandler(const std::string& exe, std::string* report) {
+using OwnerClock = std::chrono::steady_clock;
+
+static bool desktopTool(const char* const args[], bool checkOwner, OwnerClock::time_point deadline, const std::atomic<bool>* stop) {
+  if ((stop && *stop) || OwnerClock::now() >= deadline) return false;
+  int pipefd[2];
+  if (pipe2(pipefd, O_CLOEXEC | O_NONBLOCK) != 0) return false;
+  posix_spawn_file_actions_t io;
+  posix_spawnattr_t attr;
+  pid_t pid = -1;
+  if (posix_spawn_file_actions_init(&io) == 0) {
+    if (posix_spawnattr_init(&attr) == 0) {
+      if (posix_spawn_file_actions_adddup2(&io, pipefd[1], STDOUT_FILENO) == 0 &&
+          posix_spawn_file_actions_addopen(&io, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0 &&
+          posix_spawnattr_setpgroup(&attr, 0) == 0 && posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP) == 0) {
+        if (posix_spawnp(&pid, args[0], &io, &attr, const_cast<char* const*>(args), environ) != 0) pid = -1;
+      }
+      posix_spawnattr_destroy(&attr);
+    }
+    posix_spawn_file_actions_destroy(&io);
+  }
+  close(pipefd[1]);
+  bool ok = false;
+  if (pid > 0) {
+    int status = 0;
+    for (;;) {
+      if ((stop && *stop) || OwnerClock::now() >= deadline) {
+        kill(-pid, SIGKILL);
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        break;
+      }
+      const pid_t result = waitpid(pid, &status, WNOHANG);
+      if (result == pid) {
+        constexpr char expected[] = "peggleport-url.desktop\n";
+        char reply[sizeof expected];
+        ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (ok && checkOwner) ok = read(pipefd[0], reply, sizeof reply) == sizeof expected - 1 &&
+                                   std::memcmp(reply, expected, sizeof expected - 1) == 0 && read(pipefd[0], reply, 1) == 0;
+        break;
+      }
+      if (result < 0 && errno != EINTR) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+  close(pipefd[0]);
+  return ok;
+}
+
+bool urlHandlerRegistered(const std::string& exe, const std::atomic<bool>* stop) {
+  if (exe.empty() || (stop && *stop)) return false;
+  const auto deadline = OwnerClock::now() + std::chrono::seconds(2);
+  int fd = open(desktopFile().c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) return false;
+  struct stat info{};
+  std::string entry;
+  if (fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 0 && info.st_size <= 65536) {
+    entry.resize(static_cast<size_t>(info.st_size) + 1);
+    if (read(fd, entry.data(), entry.size()) != info.st_size) entry.clear();
+    else entry.pop_back();
+  }
+  close(fd);
+  std::istringstream desktop(entry);
+  return desktopOwnsInvites(desktop, exe, [&](const char* mime) {
+    const char* args[] = {"xdg-mime", "query", "default", mime, nullptr};
+    return desktopTool(args, true, deadline, stop);
+  });
+}
+bool registerUrlHandler(const std::string& exe, std::string* report, const std::atomic<bool>* stop) {
   fs::path f = desktopFile();
   std::error_code ec;
   fs::create_directories(f.parent_path(), ec);
@@ -268,9 +364,14 @@ bool registerUrlHandler(const std::string& exe, std::string* report) {
   o << "[Desktop Entry]\nType=Application\nName=PegglePort (invite handler)\nExec=\"" << exe << "\" %u\nNoDisplay=true\nTerminal=false\n"
     << "MimeType=x-scheme-handler/peggleport;x-scheme-handler/discord-1571022918392225882;\nCategories=Game;\n";
   o.close();
-  int a = std::system(("xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport x-scheme-handler/discord-1571022918392225882 >/dev/null 2>&1"));
-  std::system(("update-desktop-database \"" + f.parent_path().string() + "\" >/dev/null 2>&1").c_str());
-  if (report) *report = "wrote " + f.string() + (a == 0 ? " and set it as the peggleport:// handler (xdg-mime)" : "; xdg-mime was not available, run: xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport x-scheme-handler/discord-1571022918392225882");
+  if (!o) { if (report) *report = "cannot finish writing " + f.string(); return false; }
+  const auto deadline = OwnerClock::now() + std::chrono::seconds(2);
+  const char* setDefault[] = {"xdg-mime", "default", "peggleport-url.desktop", "x-scheme-handler/peggleport", "x-scheme-handler/discord-1571022918392225882", nullptr};
+  const bool set = desktopTool(setDefault, false, deadline, stop);
+  const std::string dir = f.parent_path().string();
+  const char* refresh[] = {"update-desktop-database", dir.c_str(), nullptr};
+  desktopTool(refresh, false, deadline, stop);
+  if (report) *report = "wrote " + f.string() + (set ? " and requested both invite defaults" : "; xdg-mime did not set the defaults. Run: xdg-mime default peggleport-url.desktop x-scheme-handler/peggleport x-scheme-handler/discord-1571022918392225882");
   return true;
 }
 bool unregisterUrlHandler(std::string* report) {

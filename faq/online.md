@@ -6,10 +6,10 @@ All of it is done from the game. The only thing that needs a command line is the
 
 ## Playing
 
-1. On the main menu press **Online** (bottom right).
-2. The public lobby address is filled in: `wss://peggleport-lobby.konekurosawa.org/lobby`. It uses an encrypted WebSocket connection on port 443. Press **Refresh** to see the open rooms. You can also enter a custom native server as `host`, `host:port` or `[IPv6]:port` (native port 7770 by default). The game remembers your choice.
+1. On the main menu press **Online** (above Replays).
+2. LAN/local and global rooms appear together automatically, with a **Source** label on each row. Local results do not wait for the global lobby. **Refresh** checks both again; the mouse wheel scrolls longer lists. You can return to **Main Menu** while discovery is running. If the global lobby is unavailable, local rooms remain usable. There is no server-address field to fill in.
 3. **To join**: click a room (a double click joins it), or type its 5-character code, or press **Paste Invite** with an invite link on your clipboard.
-   **To host**: press **Create Room**, choose Duel or Peg Party with 3 or 4 players, the level and your Master, then **Open Room**. Masters added by mods are listed after the original ones.
+   **To host**: press **Create Room**, choose Duel or Peg Party with 3 or 4 players, the level and your Master, then **Open Room**. The destination defaults to the global lobby, or your configured custom lobby. When a local lobby has answered, **Destination** can switch to that LAN lobby without entering an address. Masters added by mods are listed after the original ones.
 4. In the waiting room everybody presses **Ready** and the host presses **Start Match**. **Copy Invite** puts a link on your clipboard that your friends can open.
 5. Playing: aim with the mouse and click (or press Space or Enter) on your turn. Esc opens the leave menu. In a Peg Party the two boxes at the top list everybody with their scores, yours first and marked YOU. The log (F10) says who you are, whether you are on a direct link (`Direct UDP link (23 ms)`) or relayed through the lobby, how many shots the host has verified, whose turn it is in a Duel, and rollbacks.
 6. When the match ends, **Rematch** needs everybody to ask (the host picks a new seed), or choose **Leave**.
@@ -20,7 +20,11 @@ Everybody needs the same game data. A guest whose level files or active gameplay
 
 ## Invite links
 
-An invite link includes the lobby address and room code. Native links such as `peggleport://join?lobby=HOST:PORT&code=XXXXX` still work, including IPv6 addresses in brackets. Secure links carry the whole `wss://` address with its punctuation escaped. Use **Copy Invite** and **Paste Invite** to keep it intact. Opening a link fills in the existing Online screen and refreshes that lobby’s room list. Press **Join** to enter the room.
+An invite link includes the lobby address and room code. Native links such as `peggleport://join?lobby=HOST:PORT&code=XXXXX` still work, including IPv6 addresses in brackets. Secure links carry the whole `wss://` address with its punctuation escaped. Use **Copy Invite** and **Paste Invite** to keep it intact. Opening a link selects that exact destination on the existing Online screen. Press **Join** to enter the room. Browsing an invite does not change your saved hosting destination. Clicking a room also retains its server, even if another server has the same five-character room code. A manually typed code searches the discovered sources, including the public lobby and the local computer; use an invite or select a row to disambiguate duplicate codes.
+
+### Custom and private lobbies
+
+The global lobby is `wss://peggleport-lobby.konekurosawa.org/lobby`, using encrypted WebSockets on port 443. Advanced users can set `lobby=host:port` and `lobbyset=1` in `online.ini`, beside the game's `userdata` directory, or launch the game with the `PP_LOBBY` environment variable. Native `host`, `host:port` and `[IPv6]:port` addresses and secure `wss://` addresses are accepted. This sets the default hosting destination and adds the custom server to the browser; it never replaces the global query. An invite can reach a private server without changing either setting.
 
 To make links open the game:
 
@@ -46,10 +50,10 @@ pp_lobbyd [port] [--no-udp] [--aux-offset N] [--proxy-local]
 The port defaults to 7770. It uses:
 
 * **TCP on the port**: the room list and the relay. Always needed.
-* **UDP on the same port number**: lets players find each other for direct links.
+* **UDP on the same port number**: LAN discovery and direct-link rendezvous.
 * **UDP on port+1**: the router type check. Optional.
 
-If UDP is blocked, rooms still work through the relay. For a LAN server, enter its local address, such as `192.168.1.20:7770`. For a server on the same computer, enter `127.0.0.1:7770`.
+The browser sends one IPv4 broadcast and one loopback discovery request to UDP 7770 per refresh, listens briefly, then queries the responding servers over TCP. Allow UDP and TCP 7770 through the server's local firewall for automatic LAN discovery. Broadcasts normally stay on the current subnet; a lobby on another subnet or a nondefault port can be added through the custom setting or an invite. Discovered replies carry the server's actual listening port. If UDP is disabled or blocked, the browser still checks TCP `127.0.0.1:7770`, and configured servers and invites still work through the relay.
 
 **On a Linux server with systemd** (as a normal user):
 
@@ -68,7 +72,7 @@ The service file uses port 7770. Edit `ExecStart` to change it. `journalctl --us
 
 1. Open the ports in the server's firewall, for example `sudo ufw allow 7770/tcp && sudo ufw allow 7770/udp && sudo ufw allow 7771/udp`.
 2. Forward TCP 7770, UDP 7770 and UDP 7771 on your router to the server.
-3. From another network, enter the server's address on the Online screen and press **Test connection**.
+3. From another network, configure the server with `online.ini` or `PP_LOBBY`, then press **Test connection**, or open an invite for a room on that server.
 
 ### Secure relay bridge
 
@@ -90,6 +94,7 @@ The bridge only listens on `127.0.0.1:7772`, accepts WebSockets at `/lobby`, and
 ### Notes on safety
 
 * Every UDP request is at least 64 bytes and every answer is shorter than its request, so the server cannot be used to amplify traffic.
+* LAN discovery replies echo the request nonce and share the rendezvous rate limits. Each browse pass caps discovery packets and queried endpoints; it does not continuously retry broadcasts.
 * A player's address is only recorded after a cookie tied to the source address proves it, so nobody can plant a fake address for another player.
 * Direct links need a secret that the lobby hands over TCP to exactly those two players. Packets are authenticated with it, and packets from anybody else are dropped.
 * Request rates are limited per address and overall, and the number of tracked addresses and live pairs is capped.

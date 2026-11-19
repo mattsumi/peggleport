@@ -11,7 +11,7 @@ Open it from **Options, then Level Editor**, or press **F9** on the main menu. I
 | Top bar | New, Open (a level browser with a filter), Save, To mod, Export and Import (JSON), Undo, Redo, Grid, Snap, Fit, Animate, Oranges, Check, Test play, Exit |
 | Left palette | Tools (Select, Pan), pegs (blue, orange, green, purple, round with a radius, bumper), bricks (straight, curved), shapes (polygon, line, hole), effects (emitter) and arrange (flip, rotate, duplicate, delete, copy, paste, align, spread) |
 | Canvas | The board, zoomed and panned. The playfield outline is white. On a wide board the original 650 pixel region is marked with a dashed gold guide |
-| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, art of the level (pick a picture), board width, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
+| Right panel | **Object** (all properties of the selection), **Mover**, **Level** (name, title, stock or imported background, balls, orange target, physics, mod name), **Gen** (pattern generators) and **Checks** (click a line to jump to the object) |
 | Bottom bar | Cursor position, zoom, grid, selection, saved or modified, and the last message |
 
 ## Keys and mouse
@@ -57,7 +57,7 @@ The `:` key opens a one line command box for typed commands, which some people p
 * **Emitters** are the particle effects of Peggle Nights, like flames and sparks. Pick the Emitter tool (N) and click to place one. It shows as an orange frame, the area the particles come from, with a small square in the middle that holds the effect's picture. Click the square or the frame to select it and drag it to move it. The Object tab has all of its settings: the size and shape of the area, the picture, opacity, colour and size, how fast and how many particles, how long they live, speed, gravity and spin. An emitter can have a mover like any other object. The editor only shows where an emitter is and which picture it uses. The particles run when you play the level, and an emitter with a mover or a follower moves with it.
 * **Following** is how the original makes one object ride on another one's mover: a ring of pegs that turns, a peg that sits on a moving platform. Select the objects that should follow, press J (or "Follow an object" in the Mover tab) and click the object they should follow. That object needs a mover. The followers keep their place and move along with it, on top of any mover of their own. Objects update in the order they were placed, so a follower that was placed before the object it follows trails it by one tick (a hundredth of a second), the same as in the original game. A followed object is outlined in purple with a line to each follower, and the orange path of a follower includes the motion it gets from the object it follows. "Follow start X" and "Follow start Y" in the Mover tab are the spot the followed object counted as home when you linked them. You normally leave them alone, they follow the followed object when you move it. "Stop following" lets go again. Copying a follower keeps it following, copying both together makes a new pair. An object that already follows something cannot be followed itself, and an object that is followed cannot follow.
 * **Movers**: pick a type in the Mover tab. All 15 types are there with radius, period, time offset, two pauses, phase, path rotation, rotation and reverse. When you add a mover the object stays where it is.
-* The level files use the classic 650 by 560 coordinates. On a wide board the game centres the level, so the playfield reaches past 0 and 650 on both sides. The editor draws exactly that.
+* **New** creates a standard 4:3 level with a 650 by 560 playfield. Changing the display aspect ratio does not change the level. Opening an older custom wide level preserves its original width and object positions.
 
 Properties the editor has no controls for are kept untouched, so editing one peg of a shipped level only changes that peg. Loading and saving a shipped level without changes writes the identical file.
 
@@ -72,9 +72,9 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 * New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.
 * Level names may use letters, digits, `_` and `-`. A name that starts with `_` is treated as a base layout without walls and a bucket, and the checker tells you about it.
 * The art of a level is its own picture in the game or mod files (`levels/<level name>`, a .jpg, .png or .jp2, 646 x 543 for the classic board, 800 x 600 for a full screen picture). The editor does not paint pictures, it picks them: see Level art below. A new level uses the art you choose in the Level tab. Pictures that come from another mod are copied into your mod folder when you save, so the mod does not break when the other one is switched off. Pictures of the game itself are only named, never copied, and nothing is ever written into the game folders.
-* To play it: tick the mod in **Options, then Mods**. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
+* To play it: enable the mod on the **Mods** screen. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
 
-**Export and Import** write and read `exports/<Level>.json` in your save folder: a readable file of the whole level. Numbers keep their exact value, so exporting and importing changes nothing.
+**Export and Import** write and read `exports/<Level>.json` in your save folder. When sharing a level with an imported background, send the whole mod folder, or send the generated image alongside the JSON. For loose DAT files, keep the DAT, INI and generated image together.
 
 ## Test play
 
@@ -95,10 +95,11 @@ Markers on the canvas show the objects a message is about.
 The editor can show and pick three kinds of pictures. Each one has the same chooser: a list of every picture in the game and in your mod folder with a big preview of the one under the mouse, a filter box (just type), and a button to type a name by hand.
 
 * **Art of level** in the Level tab is the picture behind the board. Click the line to open the chooser. "The level's own picture" means the file called like the level. The board shows your choice at once. The level is saved with a `background` line in its .ini when it is not the level's own picture.
+* **Import Background...** below **Art of level** opens an image file from your computer. Choose a PNG, JPEG, GIF, TGA, JP2 or J2K. The editor copies it into your mod's `levels/` folder and shows it on the board. You can move the original afterward. Canceling or choosing an unreadable image leaves the current background in place.
 * **Image** in the Object tab is a picture drawn on an object (a bumper, a brick, a polygon). Select the objects first. Your choice is one undo step like any other change, and Image dx, Image dy, Image rot, Tile image and Mirror image next to it move and turn the picture.
 * **Image** of an emitter is the picture of its particles, chosen the same way.
 
-Pictures you made yourself go into your mod folder first: `levels/` for level art, `images/levels/` for object and emitter pictures (.png, .jpg or .tga work). The chooser lists them as "mod folder". Picking one adds your mod folder to the running game so the picture shows on the board straight away, and the Checks tab warns about a picture that is picked but not found.
+You can also put artwork in your mod folder yourself: `levels/` for backgrounds, `images/levels/` for object and emitter pictures. The chooser lists them as "mod folder". Picking one adds your mod folder to the running game so the picture shows on the board straight away, and the Checks tab warns about a picture that is picked but not found.
 
 ## Generators and arranging
 
@@ -108,4 +109,4 @@ The Gen tab makes a grid (columns, rows, spacing, origin), a circle, a spiral or
 
 * Bare physics objects (no shipped level has one) are kept in the file but neither drawn nor editable.
 * Several objects sharing one mover path can only be made through an imported JSON file. Following covers the usual reason for wanting that.
-* You cannot paint level art in the editor. Make the picture in your own program, put it into your mod folder and pick it.
+* You cannot paint level art in the editor. Make the picture in your own program, then use **Level → Import Background...**.

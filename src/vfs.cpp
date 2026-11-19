@@ -45,6 +45,28 @@ std::string genericUtf8(const fs::path& p) {
   return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
 
+bool resolveDiskSpelling(const fs::path& requested, fs::path& actual, std::string* err) {
+  const auto parent = requested.parent_path();
+  const auto dir = parent.empty() ? fs::path(".") : parent;
+  const auto key = normKey(genericUtf8(requested.filename()));
+  fs::path match;
+  std::error_code ec;
+  fs::directory_iterator it(dir, ec), end;
+  if (ec == std::errc::no_such_file_or_directory) ec.clear();
+  for (; !ec && it != end; it.increment(ec)) {
+    const auto leaf = it->path().filename();
+    if (normKey(genericUtf8(leaf)) != key) continue;
+    if (!match.empty()) {
+      if (err) *err = "ambiguous filename: " + pathToUtf8(parent / match) + " and " + pathToUtf8(parent / leaf);
+      return false;
+    }
+    match = leaf;
+  }
+  if (ec) { if (err) *err = "cannot inspect " + pathToUtf8(dir) + ": " + ec.message(); return false; }
+  actual = match.empty() ? requested : parent / match;
+  return true;
+}
+
 std::map<std::string, std::string> readIni(const std::string& text) {
   std::map<std::string, std::string> out;
   std::istringstream in(text);
@@ -113,7 +135,7 @@ bool loadPak(const fs::path& p, Pak& out, std::string* err) {
   return true;
 }
 
-void Vfs::indexDir(Layer& L) {
+void Vfs::indexDir(Layer& L, std::string_view prefix) {
   std::error_code ec;
   for (auto it = fs::recursive_directory_iterator(L.root, fs::directory_options::skip_permission_denied, ec);
        it != fs::recursive_directory_iterator(); it.increment(ec)) {
@@ -121,7 +143,7 @@ void Vfs::indexDir(Layer& L) {
     if (!it->is_regular_file()) continue;
     auto rel = genericUtf8(fs::relative(it->path(), L.root, ec));
     if (rel.empty() || rel[0] == '.') continue;
-    L.files.emplace(normKey(rel), it->path());
+    L.files.emplace(std::string(prefix) + normKey(rel), it->path());
   }
 }
 
@@ -168,6 +190,21 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   D.root = gameDir;
   indexDir(D);
   layers_.push_back(std::move(D));
+  return true;
+}
+
+bool Vfs::mountPresentation(const fs::path& dataDir) {
+  if (dataDir.empty()) return false;
+  Layer L;
+  L.root = dataDir / "console";
+  L.label = "console presentation";
+  L.meta.emplace("image_alpha", "baked");
+  indexDir(L, "CONSOLE\\");
+  std::erase_if(L.files, [](const auto& image) { return !image.first.ends_with(".PNG"); });
+  if (L.files.empty()) return false;
+  auto where = std::find_if(layers_.begin(), layers_.end(), [](const Layer& layer) { return !layer.isMod; });
+  pp::log::info("game", "console presentation: " + pathToUtf8(L.root) + " (" + std::to_string(L.files.size()) + " images)");
+  layers_.insert(where, std::move(L));
   return true;
 }
 
@@ -272,9 +309,10 @@ void vfsLogMiss(const char* kind, std::string_view path) {
 
 std::optional<VfsHit> Vfs::read(std::string_view path) const { return read(path, std::numeric_limits<size_t>::max()); }
 
-std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
+static std::optional<VfsHit> readLayers(const std::vector<Layer>& layers, std::string_view path, size_t maxBytes,
+    std::string* spellingError, const Layer* boardLayer = nullptr, const fs::path* sibling = nullptr) {
   std::string k = normKey(path);
-  for (auto& L : layers_) {
+  for (auto& L : layers) {
     if (L.kind == Layer::PakFile) {
       auto it = L.pakIndex.find(k);
       if (it == L.pakIndex.end()) continue;
@@ -286,13 +324,36 @@ std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
       return h;
     }
     auto it = L.files.find(k);
-    if (it == L.files.end()) continue;
+    const fs::path* disk = it != L.files.end() ? &it->second : (&L == boardLayer ? sibling : nullptr);
+    if (!disk) continue;
     VfsHit h;
     h.layer = &L;
-    if (!slurp(it->second, h.bytes, maxBytes)) continue;
-    return h;
+    fs::path actual;
+    if (spellingError) {
+      if (!resolveDiskSpelling(*disk, actual, spellingError)) return std::nullopt;
+      disk = &actual;
+    }
+    std::error_code ec;
+    if ((!boardLayer || fs::is_regular_file(*disk, ec)) && slurp(*disk, h.bytes, maxBytes)) return h;
+    if (boardLayer && fs::symlink_status(*disk, ec).type() != fs::file_type::not_found) {
+      *spellingError = "cannot read " + pathToUtf8(*disk);
+      return std::nullopt;
+    }
   }
   return std::nullopt;
+}
+
+std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes, std::string* spellingError) const {
+  return readLayers(layers_, path, maxBytes, spellingError);
+}
+
+std::optional<VfsHit> Vfs::readEditorLevelIni(const std::string& levelKey, const Layer& boardLayer, std::string& err) const {
+  fs::path sibling;
+  if (boardLayer.kind == Layer::Dir) {
+    sibling = boardLayer.files.at(normKey(levelKey + ".dat"));
+    sibling.replace_extension(".ini");
+  }
+  return readLayers(layers_, levelKey + ".ini", SIZE_MAX, &err, &boardLayer, &sibling);
 }
 
 bool Vfs::exists(std::string_view path) const {

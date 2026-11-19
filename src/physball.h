@@ -29,7 +29,7 @@ bool ballUpdate(Ball& b, float gravity, float maxSpeed, const PhysicsParams* ext
 void ballSweptBounds(Ball& b);
 void doBallPegCollision(Ball& b, const Target& peg, std::vector<const Target*>* notify);
 void doLineCollision(Ball& b, V2& vel, const Target& obj, V2 n, V2 hitPt, V2 hitV, V2& angV, std::vector<const Target*>* notify);
-bool doCollideUpdate(Ball& b, std::vector<Target*>& cands, V2* firstHit, std::vector<const Target*>* notify);
+bool doCollideUpdate(Ball& b, std::vector<Target*>& cands, V2* firstHit, std::vector<const Target*>* notify, bool classic = false);
 
 bool checkBallCollision(Ball& self, Ball& other);
 void doBallBallCollision(Ball& self, Ball& other);

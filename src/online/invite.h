@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -17,7 +18,8 @@ bool extractInvite(const std::string& text, Invite* out);
 bool isInviteLike(const std::string& s);
 
 std::string registrationCommandLine(const std::string& exePath);
-bool registerUrlHandler(const std::string& exePath, std::string* report);
+bool urlHandlerRegistered(const std::string& exePath, const std::atomic<bool>* stop = nullptr);
+bool registerUrlHandler(const std::string& exePath, std::string* report, const std::atomic<bool>* stop = nullptr);
 bool unregisterUrlHandler(std::string* report);
 std::string macInfoPlistSnippet();
 std::string selfExePath(const char* argv0);

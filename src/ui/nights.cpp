@@ -9,10 +9,11 @@
 
 #include "ui/character_dialog.h"
 #include "ui/screens.h"
+#include "ui/secondary_art.h"
 
 namespace pp::ui {
 
-void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha, int pointer) {
+void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha, int pointer, float pointerX) {
   auto T = [&](const char* n) { return g.img(std::string("IMAGE_TROPHY_SPEECH_") + n); };
   Tex *tl = T("TL"), *t = T("T"), *tr = T("TR"), *l = T("L"), *c = T("C"), *r = T("R"), *bl = T("BL"), *b = T("B"), *br = T("BR");
   if (!tl || !t || !tr || !l || !c || !r || !bl || !b || !br) return;
@@ -30,7 +31,12 @@ void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha, int 
   const char* pn[] = {nullptr, "BP", "LP", "RP", "TP"};
   if (pointer > 0 && pointer < 5) {
     if (Tex* p = T(pn[pointer])) {
-      if (pointer == 1) g.draw(p, x + 30, y + h - th, m);
+      if (pointer == 1) {
+        bool right = pointerX > w / 2;
+        float px = std::clamp(pointerX - (right ? p->lw() : 0), tw, std::max(tw, w - tw - p->lw()));
+        if (right) g.drawCelMirror(p, x + px, y + h - 20, 0, 0, m);
+        else g.draw(p, x + px, y + h - 20, m);
+      }
       else if (pointer == 2) g.draw(p, x - p->lw() + 8, y + 20, m);
       else if (pointer == 3) g.draw(p, x + w - 8, y + 20, m);
       else g.draw(p, x + 30, y - p->lh() + 8, m);
@@ -179,6 +185,8 @@ void MainMenu::drawNights(Gfx& g) {
   {
     int st = -1;
     const DecalInfo* hov = decalAt(app, app.mouseX - x, app.mouseY - y, &st);
+    bubbleDimmed = !app.hasModal() && (hov ? !hov->hover.empty() : mantelAt(app, app.mouseX - x, app.mouseY - y) >= 0);
+    bLink->visible = app.curProfile != nullptr && bubble == 0 && !bubbleDimmed;
     for (int i = app.stages.numStages(); i < app.stages.numAllStages(); i++) {
       const StageInfo* s = app.stages.stage(i);
       if (!s) continue;
@@ -195,21 +203,24 @@ void MainMenu::drawNights(Gfx& g) {
   if (bubbleFade > 0) drawSpeechBubble(g, bubbleOld, (float)bubbleFade / 15.0f, true);
   drawSpeechBubble(g, bubble, 1.0f - (bubbleFade > 0 ? (float)bubbleFade / 15.0f : 0.0f), bubbleFade == 0);
   {
+    constexpr float textLift = 8;
     int st = -1;
     const DecalInfo* hov = decalAt(app, app.mouseX - x, app.mouseY - y, &st);
     if (hov && !hov->hover.empty() && !app.hasModal()) {
-      float bw = 230, th = g.wrappedHeight("PLAIN2", bw - 40, hov->hover, 18), bh = th + 40;
-      float bx = std::clamp((float)hov->x - bw / 2, 10.0f, 520.0f - bw), by = std::max(10.0f, (float)hov->hy - bh - 6);
-      drawSpeechBox(g, bx, by, bw, bh, 0.95f, 1);
-      g.drawWrapped("PLAIN2", {bx + 20, by + 18, bw - 40, th}, hov->hover, 0x303030, 1.0f, Align::Center, 18);
+      float bw = 230, th = g.wrappedHeight("PLAIN2", bw - 40, hov->hover, 18), bh = std::max(80.0f, th + 40);
+      float targetX = hov->hx + hov->hw / 2.0f;
+      float bx = std::clamp(targetX - bw / 2, 10.0f, 520.0f - bw), by = std::max(10.0f, (float)hov->hy - bh - 26);
+      drawSpeechBox(g, bx, by, bw, bh, 0.95f, 1, targetX - bx);
+      g.drawWrapped("PLAIN2", {bx + 20, by + (bh - th) / 2 - textLift, bw - 40, th}, hov->hover, 0x303030, 1.0f, Align::Center, 18);
     }
     int mt = hov ? -1 : mantelAt(app, app.mouseX - x, app.mouseY - y);
     if (mt >= 0 && !app.hasModal()) {
       const MantelTrophy& t = kMantel[mt];
-      float bw = 230, th = g.wrappedHeight("PLAIN2", bw - 40, t.text, 18), bh = th + 40;
-      float bx = std::clamp(t.rx + t.rw / 2.0f - bw / 2, 10.0f, 520.0f - bw), by = std::max(10.0f, (float)t.ry - bh - 6);
-      drawSpeechBox(g, bx, by, bw, bh, 0.95f, 1);
-      g.drawWrapped("PLAIN2", {bx + 20, by + 18, bw - 40, th}, t.text, 0x303030, 1.0f, Align::Center, 18);
+      float bw = 230, th = g.wrappedHeight("PLAIN2", bw - 40, t.text, 18), bh = std::max(80.0f, th + 40);
+      float targetX = t.rx + t.rw / 2.0f;
+      float bx = std::clamp(targetX - bw / 2, 10.0f, 520.0f - bw), by = std::max(10.0f, (float)t.ry - bh - 26);
+      drawSpeechBox(g, bx, by, bw, bh, 0.95f, 1, targetX - bx);
+      g.drawWrapped("PLAIN2", {bx + 20, by + (bh - th) / 2 - textLift, bw - 40, th}, t.text, 0x303030, 1.0f, Align::Center, 18);
     }
   }
   if (Tex* l = g.img("IMAGE_MM_LEFT")) g.draw(l, 0, 0);
@@ -223,6 +234,24 @@ static const int kFrames[11][4] = {{574, 85, 54, 102}, {178, 94, 47, 89},  {77, 
 static const int kMasterFrame[11] = {2, 9, 7, 1, 0, 3, 4, 5, 8, 6, 10};
 static const int kHiddenAt[11][2] = {{101, 310}, {575, 418}, {114, 440}, {202, 136}, {603, 133}, {192, 287}, {276, 304}, {569, 288}, {224, 428}, {679, 296}, {699, 436}};
 static const int kPortraitAt[11][2] = {{73, 264}, {544, 378}, {80, 398}, {167, 92}, {565, 81}, {165, 244}, {245, 268}, {540, 251}, {192, 386}, {631, 254}, {670, 402}};
+static const int kWideFrames[11][4] = {{781, 120, 56, 102}, {385, 128, 49, 90}, {285, 302, 53, 87}, {383, 288, 37, 70}, {459, 304, 49, 66}, {753, 286, 43, 83},
+                                       {858, 288, 56, 89}, {298, 439, 43, 83}, {404, 430, 53, 69}, {752, 411, 63, 82}, {883, 436, 43, 83}};
+
+struct TrophyRoomLayout {
+  float width, inset;
+  Tex* image;
+  Rect scene;
+
+  explicit TrophyRoomLayout(Gfx& g) : width(static_cast<float>(g.canvasW())), inset((width - 800) / 2),
+      image(inset > 0 ? secondaryArt(g, "trophy_room") : nullptr), scene(image ? secondaryCover(*image, width) : Rect{inset, 0, 800, 600}) {}
+
+  Rect frame(int master) const {
+    const int i = kMasterFrame[master];
+    const int* f = image ? kWideFrames[i] : kFrames[i];
+    const float s = image ? scene.h / 668 : 1;
+    return {scene.x + f[0] * s, scene.y + f[1] * s, f[2] * s, f[3] * s};
+  }
+};
 
 static int stageOfMaster(int master) {
   for (int s = 0; s < 11; s++)
@@ -230,7 +259,7 @@ static int stageOfMaster(int master) {
   return master;
 }
 
-ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
+ProgressScreen::ProgressScreen(App& a, int m, bool fromNightsHub) : Screen(a), mode(m), fromNightsHub_(fromNightsHub) {
   bContinue = patchButton(0, "Continue", "IMAGE_DLG_BUTTON3", 0, 0x215);
   if (Tex* pb = a.gfx.img("IMAGE_DLG_PLAYBUTTON1")) {
     bContinue->image = pb;
@@ -258,6 +287,19 @@ ProgressScreen::ProgressScreen(App& a, int m) : Screen(a), mode(m) {
   }
 }
 
+static void widescreenContinue(Gfx& g, Button& button, float y) {
+  button.image = secondaryArt(g, "action_button");
+  if (!button.image) button.image = g.img("IMAGE_DLG_BUTTON3");
+  button.kind = Button::Kind::Patch;
+  button.w = 290;
+  button.h = 50;
+  button.font = "OVERLOAD24OUTLINE";
+  button.textOffY = 7;
+  button.y = y;
+}
+
+int ProgressScreen::canvasWidth() const { return app.consoleCanvasWidth(); }
+
 void ProgressScreen::update() {
   Panel::update();
   t++;
@@ -278,21 +320,25 @@ void ProgressScreen::update() {
     bContinue->y = 0x215;
   }
   if (bContinue->visible) {
-    float tx = 400 - bContinue->w / 2;
+    float tx = (static_cast<float>(canvasWidth()) - bContinue->w) / 2;
     if (bContinue->x < tx) bContinue->x = std::min(tx, bContinue->x + 30);
   }
   hovered = -1;
   float mx = app.mouseX - x, my = app.mouseY - y;
+  const TrophyRoomLayout room(app.gfx);
+  const float pad = room.image ? 4.0f : 10.0f;
   for (int i = 0; i < 11; i++) {
-    const int* f = kFrames[kMasterFrame[i]];
-    if (mx >= f[0] - 10 && mx < f[0] + f[2] + 10 && my >= f[1] - 10 && my < f[1] + f[3] + 10) hovered = i;
+    const Rect f = room.frame(i);
+    if (mx >= f.x - pad && mx < f.x + f.w + pad && my >= f.y - pad && my < f.y + f.h + pad) hovered = i;
   }
   if (hovered != prevHovered && hovered >= 0 && t > 20) app.playSample("SPEECH_BUBBLE_POPUP");
   prevHovered = hovered;
 }
 
 void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
-  g.fill(0, 0, 800, 600, 0x000000);
+  const TrophyRoomLayout room(g);
+  const bool wide = room.inset > 0;
+  g.fill(0, 0, room.width, 600, wide ? 0x2d0910 : 0x000000);
   const PlayerInfo* p = app.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
   if (p && p->advCompletions > 0) cleared = 11;
@@ -306,23 +352,44 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     }
     Tex* hid = g.img("IMAGE_TROPHY_PORTRAIT_HIDDEN_" + std::to_string(i + 1));
     Tex* pic = g.img("IMAGE_TROPHY_PORTRAIT_" + std::to_string(i + 1));
-    if (hid) g.draw(hid, (float)(kHiddenAt[i][0] - (int)hid->lw() / 2), (float)(kHiddenAt[i][1] - (int)hid->lh() / 2));
-    if (pic && shown) g.draw(pic, (float)kPortraitAt[i][0], (float)kPortraitAt[i][1], Mode(a));
+    if (room.image) {
+      const Rect f = room.frame(i);
+      auto portrait = [&](Tex* tex, float alpha) {
+        if (!tex) return;
+        const float s = std::max((f.w + 6) / tex->lw(), (f.h + 6) / tex->lh());
+        const float w = tex->lw() * s, h = tex->lh() * s;
+        g.pushClip(f.x - 2, f.y - 2, f.w + 4, f.h + 4);
+        g.drawStretch(tex, f.x + (f.w - w) / 2, f.y + (f.h - h) / 2, w, h, Mode(alpha));
+        g.popClip();
+      };
+      portrait(hid, 1);
+      if (shown) portrait(pic, a);
+    } else {
+      if (hid) g.draw(hid, room.inset + (float)(kHiddenAt[i][0] - (int)hid->lw() / 2), (float)(kHiddenAt[i][1] - (int)hid->lh() / 2));
+      if (pic && shown) g.draw(pic, room.inset + (float)kPortraitAt[i][0], (float)kPortraitAt[i][1], Mode(a));
+    }
   }
-  if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, 0, 0);
+  if (room.image) g.drawStretch(room.image, room.scene.x, room.scene.y, room.scene.w, room.scene.h);
+  else {
+    if (Tex* bg = g.img("IMAGE_TROPHY_TROPHYROOM_SCREEN")) g.draw(bg, room.inset, 0);
+    if (wide) {
+      if (Tex* l = g.img("IMAGE_TROPHY_CURTAIN_L")) g.drawStretch(l, 0, 0, room.inset + 74, 600);
+      if (Tex* r = g.img("IMAGE_TROPHY_CURTAIN_R")) g.drawStretch(r, room.width - room.inset - 74, 0, room.inset + 74, 600);
+    }
+  }
   Tex* frameL = g.img("IMAGE_SCREENFRAMELEFT");
   Tex* frameT = g.img("IMAGE_SCREENFRAMETOP");
   Tex* frameB = g.img("IMAGE_SCREENFRAMEBOTTOM");
   Tex* frameR = g.img("IMAGE_SCREENFRAMERIGHT");
-  if (frameL && frameT && frameB && frameR) {
+  if (!wide && frameL && frameT && frameB && frameR) {
     g.draw(frameL, 0, 0);
     g.draw(frameT, frameL->lw(), 0);
     g.draw(frameB, frameL->lw(), frameL->lh() - frameB->lh());
     g.draw(frameR, frameL->lw() + frameT->lw(), 0);
   }
   for (int i = 0; i < 11; i++) {
-    const int* f = kFrames[kMasterFrame[i]];
-    float cx = f[0] + f[2] / 2.0f, cy = f[1] + f[3] / 2.0f;
+    const Rect f = room.frame(i);
+    float cx = f.x + f.w / 2, cy = f.y + f.h / 2;
     if (stageOfMaster(i) == newest && t > 10 && t < 160) {
       float k = t < 40 ? (t - 10) / 30.0f : t < 110 ? 1.0f : std::max(0.0f, (160 - t) / 50.0f);
       if (Tex* sp = g.img("IMAGE_TROPHY_PARTICLE_WHITE_MED_ROUND")) g.drawRot(sp, cx, cy, 0, 3.0f, 3.5f, Mode(0.55f * k, 0xfff0c0, true));
@@ -334,12 +401,27 @@ void drawTrophyRoom(Gfx& g, App& app, int newest, int t) {
     }
   }
   if (p && p->advCompletions > 0) {
-    if (Tex* hole = g.img("IMAGE_TROPHY_HOLE")) g.draw(hole, 400 - hole->lw() / 2, 380, Mode(0.6f, 0xffffff, true));
-    if (Tex* adv = g.img("IMAGE_TROPHY_ADV")) g.draw(adv, 400 - adv->lw() / 2, 392 - adv->lh() + 10);
+    const float center = room.width / 2, table = room.image ? 408.0f : 380.0f;
+    if (Tex* hole = g.img("IMAGE_TROPHY_HOLE")) g.draw(hole, center - hole->lw() / 2, table, Mode(0.6f, 0xffffff, true));
+    if (Tex* adv = g.img("IMAGE_TROPHY_ADV")) g.draw(adv, center - adv->lw() / 2, table + 22 - adv->lh());
   }
 }
 
 void ProgressScreen::drawLayer(Gfx& g) {
+  const TrophyRoomLayout room(g);
+  const bool wide = room.inset > 0;
+  bContinue->label = wide && (mode == 0 || mode == 2) ? "Back" : "Continue";
+  if (wide) widescreenContinue(g, *bContinue, 480);
+  else if (Tex* pb = g.img("IMAGE_DLG_PLAYBUTTON1")) {
+    bContinue->image = pb;
+    bContinue->kind = Button::Kind::Embedded;
+    bContinue->w = pb->lw();
+    bContinue->h = pb->lh() / 2;
+    bContinue->font = "BUTTON";
+    bContinue->textOffY = 0;
+    bContinue->y = 0x215;
+  }
+  if (newest < 0 || t > 185) bContinue->x = !wide && newest < 0 ? 400.0f - static_cast<int>(bContinue->w) / 2 : (room.width - bContinue->w) / 2;
   drawTrophyRoom(g, app, newest, t);
   const PlayerInfo* p = app.curProfile;
   int cleared = p ? std::min(p->maxStage, 11) : 0;
@@ -350,16 +432,17 @@ void ProgressScreen::drawLayer(Gfx& g) {
     std::string txt;
     if (st)
       for (auto& d : st->story[0]) txt += d.text;
+    if (wide) txt = stripColorCodes(txt);
     if (!txt.empty()) {
-      const int* f = kFrames[kMasterFrame[hovered]];
-      float bw = 220, th = g.wrappedHeight("PLAIN2", bw - 40, txt, 18), bh = th + 40;
-      float bx = std::clamp(f[0] + f[2] / 2.0f - bw / 2, 8.0f, 792.0f - bw), by = std::max(8.0f, f[1] - bh - 14);
-      if (by + bh > f[1] - 4 && by < f[1] + f[3]) by = (float)(f[1] + f[3] + 14);
+      const Rect f = room.frame(hovered);
+      float bw = 220, th = g.wrappedHeight("PLAIN2", bw - 40, txt, 18), bh = std::max(80.0f, th + 40);
+      float bx = std::clamp(f.x + f.w / 2 - bw / 2, 8.0f, room.width - 8.0f - bw), by = std::max(8.0f, f.y - bh - 14);
+      if (by + bh > f.y - 4 && by < f.y + f.h) by = f.y + f.h + 14;
       drawSpeechBox(g, bx, by, bw, bh, 0.95f);
       g.drawWrapped("PLAIN2", {bx + 20, by + 20, bw - 40, th}, txt, 0x303030, 1.0f, Align::Center, 18);
     }
   }
-  if (bContinue->visible)
+  if (!wide && bContinue->visible)
     if (Tex* plate = g.img("IMAGE_TROPHY_EXIT_BUTTON")) g.draw(plate, bContinue->x - 32, bContinue->y - 16);
 }
 
@@ -369,7 +452,7 @@ void ProgressScreen::finish() {
     return;
   }
   if (mode == 1) { app.showStoryScreen(false, false); return; }
-  if (mode == 2) { app.showMainMenu(); return; }
+  if (mode == 2) { app.showMainMenu(fromNightsHub_); return; }
   app.showAdventureScreen();
 }
 void ProgressScreen::onButton(int) { finish(); }
@@ -491,13 +574,65 @@ IntroScreen::IntroScreen(App& a) : Screen(a) {
 }
 static const char* kIntroText[2] = {"Hi! Welcome to the Peggle Institute!\nWe don't often get visitors at this hour.",
                                     "The Peggle Masters are all asleep.\nIt's the perfect time to catch them dreaming!"};
+int IntroScreen::canvasWidth() const { return app.consoleCanvasWidth(); }
+
 void IntroScreen::update() {
   Panel::update();
   t++;
   int total = (int)std::string(kIntroText[pageNo - 1]).size();
   if (t > 15 && typed < total && t % 2 == 0) { typed++; if (typed % 3 == 0) app.playSample("TYPING"); }
 }
+float drawInstituteScene(Gfx& g, float width, int tick) {
+  Tex* bg = secondaryArt(g, "institute");
+  const bool imported = bg != nullptr;
+  if (!bg) bg = g.img("IMAGE_MM_BACKGROUND");
+  g.fill(0, 0, width, 600, 0x130e24);
+  if (!bg) return width * 0.39f;
+  Rect scene = secondaryCover(*bg, width);
+  if (!imported) scene.y = std::max(600 - scene.h, scene.y - 26);
+  g.drawStretch(bg, scene.x, scene.y, scene.w, scene.h);
+  const float s = scene.w / bg->lw();
+  if (imported) {
+    if (Tex* glow = secondaryArt(g, "institute_firelight"))
+      g.drawStretch(glow, scene.x, scene.y, scene.w, scene.h, Mode(0.85f + 0.10f * std::sin(tick * 0.34f), 0xffffff, true));
+  }
+  static const char* flames[] = {"IMAGE_MM_FLAME_01", "IMAGE_MM_FLAME_02", "IMAGE_MM_FLAME_03", "IMAGE_MM_FLAME_04"};
+  const int cel = (tick / 4) % 4;
+  auto flameAt = [&](int frame, float x, float y, float scale, float alpha) {
+    if (Tex* flame = g.img(flames[frame])) {
+      const float w = flame->lw() * s * scale, h = flame->lh() * s * scale;
+      g.drawStretch(flame, scene.x + x * s - w / 2, scene.y + y * s - h, w, h, Mode(alpha, 0xffffff, imported));
+    }
+  };
+  if (imported) {
+    flameAt(cel | 1, 840, 457, 1.55f + 0.14f * std::sin(tick * 0.31f), 0.95f);
+    flameAt(cel & ~1, 864, 453, 1.8f, 0.8f);
+  } else flameAt(cel, 520, 478, 0.75f, 0.9f);
+  return scene.x + (imported ? 449 : 126) * s;
+}
+
 void IntroScreen::drawLayer(Gfx& g) {
+  const float width = static_cast<float>(g.canvasW());
+  if (width > 800) {
+    widescreenContinue(g, *bContinue, 505);
+    bContinue->x = (width - bContinue->w) / 2;
+    const float speaker = drawInstituteScene(g, width, t);
+    const float bx = std::clamp(speaker + 22, 18.0f, width - 356);
+    const float fade = std::min(1.0f, t / 15.0f);
+    const std::string text = kIntroText[pageNo - 1];
+    const float textH = g.wrappedHeight("PLAIN2BIG", 314, text, 18);
+    drawSpeechBox(g, bx, 102, 338, 91, fade, 1, 64);
+    g.drawWrapped("PLAIN2BIG", {bx + 12, 94 + (91 - textH) / 2, 314, textH}, text.substr(0, (size_t)typed), 0x151038, fade, Align::Center, 18);
+    g.drawString("OVERLOAD24OUTLINE", width / 2, 66, "Welcome to the Institute", 0xffffff, fade, Align::Center);
+    return;
+  }
+  bContinue->image = g.img("IMAGE_DLG_BUTTON3");
+  bContinue->w = bContinue->image ? bContinue->image->lw() : 100;
+  bContinue->h = bContinue->image ? bContinue->image->lh() / 3 : 30;
+  bContinue->font = "BUTTON";
+  bContinue->textOffY = 5;
+  bContinue->x = (800 - bContinue->w) / 2;
+  bContinue->y = 0x21e;
   drawLoungeScene(g, t, 15, 11);
   drawSpeechBox(g, 40, 50, 330, 120, std::min(1.0f, t / 15.0f), 1);
   std::string txt = kIntroText[pageNo - 1];
@@ -517,7 +652,10 @@ void IntroScreen::advance() {
 }
 void IntroScreen::onButton(int) { advance(); }
 bool IntroScreen::input(const Input& in) {
-  if (in.type == Input::MouseDown && in.button == 1 && !app.moving() && in.x < 520 && in.y > 20 && in.y < 515) { advance(); return true; }
+  const float width = static_cast<float>(app.gfx.canvasW());
+  const float advanceRight = width > 800 ? width : 520;
+  if (in.type == Input::MouseDown && in.button == 1 && !app.moving() && in.x < advanceRight && in.y > 20 && in.y < 515 &&
+      !bContinue->hit(in.x - x, in.y - y)) { advance(); return true; }
   return Panel::input(in);
 }
 void IntroScreen::keyDown(int key, int) {
@@ -525,7 +663,7 @@ void IntroScreen::keyDown(int key, int) {
 }
 
 void App::showIntroScreen() { setScreen(std::make_unique<IntroScreen>(*this), Left); }
-void App::showProgressScreen(int mode) { setScreen(std::make_unique<ProgressScreen>(*this, mode), Left); }
+void App::showProgressScreen(int mode, bool fromNightsHub) { setScreen(std::make_unique<ProgressScreen>(*this, mode, fromNightsHub), Left); }
 void App::showCreditsScreen() { setScreen(std::make_unique<CreditsScreen>(*this), Left); }
 
 }

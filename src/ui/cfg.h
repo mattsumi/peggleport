@@ -137,6 +137,14 @@ inline std::vector<CfgItem> cfgParse(const std::string& raw) {
       while (e < n && t[e] != '"') e++;
       hdr.label = t.substr(j + 1, e - j - 1);
       j = e + 1;
+    } else if (j > i) {
+      size_t e = j;
+      while (e < n && (std::isalnum((unsigned char)t[e]) || t[e] == '_')) e++;
+      const size_t brace = t.find_first_not_of(" \t\r\n", e);
+      if (e > j && brace < n && t[brace] == '{') {
+        hdr.label = t.substr(j, e - j);
+        j = e;
+      }
     }
     haveHdr = true;
     i = j;

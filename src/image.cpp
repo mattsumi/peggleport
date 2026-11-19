@@ -1,6 +1,7 @@
 #include "image.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <vector>
@@ -270,17 +271,69 @@ bool hasKnownExt(const std::string& p) {
   return false;
 }
 
-bool tryLoad(const Vfs& vfs, const std::string& base, Image& im, bool limited) {
-  for (auto e : EXTS) {
-    auto h = vfs.read(base + e, limited ? 8388608 : std::numeric_limits<size_t>::max());
-    if (h && decodeImage(h->bytes, im, nullptr, limited)) {
-      im.scale = h->layer ? h->layer->imageScale : 1.0f;
-      im.layer = h->layer ? h->layer->label : "";
-      return true;
-    }
+bool loadFileImage(const Vfs& vfs, const std::string& path, Image& im, bool limited, bool* bakedAlpha) {
+  auto h = vfs.read(path, limited ? 8388608 : std::numeric_limits<size_t>::max());
+  if (!h || !decodeImage(h->bytes, im, nullptr, limited)) return false;
+  im.scale = h->layer ? h->layer->imageScale : 1.0f;
+  im.layer = h->layer ? h->layer->label : "";
+  if (bakedAlpha && h->layer) {
+    auto a = h->layer->meta.find("image_alpha");
+    *bakedAlpha = a != h->layer->meta.end() && a->second == "baked";
   }
+  return true;
+}
+
+bool tryLoad(const Vfs& vfs, const std::string& base, Image& im, bool limited, bool* bakedAlpha = nullptr) {
+  for (auto e : EXTS)
+    if (loadFileImage(vfs, base + e, im, limited, bakedAlpha)) return true;
   return false;
 }
+}
+
+void upscale2(Image& im, int rows, int cols) {
+  const int w = im.w, h = im.h, W = w * 2, H = h * 2;
+  const int cw = (cols > 1 && w % cols == 0) ? w / cols : w, chh = (rows > 1 && h % rows == 0) ? h / rows : h;
+  std::vector<float> src((size_t)w * h * 4), tmp((size_t)W * h * 4);
+  for (size_t i = 0; i < (size_t)w * h; i++) {
+    float a = im.rgba[i * 4 + 3];
+    for (int c = 0; c < 3; c++) src[i * 4 + c] = im.rgba[i * 4 + c] * a / 255.0f;
+    src[i * 4 + 3] = a;
+  }
+  auto cr = [](float t, float p0, float p1, float p2, float p3) {
+    return 0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+  };
+  for (int x = 0; x < W; x++) {
+    float u = ((float)x + 0.5f) * 0.5f - 0.5f;
+    int i1 = (int)std::floor(u);
+    float t = u - (float)i1;
+    int n = std::clamp((int)std::floor(u + 0.5f), 0, w - 1), lo = n / cw * cw, hi = std::min(w - 1, lo + cw - 1);
+    int id[4];
+    for (int k = 0; k < 4; k++) id[k] = std::clamp(i1 + k - 1, lo, hi);
+    for (int y = 0; y < h; y++)
+      for (int c = 0; c < 4; c++)
+        tmp[((size_t)y * W + x) * 4 + c] = cr(t, src[((size_t)y * w + id[0]) * 4 + c], src[((size_t)y * w + id[1]) * 4 + c], src[((size_t)y * w + id[2]) * 4 + c], src[((size_t)y * w + id[3]) * 4 + c]);
+  }
+  std::vector<uint8_t> out((size_t)W * H * 4);
+  for (int y = 0; y < H; y++) {
+    float v = ((float)y + 0.5f) * 0.5f - 0.5f;
+    int j1 = (int)std::floor(v);
+    float t = v - (float)j1;
+    int n = std::clamp((int)std::floor(v + 0.5f), 0, h - 1), lo = n / chh * chh, hi = std::min(h - 1, lo + chh - 1);
+    int id[4];
+    for (int k = 0; k < 4; k++) id[k] = std::clamp(j1 + k - 1, lo, hi);
+    for (int x = 0; x < W; x++) {
+      float p[4];
+      for (int c = 0; c < 4; c++)
+        p[c] = cr(t, tmp[((size_t)id[0] * W + x) * 4 + c], tmp[((size_t)id[1] * W + x) * 4 + c], tmp[((size_t)id[2] * W + x) * 4 + c], tmp[((size_t)id[3] * W + x) * 4 + c]);
+      float a = std::clamp(p[3], 0.0f, 255.0f);
+      uint8_t* o = &out[((size_t)y * W + x) * 4];
+      for (int c = 0; c < 3; c++) o[c] = a > 0.5f ? (uint8_t)std::lround(std::clamp(p[c], 0.0f, a) * 255.0f / a) : 0;
+      o[3] = (uint8_t)std::lround(a);
+    }
+  }
+  im.rgba = std::move(out);
+  im.w = W;
+  im.h = H;
 }
 
 bool decodeImage(const std::vector<uint8_t>& b, Image& out, std::string* err) { return decodeImage(b, out, err, false); }
@@ -310,16 +363,13 @@ std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path, cons
 std::optional<Image> loadGameImage(const Vfs& vfs, const std::string& path0, const std::string& explicitMask, bool limited) {
   std::string path = path0;
   Image col;
-  bool haveCol = false;
+  bool haveCol = false, bakedAlpha = false;
   if (hasKnownExt(path)) {
-    if (auto h = vfs.read(path, limited ? 8388608 : std::numeric_limits<size_t>::max()); h && decodeImage(h->bytes, col, nullptr, limited)) {
-      haveCol = true;
-      col.scale = h->layer ? h->layer->imageScale : 1.0f;
-      col.layer = h->layer ? h->layer->label : "";
-    }
+    haveCol = loadFileImage(vfs, path, col, limited, &bakedAlpha);
     path = path.substr(0, path.find_last_of('.'));
   }
-  if (!haveCol) haveCol = tryLoad(vfs, path, col, limited);
+  if (!haveCol) haveCol = tryLoad(vfs, path, col, limited, &bakedAlpha);
+  if (bakedAlpha) return col;
   auto sl = path.find_last_of("/\\");
   std::string dir = sl == std::string::npos ? "" : path.substr(0, sl + 1);
   std::string file = sl == std::string::npos ? path : path.substr(sl + 1);

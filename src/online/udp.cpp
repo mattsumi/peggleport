@@ -132,10 +132,10 @@ class UdpPort : public DatagramPort {
 };
 }
 
-std::unique_ptr<DatagramPort> openUdpPort(int bindPort, std::string* err) {
+std::unique_ptr<DatagramPort> openUdpPort(int bindPort, std::string* err, bool ipv4Broadcast) {
   netStartup();
   auto p = std::make_unique<UdpPort>();
-  sock_t s = socket(AF_INET6, SOCK_DGRAM, 0);
+  sock_t s = ipv4Broadcast ? BAD_SOCK : socket(AF_INET6, SOCK_DGRAM, 0);
   p->v6 = s != BAD_SOCK;
   if (p->v6) {
     int zero = 0;
@@ -160,6 +160,14 @@ std::unique_ptr<DatagramPort> openUdpPort(int bindPort, std::string* err) {
     if (bind(s, (sockaddr*)&a, sizeof a) != 0) {
       closeSock(s);
       if (err) *err = "cannot bind udp port " + std::to_string(bindPort);
+      return nullptr;
+    }
+  }
+  if (ipv4Broadcast) {
+    int one = 1;
+    if (setsockopt(s, SOL_SOCKET, SO_BROADCAST, (const char*)&one, sizeof one) != 0) {
+      closeSock(s);
+      if (err) *err = "cannot enable UDP broadcast";
       return nullptr;
     }
   }
@@ -277,7 +285,7 @@ bool parseHexKey(const std::string& h, SipKey* out) {
 }
 
 std::string randomHex(int bytes) {
-  static std::random_device rd;
+  static thread_local std::random_device rd;
   std::string s;
   char b[4];
   for (int i = 0; i < bytes; i++) {

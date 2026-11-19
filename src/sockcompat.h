@@ -42,11 +42,10 @@ inline void tuneSock(sock_t s) {
 
 inline void netStartup() {
 #ifdef _WIN32
-  static bool done = false;
-  if (!done) {
+  static const bool done = [] {
     WSADATA w;
-    WSAStartup(MAKEWORD(2, 2), &w);
-    done = true;
-  }
+    return WSAStartup(MAKEWORD(2, 2), &w) == 0;
+  }();
+  (void)done;
 #endif
 }

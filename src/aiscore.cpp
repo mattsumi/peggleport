@@ -471,7 +471,8 @@ void AIMgr::Run::stepFrame() {
     if (curFirst < 0) return;
     const int bi = indexOf(curFirst - Board::SAP_BALL);
     if (bi >= 0) {
-      w.collide(w.balls[(size_t)bi], bi, &cand);
+      const Cand& c = cands[(size_t)owner[(size_t)bi]];
+      w.collide(w.balls[(size_t)bi], bi, &cand, nullptr, [&](int oi) { return collides(c, w.objs[(size_t)oi], oi); });
       done[(size_t)bi] = 1;
     }
     cand.clear();

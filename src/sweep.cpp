@@ -80,7 +80,7 @@ void Board::sapAdd(int id) {
         size_t mid = (lo + hi) / 2;
         const float* mb = sapBox(list[mid].id);
         float mv = mb ? mb[axis + (list[mid].start ? 0 : 2)] : 0.0f;
-        if (mv < v) lo = mid + 1;
+        if (mv < v || (cfg.simRules != SimRules::Classic && mv == v && list[mid].start && !start)) lo = mid + 1;
         else hi = mid;
       }
       list.insert(list.begin() + (long)lo, SapEnd{id, start});
@@ -113,8 +113,8 @@ void Board::sapSortList(std::vector<SapEnd>& list, int axis) {
   for (size_t i = 1; i < n; i++) {
     size_t j = i;
     while (j > 0) {
-      if (key[j] > key[j - 1]) break;
       const SapEnd A = list[j - 1], B = list[j];
+      if (key[j] > key[j - 1] || (cfg.simRules != SimRules::Classic && key[j] == key[j - 1] && (A.start || !B.start))) break;
       const bool aball = A.id >= SAP_BALL, bball = B.id >= SAP_BALL;
       if (A.start && !B.start) {
         if (aball) {

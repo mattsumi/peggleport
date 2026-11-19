@@ -31,7 +31,7 @@ struct Line {
   bool edgeTime(V2 pos, V2 vel, float r, V2& hitPt, V2& hitN, V2& hitV, float& hitT, bool& kiss) const;
   bool vertexTime(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, float cx, float cy, V2& hitN, V2& hitV) const;
   bool penetration(V2 pos, float r, V2& outPos, V2& outN, V2& outV) const;
-  bool check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, bool checkB, bool& kiss) const;
+  bool check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, bool checkB, bool& kiss, bool classic = false) const;
 };
 
 
@@ -61,7 +61,7 @@ struct Poly {
   void updateRotation(float moverRot);
   void setPos(float x, float y);
   void setVelocity(float x, float y);
-  bool check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, V2& angV, bool& kiss);
+  bool check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, V2& angV, bool& kiss, bool classic = false);
 };
 
 bool circleCheck(V2 center, float pegR, V2 pos, V2 vel, float r, float& hitT, V2& hitPt);
