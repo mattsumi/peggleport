@@ -77,20 +77,25 @@ static void datSpelling(const fs::path& root) {
   std::string err;
   check(e.saveDat(dat, &err), "seed mixed-case DAT");
   fs::remove(dir / "Board.ini");
+  fs::copy_file(dat, dir / "_base.dat");
+  Vfs beforeIni;
+  check(beforeIni.mountMod(mod, &err), "mount board before creating its INI");
   std::ofstream(ini) << "board_width = 900\nopaque = keep\n";
+  Editor opened;
+  check(opened.loadFromVfs(beforeIni, "BOARD", &err) && opened.meta.boardWidth == 900, "by-name Open reads an INI first created after mount");
   const bool sensitive = !fs::exists(dir / "Board.ini");
   check(e.loadDatFile(dir / "BOARD.dat", &err) && e.savedPath == dat && e.meta.boardWidth == 900, "open unique DAT and independent INI spelling");
   e.setMeta("board_width", "917");
   check(e.saveDat(dir / "board.dat", &err) && e.savedPath == dat && readIni(fileBytes(ini))["board_width"] == "917" && readIni(fileBytes(ini))["opaque"] == "keep", "paired Save updates unique originals");
   if (sensitive) {
     check(!fs::exists(dir / "Board.ini"), "no lowercase duplicate after Save");
-    fs::copy_file(dat, dir / "_base.dat");
     Vfs vfs;
-    Editor opened;
     check(vfs.mountMod(mod, &err) && opened.loadFromVfs(vfs, "BOARD", &err) && opened.meta.boardWidth == 917, "by-name Open uses unique disk pair");
     std::ofstream(dir / "Board.ini") << "second spelling";
+    opened.place(Tool::PegBlue, {220, 200});
     auto previous = opened.level;
     check(!opened.loadFromVfs(vfs, "BOARD", &err) && opened.level == previous, "by-name Open refuses a duplicate added after mount");
+    check(!opened.loadFromVfs(beforeIni, "BOARD", &err) && opened.level == previous && opened.dirty(), "two INIs first created after mount leave the dirty document open");
     auto original = fileBytes(dat), side = fileBytes(ini);
     e.place(Tool::PegBlue, {220, 200});
     check(!e.saveDat(dat, &err) && e.dirty() && e.savedPath == dat && fileBytes(dat) == original && fileBytes(ini) == side && fileBytes(dir / "Board.ini") == "second spelling", "late ambiguous companion blocks both outputs");

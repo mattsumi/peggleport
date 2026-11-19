@@ -309,9 +309,10 @@ void vfsLogMiss(const char* kind, std::string_view path) {
 
 std::optional<VfsHit> Vfs::read(std::string_view path) const { return read(path, std::numeric_limits<size_t>::max()); }
 
-std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes, std::string* spellingError) const {
+static std::optional<VfsHit> readLayers(const std::vector<Layer>& layers, std::string_view path, size_t maxBytes,
+    std::string* spellingError, const Layer* boardLayer = nullptr, const fs::path* sibling = nullptr) {
   std::string k = normKey(path);
-  for (auto& L : layers_) {
+  for (auto& L : layers) {
     if (L.kind == Layer::PakFile) {
       auto it = L.pakIndex.find(k);
       if (it == L.pakIndex.end()) continue;
@@ -323,15 +324,36 @@ std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes, std::str
       return h;
     }
     auto it = L.files.find(k);
-    if (it == L.files.end()) continue;
+    const fs::path* disk = it != L.files.end() ? &it->second : (&L == boardLayer ? sibling : nullptr);
+    if (!disk) continue;
     VfsHit h;
     h.layer = &L;
     fs::path actual;
-    if (spellingError && !resolveDiskSpelling(it->second, actual, spellingError)) return std::nullopt;
-    if (!slurp(spellingError ? actual : it->second, h.bytes, maxBytes)) continue;
-    return h;
+    if (spellingError) {
+      if (!resolveDiskSpelling(*disk, actual, spellingError)) return std::nullopt;
+      disk = &actual;
+    }
+    std::error_code ec;
+    if ((!boardLayer || fs::is_regular_file(*disk, ec)) && slurp(*disk, h.bytes, maxBytes)) return h;
+    if (boardLayer && fs::symlink_status(*disk, ec).type() != fs::file_type::not_found) {
+      *spellingError = "cannot read " + pathToUtf8(*disk);
+      return std::nullopt;
+    }
   }
   return std::nullopt;
+}
+
+std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes, std::string* spellingError) const {
+  return readLayers(layers_, path, maxBytes, spellingError);
+}
+
+std::optional<VfsHit> Vfs::readEditorLevelIni(const std::string& levelKey, const Layer& boardLayer, std::string& err) const {
+  fs::path sibling;
+  if (boardLayer.kind == Layer::Dir) {
+    sibling = boardLayer.files.at(normKey(levelKey + ".dat"));
+    sibling.replace_extension(".ini");
+  }
+  return readLayers(layers_, levelKey + ".ini", SIZE_MAX, &err, &boardLayer, &sibling);
 }
 
 bool Vfs::exists(std::string_view path) const {

@@ -67,6 +67,7 @@ class Vfs {
   void modKeys(std::set<std::string>& out) const;
   std::optional<VfsHit> read(std::string_view path) const;
   std::optional<VfsHit> read(std::string_view path, std::size_t maxBytes, std::string* spellingError = nullptr) const;
+  std::optional<VfsHit> readEditorLevelIni(const std::string& levelKey, const Layer& boardLayer, std::string& err) const;
   bool exists(std::string_view path) const;
   std::vector<std::string> keys() const;
   const std::vector<Layer>& layers() const { return layers_; }

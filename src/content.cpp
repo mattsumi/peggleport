@@ -135,15 +135,16 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     }
   } else {
     out.name = nameOrPath;
-    auto read = [&](const char* ext) { return vfs.read("levels/" + nameOrPath + ext, SIZE_MAX, checkDiskSpelling ? err : nullptr); };
-    auto h = read(".dat");
+    const auto key = "levels/" + nameOrPath;
+    auto h = vfs.read(key + ".dat", SIZE_MAX, checkDiskSpelling ? err : nullptr);
     if (!h) {
       if (err && err->empty()) *err = "level not found: levels/" + nameOrPath + ".dat";
       return false;
     }
     lvBytes = std::move(h->bytes);
     out.source = h->layer ? h->layer->label : "";
-    if (auto s = read(".ini")) sideBytes = std::move(s->bytes);
+    auto s = checkDiskSpelling ? vfs.readEditorLevelIni(key, *h->layer, *err) : vfs.read(key + ".ini");
+    if (s) sideBytes = std::move(s->bytes);
     else if (err && !err->empty()) return false;
   }
   auto ini = readIni(std::string(sideBytes.begin(), sideBytes.end()));
