@@ -97,7 +97,7 @@ static void formats(const LevelBundle& lb, const fs::path& path, bool legacy, bo
   auto cfg = lb.cfg;
   cfg.seed = 3;
   cfg.coinFlipSeen = false;
-  cfg.legacyMissCoin = legacy;
+  cfg.simRules = legacy ? SimRules::FullStroke : SimRules::FairCoin;
   if (physics) cfg.physics.set(PhysicsParams::MaxSpeed, 14.5);
   auto original = board(lb, cfg);
   aim(original);
@@ -107,7 +107,7 @@ static void formats(const LevelBundle& lb, const fs::path& path, bool legacy, bo
   replay.cfg = cfg; replay.level = lb.name; replay.game = cfg.nights; replay.log = log; replay.shots = 1;
   ReplayData read;
   require(replay.save(path) && ReplayData::load(path, read), "scratch replay round-trip");
-  require(read.cfg.physics == cfg.physics && read.cfg.legacyMissCoin == legacy && !read.cfg.coinFlipSeen && read.log.size() == 2, "replay preserves rules");
+  require(read.cfg.physics == cfg.physics && read.cfg.legacyMissCoin() == legacy && !read.cfg.coinFlipSeen && read.log.size() == 2, "replay preserves rules");
   auto playback = board(lb, read.cfg);
   playback.gunWheel(read.log[0].a);
   while (playback.tick < read.log[1].tick) playback.step();
@@ -117,7 +117,7 @@ static void formats(const LevelBundle& lb, const fs::path& path, bool legacy, bo
   session.hist.rng = 1; session.cfg = cfg; session.content = lb.contentHash; session.shots = 1; session.log = log;
   session.frames = original.frames; session.tick = original.tick; session.hash = original.hash(); session.ballsLeft = original.ballsLeft[0];
   const auto bytes = session.bytes();
-  require(SavedSession::parse(bytes, parsed) && parsed.cfg.legacyMissCoin == legacy && parsed.bytes() == bytes, "session preserves rules on re-save");
+  require(SavedSession::parse(bytes, parsed) && parsed.cfg.legacyMissCoin() == legacy && parsed.bytes() == bytes, "session preserves rules on re-save");
   ReadySession ready;
   require(parsed.rebuild(lb, ready.board, ready.snap, ready.haveSnap, ready.aiSnap) && ready.haveSnap && ready.board.hash() == original.hash(), "session reconstructs miss");
 }

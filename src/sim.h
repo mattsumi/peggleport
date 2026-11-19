@@ -186,6 +186,10 @@ struct ChallengeRules {
   bool set(const std::string& key, const std::string& value);
 };
 
+enum class SimRules : uint8_t { FairCoin = 0, FullStroke = 1, HD = 2, Classic = 3, Unspecified = 255 };
+
+constexpr bool knownSimRules(uint32_t id) { return id <= static_cast<uint32_t>(SimRules::Classic); }
+
 struct BoardConfig {
   int boardWidth = 650;
   int authoredWidth = 650;
@@ -206,7 +210,9 @@ struct BoardConfig {
   bool clearLevel = false;
   bool coinFlipSeen = true;
   bool nights = false;
-  bool legacyMissCoin = false;
+  SimRules simRules = SimRules::FairCoin;
+  bool legacyMissCoin() const { return simRules != SimRules::FairCoin; }
+  bool legacyFlippers() const { return simRules == SimRules::Classic || simRules == SimRules::HD; }
   int prevFirst = -1, prevFirstRun = 0;
   ChallengeRules ch;
   bool liveSpin = false;

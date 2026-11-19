@@ -61,6 +61,7 @@ constexpr uint32_t kMagic = 0x50525050;
 constexpr uint32_t kVersion = 1;
 constexpr uint32_t kVersionPhysics = 2;
 constexpr uint32_t kVersionFairCoin = 3;
+constexpr uint32_t kVersionSimRules = 4;
 
 void putPhysics(W& w, const PhysicsEdit& e) {
   w.u32(e.mask);
@@ -81,8 +82,9 @@ std::string replayExt(int game) { return game == 1 ? ".pegn" : ".pego"; }
 
 bool ReplayData::save(const std::filesystem::path& path) const {
   W w;
-  const uint32_t version = cfg.legacyMissCoin ? (cfg.physics.any() ? kVersionPhysics : kVersion) : kVersionFairCoin;
+  const uint32_t version = cfg.simRules == SimRules::Unspecified ? (cfg.physics.any() ? kVersionPhysics : kVersion) : kVersionSimRules;
   w.u32(kMagic); w.u32(version);
+  if (version == kVersionSimRules) w.u32(static_cast<uint32_t>(cfg.simRules));
   w.i32(game); w.str(level); w.str(title); w.str(player);
   w.u32((uint32_t)(when & 0xffffffff)); w.u32((uint32_t)(when >> 32));
   w.i32(score); w.i32(shots); w.i32(startTick);
@@ -108,14 +110,20 @@ bool ReplayData::load(const std::filesystem::path& path, ReplayData& out) {
   R r{buf};
   if (r.u32() != kMagic) return false;
   const uint32_t version = r.u32();
-  if (version != kVersion && version != kVersionPhysics && version != kVersionFairCoin) return false;
+  if (version != kVersion && version != kVersionPhysics && version != kVersionFairCoin && version != kVersionSimRules) return false;
   ReplayData d;
+  if (version == kVersionSimRules) {
+    const auto rules = r.u32();
+    if (r.bad || !knownSimRules(rules)) return false;
+    d.cfg.simRules = static_cast<SimRules>(rules);
+  } else {
+    d.cfg.simRules = version == kVersionFairCoin ? SimRules::FairCoin : SimRules::Unspecified;
+  }
   d.game = r.i32(); d.level = r.str(); d.title = r.str(); d.player = r.str();
   uint32_t lo = r.u32(), hi = r.u32();
   d.when = (int64_t)(((uint64_t)hi << 32) | lo);
   d.score = r.i32(); d.shots = r.i32(); d.startTick = r.i32();
   getCfg(r, d.cfg);
-  d.cfg.legacyMissCoin = version != kVersionFairCoin;
   if (version != kVersion) getPhysics(r, d.cfg.physics);
   uint32_t cnt = r.u32();
   if (r.bad || cnt > 5000000 || d.startTick > 4000000 || d.cfg.boardWidth > 1400) return false;

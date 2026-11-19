@@ -931,7 +931,7 @@ void Board::updatePostShot() {
     shotScore = 0;
     style[cur] = 0;
   } else if (shotScore < 1 && pegsHitShot == 0 && !duel && !bucketShot && !(cfg.ch.active && cfg.ch.noFreeballs)) {
-    const bool win = cfg.legacyMissCoin
+    const bool win = cfg.legacyMissCoin()
         ? !cfg.coinFlipSeen || shotRand[1] % 100u <= (ballsLeft[cur] < 1 ? 80u : 60u)
         : (shotRand[1] & 1u) != 0;
     coin.on = true;
@@ -1186,7 +1186,9 @@ static bool inPolyN(const float (*pt)[2], int n, float px, float py) {
 bool Board::inFlipperZone(const Obj& o) const {
   if (o.zoneMode == 1) return true;
   if (o.zoneMode == 2) return false;
-  const float x = o.pos.x, rightX = x - (W - 650);
+  const bool legacy = cfg.legacyFlippers();
+  const float x = legacy && !o.fromBase ? o.pos.x - (W - 650) * 0.5f : o.pos.x;
+  const float rightX = legacy ? x : x - (W - 650);
   const float y = o.pos.y;
   if (cfg.nights) {
     static const float NA[5][2] = {{0, 448}, {50, 460}, {92, 470}, {95, 523}, {0, 530}};
@@ -1603,7 +1605,7 @@ bool Board::ghostHits(const Ball& g, const Obj& o) const {
     V2 hn, hv, av;
     bool kiss = true;
     phys::Poly p = o.ppoly;
-    return p.check(g.pos, g.vel, r, hitT, hp, hn, hv, av, kiss);
+    return p.check(g.pos, g.vel, r, hitT, hp, hn, hv, av, kiss, cfg.simRules == SimRules::Classic);
   }
   return false;
 }

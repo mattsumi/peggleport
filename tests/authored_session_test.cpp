@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -214,6 +215,92 @@ static int diskVersion(const fs::path& path) {
   return f.get();
 }
 
+static void historicalRecordings(Gfx& gfx, Vfs vfs, const fs::path& root) {
+  const fs::path fixtures = fs::path(__FILE__).parent_path() / "recordings";
+  std::string mountError;
+  if (!check(vfs.mountMod(fixtures, &mountError), "mount synthetic collision board")) return;
+  App::Config cfg;
+  cfg.game = Game::Deluxe;
+  cfg.noSave = cfg.noAudio = cfg.noRoomDiscovery = true;
+  cfg.userDir = root / "userdata";
+  PlayerInfo profile;
+  profile.reset();
+  App app(gfx, vfs, nullptr, nullptr, cfg);
+  app.curProfile = &profile;
+  app.gameMode = GameMode::Adventure;
+  struct Recording { const char* producer; SimRules rules; uint64_t frame71; };
+  const Recording recordings[] = {
+    {"classic", SimRules::Classic, 3974857467461232688ull}, {"hd", SimRules::HD, 2299244122164583032ull},
+    {"full-stroke", SimRules::FullStroke, 277785596890327708ull}, {"fair-coin", SimRules::FairCoin, 277785596890327708ull}
+  };
+  for (const auto& [producer, rules, frame71] : recordings) {
+    testCase = producer;
+    ReadySession r;
+    std::string err;
+    if (!check(SavedSession::load(fixtures / (testCase + ".ppss"), r.saved) &&
+               loadLevelBundle(vfs, r.saved.level, r.bundle, &err), "original producer checkpoint")) continue;
+    auto rebuild = [&](const SavedSession& s) { return s.rebuild(r.bundle, r.board, r.snap, r.haveSnap, r.aiSnap); };
+    auto invalid = r.saved;
+    invalid.hash ^= 1;
+    check(!rebuild(invalid), "no reconstruction accepts the wrong terminal hash");
+    invalid = r.saved;
+    ++invalid.score;
+    check(!rebuild(invalid), "matching hash does not bypass summary validation");
+    if (!check(rebuild(r.saved) && r.haveSnap && r.board.hash() == r.saved.hash, "original producer terminal hash")) continue;
+    app.mouseX = static_cast<float>(75 + r.board.mouseX);
+    app.mouseY = static_cast<float>(40 + r.board.mouseY);
+    check(r.board.cfg.simRules == rules && r.snap.cfg.simRules == rules, "board and shot snapshot retain validated rules");
+    GameScreen resumed(app, r);
+    SavedSession next, decoded;
+    if (!check(resumed.fillSession(next) && SavedSession::parse(next.bytes(), decoded) && rebuild(decoded), "resumed checkpoint reconstructs again")) continue;
+    check(next.bytes()[4] == 4 && decoded.cfg.simRules == rules, "new checkpoint identifies its simulation");
+    auto future = next.bytes();
+    ++future[4];
+    check(!SavedSession::parse(future, invalid), "unknown checkpoint format rejected");
+    invalid = next;
+    invalid.cfg.simRules = static_cast<SimRules>(42);
+    check(!SavedSession::parse(invalid.bytes(), decoded), "unknown rules with valid checksum rejected");
+    invalid.cfg.simRules = rules == SimRules::Classic ? SimRules::HD : SimRules::Classic;
+    check(!rebuild(invalid), "tagged checkpoint never falls back to other rules");
+    fs::path path;
+    ReplayData replay;
+    if (!check(resumed.saveReplay(true, &path, testCase) && ReplayData::load(path, replay), "export replay of resumed board")) continue;
+    check(diskVersion(path) == 4 && replay.cfg.simRules == rules, "new replay identifies its simulation");
+    GameScreen viewer(app, replay);
+    for (int i = 0; i < r.saved.frames && viewer.replaying(); ++i) viewer.update();
+    check(viewer.ok() && viewer.board().hash() == r.saved.hash, "viewer reproduces original producer checkpoint");
+    for (int i = r.saved.frames; i < 71; ++i) {
+      viewer.update();
+      resumed.update();
+    }
+    check(viewer.board().hash() == frame71 && resumed.board().hash() == frame71, "resumed and exported shots continue on producer trajectory");
+    for (const int at : {4, 8}) {
+      replay.save(path);
+      std::fstream bytes(path, std::ios::binary | std::ios::in | std::ios::out);
+      bytes.seekp(at);
+      bytes.put(42);
+      bytes.close();
+      check(!ReplayData::load(path, replay), "unknown replay format or rules rejected");
+    }
+    for (const char* name : {"untagged.pego", "untagged-physics.pego", "fair-coin.pego"}) {
+      const bool unknown = std::string(name) != "fair-coin.pego";
+      if (rules != (unknown ? SimRules::FullStroke : SimRules::FairCoin)) continue;
+      ReplayData old;
+      if (!check(ReplayData::load(fixtures / name, old), "original producer replay")) continue;
+      check(old.cfg.simRules == (unknown ? SimRules::Unspecified : rules), "do not assign an origin to shared-format input");
+      GameScreen preview(app, old);
+      if (unknown) {
+        const auto start = preview.board().hash();
+        preview.update();
+        check(app.getDialog(D_Tip) && preview.paused() && preview.board().hash() == start, "warn before unverified playback advances");
+        app.killDialog(D_Tip);
+      }
+      for (int i = 0; i < r.saved.frames && preview.replaying(); ++i) preview.update();
+      check(preview.ok() && preview.board().hash() == r.saved.hash, "shared format retains prior playback; v3 is exact");
+    }
+  }
+}
+
 static bool pickMaster(App& app, GameScreen& gs, int cell) {
   for (int i = 0; i < 50; ++i) app.tick();
   auto* picker = dynamic_cast<CharacterDialog*>(app.getDialog(D_Character));
@@ -246,8 +333,8 @@ static bool diskRules(GameScreen& gs, bool legacy, const std::string& stem) {
   if (!check(gs.saveReplay(true, &replay, stem) && ReplayData::load(replay, read), "write and load actual exported replay")) return false;
   const int sv = diskVersion(path), rv = diskVersion(replay);
   std::cout << " session=v" << sv << " replay=v" << rv << '\n';
-  check(sv == (legacy ? 2 : 3) && parsed.cfg.legacyMissCoin == legacy, "serialized session coin rules");
-  check(rv == (legacy ? (read.cfg.physics.any() ? 2 : 1) : 3) && read.cfg.legacyMissCoin == legacy, "serialized replay coin rules");
+  check(sv == 4 && parsed.cfg.legacyMissCoin() == legacy, "serialized session coin rules");
+  check(rv == 4 && read.cfg.legacyMissCoin() == legacy, "serialized replay coin rules");
   App playback(gs.app.gfx, gs.app.vfs, nullptr, nullptr, gs.app.cfg);
   GameScreen viewer(playback, read);
   for (int i = 0; i < parsed.frames && viewer.replaying(); ++i) viewer.update();
@@ -287,10 +374,10 @@ static void pickerRules(Gfx& gfx, Vfs& vfs, Game game, const fs::path& dir, bool
     source.cfg.noSave = false;
     const bool kept = sessionsOf(source).keep(*gs);
     source.cfg.noSave = true;
-    if (!check(kept && SavedSession::load(path, before) && !before.cfg.legacyMissCoin && before.flags == 1 && before.shots == 0 && before.cfg.seed == 3, "keeper persists an untouched picker")) return;
+    if (!check(kept && SavedSession::load(path, before) && !before.cfg.legacyMissCoin() && before.flags == 1 && before.shots == 0 && before.cfg.seed == 3, "keeper persists an untouched picker")) return;
   }
   if (legacy) {
-    before.cfg.legacyMissCoin = true;
+    before.cfg.simRules = SimRules::Unspecified;
     if (!check(before.save(path), "persist picker in legacy format")) return;
   }
   App app(gfx, vfs, nullptr, nullptr, cfg);
@@ -301,10 +388,10 @@ static void pickerRules(Gfx& gfx, Vfs& vfs, Game game, const fs::path& dir, bool
   const bool continued = sessionsOf(app).askToContinue(nights);
   app.cfg.noSave = true;
   auto* gs = dynamic_cast<GameScreen*>(app.screen());
-  if (!check(continued && !fs::exists(path) && gs && gs->ok() && gs->board().cfg.legacyMissCoin == legacy && gs->board().hash() == before.hash, "continued actual saved picker")) return;
+  if (!check(continued && !fs::exists(path) && gs && gs->ok() && gs->board().cfg.legacyMissCoin() == legacy && gs->board().hash() == before.hash, "continued actual saved picker")) return;
   if (!pickMaster(app, *gs, 1)) return;
   Board& b = gs->board();
-  check(b.cfg.legacyMissCoin == legacy && b.cfg.seed == before.cfg.seed && gs->bundle().name == before.level, "same board keeps saved coin rule and seed");
+  check(b.cfg.legacyMissCoin() == legacy && b.cfg.seed == before.cfg.seed && gs->bundle().name == before.level, "same board keeps saved coin rule and seed");
   Input aim;
   aim.type = Input::MouseMove;
   aim.x = (gs->canvasWidth() - 800) / 2.0f + (nights ? 509.0f : 389.0f);
@@ -345,9 +432,9 @@ static void pickerRules(Gfx& gfx, Vfs& vfs, Game game, const fs::path& dir, bool
     end->onButton(1001);
   }
   const std::string expected = restart ? before.level : nights ? "Jimmy5" : "Level3";
-  if (!check(gs->ok() && !b.cfg.legacyMissCoin && gs->bundle().name == expected, "fresh picker has the new attempt's rules and level")) return;
+  if (!check(gs->ok() && !b.cfg.legacyMissCoin() && gs->bundle().name == expected, "fresh picker has the new attempt's rules and level")) return;
   if (!pickMaster(app, *gs, 0)) return;
-  check(gs->seed != before.cfg.seed && gs->bundle().name == expected && !b.cfg.legacyMissCoin, "new attempt gets a new seed and fair rules");
+  check(gs->seed != before.cfg.seed && gs->bundle().name == expected && !b.cfg.legacyMissCoin(), "new attempt gets a new seed and fair rules");
   fireShot(*gs);
   for (int i = 0; i < 20; ++i) app.tick();
   std::cout << "PICKER " << (restart ? "restart " : "next ") << gs->bundle().name;
@@ -369,6 +456,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<SDL_Renderer, decltype(&SDL_DestroyRenderer)> renderer(surface ? SDL_CreateSoftwareRenderer(surface.get()) : nullptr, SDL_DestroyRenderer);
     if (!renderer) { std::cerr << SDL_GetError() << '\n'; return 2; }
     Gfx gfx(renderer.get(), vfs);
+    if (arg == 1) historicalRecordings(gfx, vfs, root / "history");
     for (int authored : {650, 917}) for (int display : {917, 1400}) {
       testCase = std::string(arg == 1 ? "Deluxe" : "Nights") + " A" + std::to_string(authored) + " D" + std::to_string(display);
       const fs::path dir = root / (std::to_string(arg) + "-" + std::to_string(authored) + "-" + std::to_string(display));
@@ -407,11 +495,11 @@ int main(int argc, char** argv) {
       if (!check(original.fillSession(saved), "capture actual in-flight GameScreen session")) continue;
       check(saved.frames == 12 && saved.shots > 0, "nonempty frame and shot history captured");
       const auto bytes = saved.bytes();
-      check(bytes.size() > 8 && bytes[4] == 3 && bytes[5] == 0, "new session uses fair coin format");
+      check(bytes.size() > 8 && bytes[4] == 4 && bytes[5] == 0, "new session uses fair coin format");
       ReadySession ready;
       ready.bundle = original.bundle();
       if (!check(SavedSession::parse(bytes, ready.saved), "real session serializer round-trip")) continue;
-      check(!ready.saved.cfg.legacyMissCoin && ready.saved.cfg.authoredWidth == 650, "new session restores fair rule without serializing authored width");
+      check(!ready.saved.cfg.legacyMissCoin() && ready.saved.cfg.authoredWidth == 650, "new session restores fair rule without serializing authored width");
       check(ready.saved.bytes() == bytes, "session reserialization is byte-identical");
       auto altered = ready.bundle;
       altered.contentHash ^= 1;
@@ -464,23 +552,32 @@ int main(int argc, char** argv) {
       }
       fs::path replayPath;
       if (check(original.saveReplay(true, &replayPath, "original"), "write actual replay file")) {
-        for (int version : {3, 1, 2}) {
+        for (int version : {4, 3, 1, 2}) {
           ReplayData replay;
           if (check(ReplayData::load(replayPath, replay), "real replay serializer round-trip")) {
-            check(replay.cfg.authoredWidth == 650 && replay.cfg.boardWidth == display && replay.cfg.legacyMissCoin == (version != 3), "replay preserves display and coin rule");
+            check(replay.cfg.authoredWidth == 650 && replay.cfg.boardWidth == display && replay.cfg.legacyMissCoin() == (version < 3), "replay preserves display and coin rule");
             check(replayPath.extension() == replayExt(arg - 1), "game-specific replay extension preserved");
             std::ifstream file(replayPath, std::ios::binary);
             file.seekg(4);
             check(file.get() == version, "replay format matches recorded rules");
             GameScreen viewer(app, replay);
             if (check(viewer.ok(), "replay GameScreen loads")) {
+              if (version < 3) app.killDialog(D_Tip);
               geometry(viewer.board(), authored, display);
               contacts(initial, viewer.board(), authored);
               for (int i = 0; i < 12; ++i) viewer.update();
               check(viewer.board().hash() == original.board().hash(), "replayed input history matches saved live hash");
             }
-            if (version == 3) {
-              replay.cfg.legacyMissCoin = true;
+            if (version == 4) {
+              file.seekg(0);
+              std::vector<char> data((std::istreambuf_iterator<char>(file)), {});
+              data[4] = 3;
+              data.erase(data.begin() + 8, data.begin() + 12);
+              replayPath = dir / ("fair" + replayExt(arg - 1));
+              std::ofstream legacy(replayPath, std::ios::binary);
+              legacy.write(data.data(), static_cast<std::streamsize>(data.size()));
+            } else if (version == 3) {
+              replay.cfg.simRules = SimRules::Unspecified;
               replayPath = dir / ("legacy" + replayExt(arg - 1));
               check(replay.save(replayPath), "write legacy replay without physics changes");
             } else if (version == 1) {

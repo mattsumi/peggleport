@@ -110,7 +110,7 @@ class GameScreen : public Screen {
   int overTicks = 0;
 
  private:
-  bool startLevel(const std::string& name, bool legacyMissCoin = false);
+  bool startLevel(const std::string& name, SimRules rules = SimRules::FairCoin);
   void finishLevel();
   void applyProgress(const LevelOutcome& o, bool won);
   void submitStats();

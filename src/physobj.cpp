@@ -216,8 +216,8 @@ bool Line::penetration(V2 pos, float r, V2& outPos, V2& outN, V2& outV) const {
   return true;
 }
 
-bool Line::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, bool checkB, bool& kiss) const {
-  const float margin = std::max(MARGIN, std::max(std::fabs(vel.x), std::fabs(vel.y)) * hitT);
+bool Line::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, bool checkB, bool& kiss, bool classic) const {
+  const float margin = classic ? MARGIN : std::max(MARGIN, std::max(std::fabs(vel.x), std::fabs(vel.y)) * hitT);
   if (bx0 - margin <= r + pos.x && pos.x - r <= bx1 + margin && by0 - margin <= pos.y + r && pos.y - r <= by1 + margin) {
     if (penetration(pos, r, hitPt, hitN, hitV)) {
       hitT = 0.0f;
@@ -385,8 +385,8 @@ void Poly::setVelocity(float x, float y) {
   for (auto& l : lines) l.setVelocity(x, y);
 }
 
-bool Poly::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, V2& angV, bool& kiss) {
-  const float margin = std::max(MARGIN, std::max(std::fabs(vel.x), std::fabs(vel.y)) * hitT);
+bool Poly::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, V2& angV, bool& kiss, bool classic) {
+  const float margin = classic ? MARGIN : std::max(MARGIN, std::max(std::fabs(vel.x), std::fabs(vel.y)) * hitT);
   if (!(bx0 - margin <= r + pos.x && pos.x - r <= bx1 + margin && by0 - margin <= pos.y + r && pos.y - r <= by1 + margin)) return false;
   ensureLines();
   bool isConvex = convex;
@@ -396,7 +396,7 @@ bool Poly::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& 
   const Line* hitLine = nullptr;
   unsigned crossings = 0;
   for (const Line& l : lines) {
-    if (l.check(pos, vel, r, hitT, hitPt, hitN, hitV, false, kiss)) hitLine = &l;
+    if (l.check(pos, vel, r, hitT, hitPt, hitN, hitV, false, kiss, classic)) hitLine = &l;
     if (checkPen) {
       float ax = pos.x - l.x1, ay = pos.y - l.y1;
       float depth = -(l.nx * ax + l.ny * ay);
@@ -426,7 +426,7 @@ bool Poly::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& 
     hitLine = closestLine;
   }
   if (hitLine) {
-    angV = {};
+    if (!classic) angV = {};
     if (angVel != 0.0f) {
       angV.x = (hitPt.y - cy) * angVel + angV.x;
       angV.y = angV.y - angVel * (hitPt.x - cx);
@@ -671,7 +671,7 @@ void doLineCollision(Ball& b, V2& vel, const Target& obj, V2 n, V2 hitPt, V2 hit
   if (notify) notify->push_back(&obj);
 }
 
-bool doCollideUpdate(Ball& b, std::vector<Target*>& cands, V2* firstHit, std::vector<const Target*>* notify) {
+bool doCollideUpdate(Ball& b, std::vector<Target*>& cands, V2* firstHit, std::vector<const Target*>* notify, bool classic) {
   float remaining = 1.0f;
   float hitT = 1.0f;
   bool didCollide = false;
@@ -686,10 +686,10 @@ bool doCollideUpdate(Ball& b, std::vector<Target*>& cands, V2* firstHit, std::ve
       Target* t = cands[i];
       bool ok = false;
       if (t->kind == 4) {
-        ok = t->line->check(pos, vel, b.r, hitT, hitPt, hitN, hitV, true, kiss);
+        ok = t->line->check(pos, vel, b.r, hitT, hitPt, hitN, hitV, true, kiss, classic);
         if (ok) angV = {0.0f, 0.0f};
       } else if (t->kind == 5) {
-        ok = t->poly->check(pos, vel, b.r, hitT, hitPt, hitN, hitV, angV, kiss);
+        ok = t->poly->check(pos, vel, b.r, hitT, hitPt, hitN, hitV, angV, kiss, classic);
       } else if (t->kind == 3) {
         ok = circleCheck(t->center, t->radius, pos, vel, b.r, hitT, hitPt);
       } else {

@@ -192,6 +192,7 @@ void Board::rebuild(Obj& o) {
       V2 a = o.local[0], b = o.local[1];
       o.pline = phys::Line();
       o.pline.init(a.x, a.y, b.x, b.y);
+      o.pline.twoSided = cfg.simRules == SimRules::Classic;
       o.x0 = o.pline.bx0; o.y0 = o.pline.by0; o.x1 = o.pline.bx1; o.y1 = o.pline.by1;
       return;
     }
@@ -262,7 +263,7 @@ static float boundRadius(const Obj& o) {
 
 void Board::widen() {
   float dw = (float)(W - 650), k = W / 650.0f;
-  const float authoredShift = (std::max(650, cfg.authoredWidth) - 650) * 0.5f;
+  const float authoredShift = cfg.simRules == SimRules::Classic ? 0.0f : (std::max(650, cfg.authoredWidth) - 650) * 0.5f;
   for (auto& o : objs) {
     if (o.fromBase || o.pegType != 0 || o.shape == Shape::None || o.mv.sub != -1) continue;
     float lo = o.x0, hi = o.x1;
@@ -350,6 +351,10 @@ bool Board::load(std::shared_ptr<const Level> base, std::shared_ptr<const Level>
   *this = Board();
   if (!lv) {
     if (err) *err = "no level";
+    return false;
+  }
+  if (!knownSimRules(static_cast<uint8_t>(c.simRules))) {
+    if (err) *err = "unknown simulation rules";
     return false;
   }
   cfg = c;
@@ -533,8 +538,9 @@ bool Board::collide(Ball& b, int bi, const std::vector<int>* pre, V2* firstHit, 
   }
   for (auto& t : tg) cands.push_back(&t);
   std::vector<const phys::Target*> notify;
-  bool hit = phys::doCollideUpdate(b, cands, firstHit, &notify);
-  if (hit) {
+  const bool classic = cfg.simRules == SimRules::Classic;
+  bool hit = phys::doCollideUpdate(b, cands, firstHit, &notify, classic);
+  if (hit && !classic) {
     std::vector<int> all;
     for (int pass = 0; pass < 3; ++pass)
       for (int i = 0; i < (int)objs.size(); ++i) {

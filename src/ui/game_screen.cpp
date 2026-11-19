@@ -83,7 +83,7 @@ static auto setRuleInputs(C& c, const PlayerInfo* p, int adventureIndex, bool ni
 template <class C>
 static void setRuleInputs(C&, const PlayerInfo*, int, bool, int, long) {}
 
-bool GameScreen::startLevel(const std::string& name, bool legacyMissCoin) {
+bool GameScreen::startLevel(const std::string& name, SimRules rules) {
   if (replaying_ || replayPanel_) {
     pausedEffects_.reset();
     if (app.boardRenderer) app.boardRenderer->exchangeEffects();
@@ -104,7 +104,7 @@ bool GameScreen::startLevel(const std::string& name, bool legacyMissCoin) {
   }
   lb_ = lb;
   BoardConfig cfg = lb_.cfg;
-  cfg.legacyMissCoin = legacyMissCoin;
+  cfg.simRules = rules;
   cfg.seed = seed;
   int stage = app.curStage;
   const TrophyInfo* ctr = app.gameMode == GameMode::Challenge ? app.trophies.byId(app.curChallenge) : nullptr;
@@ -606,6 +606,7 @@ bool GameScreen::startViewer(const ReplayData& d) {
   viewer_ = true;
   recording_ = false;
   BoardConfig rcfg = d.cfg;
+  if (rcfg.simRules == SimRules::Unspecified) rcfg.simRules = SimRules::FullStroke;
   rcfg.authoredWidth = lb_.cfg.authoredWidth;
   rcfg.liveSpin = true;
   cfg_ = rcfg;
@@ -627,6 +628,11 @@ bool GameScreen::startViewer(const ReplayData& d) {
   ready_ = true;
   hudStage_ = 0;
   hudLevel_ = 0;
+  if (d.cfg.simRules == SimRules::Unspecified) {
+    app.doDialog(D_Tip, true, "Unverified Replay", "This recording does not identify its physics version. Playback uses HD collisions and a full flipper stroke. The original shot may differ.", "OK", BUTTONS_FOOTER);
+    pause(true);
+    tipPaused_ = true;
+  }
   app.playMusic("level");
   return true;
 }
@@ -810,7 +816,7 @@ void GameScreen::update() {
     charPaused_ = false;
     charChosen_ = true;
     pause(false);
-    ready_ = startLevel(levelFile_, cfg_.legacyMissCoin);
+    ready_ = startLevel(levelFile_, cfg_.simRules);
     charChosen_ = duel_;
     return;
   }
