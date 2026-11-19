@@ -3,6 +3,7 @@
 #include "gamepaths.h"
 #include "log.h"
 #include "image.h"
+#include "mods/manifest.h"
 #include "ui/cfg.h"
 #include "vfs.h"
 
@@ -697,7 +698,7 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   return true;
 }
 
-static bool exportBaseLink(const BaseLink& link, const std::string& levelName, const Vfs* vfs, const fs::path& dir, std::string& text, std::string* err) {
+static bool exportBaseLink(const BaseLink& link, const std::string& levelName, const Vfs* vfs, const fs::path& dir, std::string& text, std::string* err, const Layer** donor = nullptr) {
   if (link.name.empty()) return true;
   auto fail = [&](const std::string& why) { if (err) *err = link.name + ": " + why; return false; };
   if (levelName.starts_with('_')) return fail("a base level cannot itself link another base");
@@ -707,6 +708,7 @@ static bool exportBaseLink(const BaseLink& link, const std::string& levelName, c
   auto hit = readBaseFile(*vfs, link, hash, err);
   if (!hit) return false;
   std::error_code ec;
+  if (donor) *donor = hit->layer;
   const auto folder = dir.empty() ? fs::path(".") : dir;
   if (fs::exists(folder, ec)) {
     const auto key = normKey(leaf);
@@ -876,6 +878,34 @@ static std::string singleBoardStage(const LevelMeta& meta) {
   return out + "}\n";
 }
 
+static constexpr int kEditorPackPriority = 10;
+
+static bool checkModDestination(const Vfs& vfs, const Layer& donor, const fs::path& dir, const mods::Manifest& dest, const std::string& name, std::string* err) {
+  auto refuse = [&](const std::string& why) { if (err) *err = why; return false; };
+  std::error_code ec;
+  const bool samePack = fs::equivalent(dir, donor.root, ec);
+  if (samePack != ("mod:" + dest.id == donor.provider))
+    return refuse("destination pack ID conflicts with the required donor " + donor.provider);
+  const auto key = normKey("levels/" + name);
+  if (samePack || (!donor.files.contains(key + ".DAT") && !donor.files.contains(key + ".INI"))) return true;
+  int priority = dest.format == "none" ? kEditorPackPriority : 0;
+  const auto ini = dir / "mod.ini";
+  if (fs::exists(ini, ec)) {
+    std::string bytes;
+    if (!mods::readFile(ini, bytes, 1 << 20)) return refuse("cannot read " + pathToUtf8(ini));
+    priority = std::atoi(readIni(bytes)["priority"].c_str());
+  }
+  if (ec) return refuse("cannot inspect " + pathToUtf8(ini));
+  if (priority > donor.priority) return true;
+  if (priority == donor.priority) {
+    for (const auto& layer : vfs.layers()) {
+      if (&layer == &donor) break;
+      if (layer.priority == priority && layer.provider == "mod:" + dest.id && fs::equivalent(dir, layer.root, ec)) return true;
+    }
+  }
+  return refuse("choose a distinct level name; " + donor.provider + " can mask " + name + " in Quick Play");
+}
+
 bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   static const std::string okChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
   if (meta.name.empty() || meta.name.find_first_not_of(okChars) != std::string::npos) {
@@ -929,7 +959,11 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     }
   }
   std::string link;
-  if (!exportBaseLink(meta.baseLink, meta.name, vfs, lv, link, err)) return false;
+  const Layer* donor = nullptr;
+  if (!exportBaseLink(meta.baseLink, meta.name, vfs, lv, link, err, &donor)) return false;
+  mods::Manifest dest;
+  if (!mods::loadManifest(modDir, dest, err)) return false;
+  if (donor && donor->isMod && !checkModDestination(*vfs, *donor, modDir, dest, meta.name, err)) return false;
   std::ostringstream ini;
   ini << "# written by the PegglePort level editor\n";
   ini << link;
@@ -955,17 +989,11 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
   }
   try {
-    const fs::path modIni = modDir / "mod.ini";
-    const bool hasMetadata = fs::exists(modIni);
-    if (hasMetadata && !fs::is_regular_file(modIni)) { if (err) *err = "not a regular file: " + pathToUtf8(modIni); return false; }
     std::string metadata;
-    if (!hasMetadata) {
-      std::string id = pathToUtf8(modDir.filename());
-      for (auto& c : id) c = (char)std::tolower((unsigned char)c);
-      metadata = "id = " + id + "\nname = " + pathToUtf8(modDir.filename()) + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n";
-    }
+    if (dest.format == "none")
+      metadata = "id = " + dest.id + "\nname = " + dest.name + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = " + std::to_string(kEditorPackPriority) + "\n";
     const auto bytes = writeLevel(*level);
-    if (!saveLevelFiles(target, bytes, lv / (meta.name + ".ini"), ini.str(), err, &out, hasMetadata ? nullptr : &metadata)) return false;
+    if (!saveLevelFiles(target, bytes, lv / (meta.name + ".ini"), ini.str(), err, &out, metadata.empty() ? nullptr : &metadata)) return false;
   } catch (const std::exception& ex) {
     if (err) *err = ex.what();
     return false;

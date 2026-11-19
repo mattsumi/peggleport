@@ -185,7 +185,7 @@ endif()
 
 add_library(pp_editor_core STATIC src/editor/model.cpp src/editor/json.cpp src/editor/editor.cpp)
 target_include_directories(pp_editor_core PUBLIC src third_party)
-target_link_libraries(pp_editor_core PUBLIC pp_core)
+target_link_libraries(pp_editor_core PUBLIC pp_core PRIVATE pp_mods)
 
 add_library(pp_ui STATIC
   src/profile.cpp src/profile_import.cpp
@@ -353,7 +353,7 @@ if(PP_BUILD_TESTS)
   target_link_libraries(pp_editor_export_test PRIVATE pp_editor_core)
   add_test(NAME editor_export COMMAND pp_editor_export_test "${CMAKE_CURRENT_BINARY_DIR}")
   add_executable(pp_editor_provider_test tests/editor_provider_test.cpp)
-  target_link_libraries(pp_editor_provider_test PRIVATE pp_editor_core)
+  target_link_libraries(pp_editor_provider_test PRIVATE pp_editor_core pp_mods)
   add_test(NAME editor_provider COMMAND pp_editor_provider_test "${CMAKE_CURRENT_BINARY_DIR}")
   add_executable(pp_editor_geometry_test tests/editor_geometry_test.cpp)
   target_link_libraries(pp_editor_geometry_test PRIVATE pp_editor_core)
