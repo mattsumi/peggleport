@@ -269,6 +269,13 @@ class OnlineScreen : public Screen {
   }
 
   ~OnlineScreen() override {
+    onLeave();
+    savePrefs();
+    if (sess_) sess_->leave();
+  }
+
+  void onLeave() override {
+    leaving_ = true;
     if (job_) {
       job_->stop = true;
       job_->session = std::move(sess_);
@@ -276,8 +283,6 @@ class OnlineScreen : public Screen {
     }
     cancelOwnerCheck();
     browser_.cancel();
-    savePrefs();
-    if (sess_) sess_->leave();
   }
 
   const char* name() const override { return "online"; }
@@ -297,7 +302,13 @@ class OnlineScreen : public Screen {
       if (create) w->y = base.y + (extra > 0 ? kCreateWideDown + (id == B_Go || id == B_Cancel ? kCreateFooterGap : 0) : 0);
     }
     for (auto* b : {bBack_, bCopy_, bReady_, bStart_, bLeave_}) b->y = extra > 0 ? 557.0f : 520.0f;
-    if (flow_ != Flow::Browse && extra > 0) placeConsoleWidgets(extra);
+    const bool roomButtons = room_ && !console();
+    bCopy_->visible = bLeave_->visible = roomButtons;
+    bReady_->visible = roomButtons && !isHost_;
+    bStart_->visible = roomButtons && isHost_;
+    if (hover && !hover->visible) releaseHover();
+    if (capture && !capture->visible) { capture->down = false; capture = nullptr; }
+    if (console()) placeConsoleWidgets(extra);
     if (linksRegistered_.value_or(false) && codeEdit_->visible) {
       discordCheck_->x = bRegister_->x;
       discordCheck_->y = bRegister_->y;
@@ -747,21 +758,16 @@ class OnlineScreen : public Screen {
     bRegister_->visible = codeEdit_->visible && kUrlRegistration && !linksRegistered_.value_or(false);
     discordCheck_->visible = !console || join;
     bBack_->visible = browse && !console;
-    bCopy_->visible = bReady_->visible = bStart_->visible = bLeave_->visible = room_ && !console;
     for (Button* b : {bMode_, bLvlPrev_, bLvlNext_, bMasPrev_, bMasNext_, bGo_, bCancel_, bDestination_}) b->visible = create_;
     if (console) {
       bMode_->visible = create_ && party_;
       bCancel_->visible = false;
     }
-    if (room_ && !console) {
-      bReady_->visible = !isHost_;
-      bStart_->visible = isHost_;
-    }
     if (create_) bMode_->label = console ? (mode_ == 1 ? "3 Players" : "4 Players") : mode_ == 0 ? "Duel (2 players)" : mode_ == 1 ? "Peg Party (3 players)" : "Peg Party (4 players)";
     if (create_) bDestination_->label = hostTarget_ ? "Destination: LAN " + std::to_string(hostTarget_) : configuredLobby_ == pp::online::publicLobby ? "Destination: Global" : "Destination: Custom";
     if (codeEdit_->visible) focusW = codeEdit_, codeEdit_->focused = true;
     else if (focusW == codeEdit_) focusW = nullptr, codeEdit_->focused = false;
-    if (linksRegistered_.value_or(false)) placeWidgets(float(app.gfx.canvasW() - 800));
+    placeWidgets(float(app.gfx.canvasW() - 800));
   }
 
   void onButton(int id) override {
@@ -867,6 +873,7 @@ class OnlineScreen : public Screen {
 
   void update() override {
     Panel::update();
+    if (leaving_) return;
     if (ownerCheck_ && ownerCheck_->done) {
       if (ownerCheck_->ok) confirmOwner();
       ownerCheck_.reset();
@@ -1000,7 +1007,7 @@ class OnlineScreen : public Screen {
 
   bool input(const Input& in) override {
     placeWidgets(float(app.gfx.canvasW() - 800));
-    if (in.type == Input::MouseDown && in.button == 1 && in.y >= 529 && in.y < 594)
+    if (console() && in.type == Input::MouseDown && in.button == 1 && in.y >= 529 && in.y < 594)
       for (const auto& p : prompts_)
         if (in.x >= p.x && in.x < p.x + p.w) {
           app.playSample("BUTTON1");
@@ -1568,6 +1575,7 @@ class OnlineScreen : public Screen {
   Checkbox* discordCheck_ = nullptr;
   std::optional<bool> linksRegistered_;
   std::shared_ptr<Job> ownerCheck_;
+  bool leaving_ = false;
   Flow flow_ = Flow::Browse;
   bool party_ = false;
   std::set<std::string> tried_;
@@ -1639,7 +1647,7 @@ void addMainMenuButton(Panel& menu) {
 
 bool handleMenuButton(App& app, int id) {
   if (id != kMenuButtonId) return false;
-  showOnline(app);
+  showOnline(app, Flow::Browse, false);
   return true;
 }
 

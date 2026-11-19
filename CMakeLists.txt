@@ -233,6 +233,13 @@ if(PP_HD_TOOLS)
       add_test(NAME ${_test} COMMAND pp_${_test}_test "${PP_CONSOLE_TEST_DELUXE}" "${PP_CONSOLE_TEST_NIGHTS}"
         "${PP_CONSOLE_TEST_ART}" "${CMAKE_CURRENT_BINARY_DIR}/${_test}-fixtures")
     endforeach()
+    if(NOT PP_STEAM)
+      add_executable(pp_online_navigation_test tests/online_navigation_test.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
+        src/mods/overlay.cpp src/editor/screen.cpp)
+      target_link_libraries(pp_online_navigation_test PRIVATE pp_ui pp_editor_core)
+      add_test(NAME online_navigation COMMAND pp_online_navigation_test "${PP_CONSOLE_TEST_DELUXE}" "${PP_CONSOLE_TEST_NIGHTS}"
+        "${PP_CONSOLE_TEST_ART}" "${CMAKE_CURRENT_BINARY_DIR}/online_navigation-fixtures")
+    endif()
     set_tests_properties(custom_picker PROPERTIES ENVIRONMENT "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
     foreach(_test shot_meter claude_board_render instant_replay_input fever_cam_render super_guide_composition)
       add_test(NAME ${_test} COMMAND pp_${_test}_test "${PP_CONSOLE_TEST_DELUXE}" "${PP_CONSOLE_TEST_NIGHTS}" "${PP_CONSOLE_TEST_ART}")
