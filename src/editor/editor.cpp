@@ -676,7 +676,7 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
     if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
     auto ini = readIni(std::string(bytes.begin(), bytes.end()));
     const auto* owner = vfs ? vfs->owner("levels/" + pathToUtf8(p.stem()) + ".dat", p) : nullptr;
-    if (!baseLinkFromIni(ini, owner, link, err)) return false;
+    if (!baseLinkFromIni(ini, vfs, owner, link, err)) return false;
     if (ini.count("background")) background = ini["background"];
     if (ini.count("board_width")) boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
   }

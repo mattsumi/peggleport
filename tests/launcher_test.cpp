@@ -219,6 +219,41 @@ int launcherTest(const fs::path& scratch) {
     LevelBundle board;
     std::string error;
     require(vfs.mountGame(folders.dir(Game::Deluxe), &error) && loadLevelBundle(vfs, "Level1", board, &error) && board.baseLink.hash == hash, "linked board from staged pack: " + error);
+    require(board.baseLink.provider == "levelpacks/linked.pak", "wrong base provider: " + board.baseLink.provider);
+  });
+  for (bool named : {false, true}) {
+    test(named ? "linked-named-missing" : "linked-pack-hash", [&](const auto& root) {
+      auto files = campaign("Level1");
+      const auto data = files.front().second;
+      const auto hash = std::to_string(fnv1a(data.data(), data.size()));
+      files.emplace_back("levels/Level1.ini", "base=_alt\nbase_hash=" + hash + (named ? "\nbase_provider=main.pak" : ""));
+      const auto packs = root / "Peggle Deluxe" / "levelpacks";
+      put(packs / "a.pak", pak({{"levels/_alt.dat", named ? data : "wrong bytes"}}));
+      put(packs / "b.pak", pak({{"levels/_alt.dat", data}}));
+      replacement(root, pak(files), false, named ? "in main.pak" : "differs");
+    });
+  }
+  test("linked-owners", [&](const auto& root) {
+    auto files = campaign("Level1");
+    const auto data = files.front().second;
+    const auto hash = std::to_string(fnv1a(data.data(), data.size()));
+    const std::string pack = "levelpacks/donor.pak";
+    files.emplace_back("levels/_private.dat", "not the donor");
+    files.emplace_back("levels/Level1.ini", "base=_private\nbase_hash=" + hash + "\nbase_provider=" + pack);
+    put(root / "game/main.pak", pak(files));
+    put(root / "game" / pack, pak({{"levels/_private.dat", data}, {"levels/_shared.dat", data},
+                                    {"levels/Packed.dat", data}, {"levels/Packed.ini", "base=_private"}}));
+    put(root / "game/levels/Loose.dat", data);
+    put(root / "game/levels/Loose.ini", "base=_shared");
+    put(root / "mod/levels/_shared.dat", "not edition content");
+    Vfs vfs;
+    std::string error;
+    require(vfs.mountGame(root / "game", &error) && vfs.mountMod(root / "mod", &error), error);
+    for (const std::string name : {std::string("Level1"), std::string("Packed"), pathToUtf8(root / "game/levels/Loose.dat")}) {
+      LevelBundle board;
+      require(loadLevelBundle(vfs, name, board, &error), error);
+      require(board.baseLink.provider == pack && board.baseLink.hash == hash, "wrong base owner or bytes: " + name);
+    }
   });
   test("supported", [&](const auto& root) {
     for (const auto& [game, board] : {std::pair{Game::Deluxe, "Level1"}, {Game::Nights, "Bjorn1"}, {Game::Extreme, "BjornNHeavy"}}) {

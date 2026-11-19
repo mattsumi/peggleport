@@ -104,7 +104,7 @@ static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int
   }
 }
 
-bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Layer* owner, BaseLink& link, std::string* err) {
+bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Vfs* vfs, const Layer* owner, BaseLink& link, std::string* err) {
   auto get = [&](const char* k) { auto it = ini.find(k); return it == ini.end() ? std::string() : it->second; };
   link = {get("base"), get("base_hash"), get("base_provider")};
   if ((ini.count("base") && link.name.empty()) || (ini.count("base_hash") && (link.name.empty() || link.hash.empty())) ||
@@ -112,7 +112,19 @@ bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Layer*
     if (err) *err = "incomplete base link";
     return false;
   }
-  if (!link.name.empty() && normKey(link.name) != "_BASE" && link.provider.empty() && owner) link.provider = owner->provider;
+  if (!link.name.empty() && normKey(link.name) != "_BASE" && link.provider.empty() && owner) {
+    link.provider = owner->provider;
+    if (vfs && !owner->isMod && !owner->isLevelPack) {
+      const auto key = normKey("levels/" + link.name + ".dat");
+      if (!owner->pakIndex.contains(key) && !owner->files.contains(key)) {
+        for (const auto& pack : vfs->layers()) {
+          if (!pack.isLevelPack || !pack.pakIndex.contains(key)) continue;
+          link.provider = pack.provider;
+          break;
+        }
+      }
+    }
+  }
   return true;
 }
 
@@ -214,7 +226,7 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
   out.level = std::make_shared<Level>(std::move(*lv));
   uint64_t h = fnv1a(nullptr, 0);
   if (out.name.empty() || out.name[0] != '_') {
-    if (!baseLinkFromIni(ini, linkOwner, out.baseLink, err)) return false;
+    if (!baseLinkFromIni(ini, &vfs, linkOwner, out.baseLink, err)) return false;
     if (out.baseLink.name.empty()) out.baseLink.name = "_base";
     if (!readBaseLevel(vfs, out.baseLink, out.base, h, err)) return false;
   }

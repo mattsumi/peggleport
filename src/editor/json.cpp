@@ -491,7 +491,7 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
       if (v->t != J::Str) return fail("invalid base link field");
       link[k] = v->s;
     }
-    if (!baseLinkFromIni(link, nullptr, meta.baseLink, err)) return false;
+    if (!baseLinkFromIni(link, nullptr, nullptr, meta.baseLink, err)) return false;
     if (auto v = m->get("board_width")) meta.boardWidth = v->n >= 650.0 ? (int)std::min(v->n, 1400.0) : 650;
     if (auto v = m->get("balls")) meta.balls = v->n >= 0.0 ? (int)std::min(v->n, 99.0) : 0;
     if (auto v = m->get("orange")) meta.orange = v->n >= 0.0 ? (int)std::min(v->n, 500.0) : 0;
