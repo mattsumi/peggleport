@@ -22,7 +22,7 @@ Windows, macOS and Linux.
 ## Starting the game
 
 **What happens when I open it?**
-PegglePort looks for your Peggle Deluxe and Peggle Nights and opens the game right away, with the normal loading screen and main menu. There is no extra window in between. If you have one of the two games, that game opens and everything is the way you know it.
+PegglePort looks for Deluxe, Nights, and Extreme. It opens Deluxe or Nights first if present. Extreme has its own save folder and can be opened from **Options → Game Folders...** or with `--game extreme`. [WoW](faq/modding.md#world-of-warcraft-level-pack) and [Pego](faq/modding.md#pego-prototype-pack) are optional level packs.
 
 **I have both games. What do I get?**
 One game. It opens with the Peggle Deluxe main menu, and both adventures are behind it. When you go from one game to the other the window stays as it is and there is no second loading screen: the next screen slides in the way screens always do.
@@ -59,7 +59,7 @@ On Linux the folder window needs a desktop portal or `zenity`. If neither is the
 Press `F10` in the game. The log starts with every place it looked at and ends with the folder each game is read from.
 
 **How do I change a game folder, or add the other game?**
-Use **Game Folders...** in the game's Options. A box shows both folders and asks which game you mean, then the folder window opens. If the folder you pick is the wrong one, the game says so and lets you choose again. Options stays open behind all of this, so when you are done you are back where you were. If you change the folder of the game you are playing, it makes a new copy from that folder and opens again from it.
+Use **Game Folders...** in Options. Choose the edition, then open it or point PegglePort at its `main.pak` folder. The folder chooser rejects data from a different edition.
 
 **Do Deluxe and Nights share profiles?**
 You are the same player in both. When you go to the other game it picks the player with your name, and if there is none yet it makes one for you without asking for your name again. Your progress is kept for each game on its own, so your Deluxe adventure and your Nights adventure do not mix. High scores, replays and mods are kept for each game too, the same way the originals do.

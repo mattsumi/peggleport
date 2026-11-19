@@ -26,10 +26,10 @@
 
 ---
 
-PegglePort is an unofficial port of Peggle Deluxe and Peggle Nights, written in C++20 with SDL3.
+PegglePort is an unofficial port of Peggle Deluxe, Peggle Nights, and Peggle Extreme, written in C++20 with SDL3.
 The port supports Windows, macOS and Linux.
 
-**This project does not include any game assets. You must provide the files from your own legally acquired copy of Peggle Deluxe, Peggle Nights or both to play.**
+**This project does not include game assets. You must provide the files from your own legally acquired copy.**
 
 PegglePort reads the data files of your own install, so the games look, sound and play like the originals. It never changes that install. It is a fan project and has nothing to do with PopCap Games or Electronic Arts; "Peggle" and "PopCap" belong to their owners.
 
@@ -48,7 +48,7 @@ PegglePort reads the data files of your own install, so the games look, sound an
 
 1. Download the archive for your system from the [Releases][releases] page and unpack it anywhere. On macOS you can also open the disk image and drag PegglePort to Applications.
 2. Start `peggleport.exe` (Windows), `PegglePort.app` (macOS) or `peggleport` (Linux).
-3. PegglePort looks for Peggle Deluxe and Peggle Nights by itself and opens straight into the game.
+3. PegglePort looks for supported games and opens straight into a game. To open another edition, use **Options → Game Folders...**. On the command line, `--game extreme` opens Extreme directly.
 4. If it finds no game, a message shows where it looked, and a folder window lets you pick the folder that contains `main.pak`. It remembers the folder.
 
 There is no installer and nothing else to install. Everything runs from a window.
@@ -58,6 +58,12 @@ There is no installer and nothing else to install. Everything runs from a window
 ### Both games in one
 
 With both games installed you get one game. It opens with the Peggle Deluxe main menu, **Adventure** asks which of the two adventures you want, and Quick Play, Duel and Challenge list the levels of both games. Every level plays in its own game, with its own rules, Masters and music. The row **Main Menu** in Options opens with the Peggle Nights menu instead.
+
+### Extreme, WoW and Pego
+
+Extreme runs separately from Deluxe and Nights, with its own game files and save folder. It uses the shared PegglePort interface. Original player import is only available for Deluxe and Nights.
+
+The [Pego prototype pack](faq/modding.md#pego-prototype-pack) adds prototype boards to Deluxe. The [WoW level pack](faq/modding.md#world-of-warcraft-level-pack) adds WoW boards to Deluxe or Nights. Both are optional level mods, not launchable editions.
 
 ### Finds your games and keeps its own copy
 
@@ -142,7 +148,7 @@ PegglePort does not have a website. Builds are published on the [Releases][relea
 
 ### Which versions of the games can I use?
 
-The PC versions of Peggle Deluxe and Peggle Nights. A folder only counts when `main.pak` is in it. PegglePort looks for Steam, EA app, Origin and PopCap installs, and one game is enough.
+The PC versions of Deluxe, Nights, and Extreme. Point the folder chooser at the folder containing `main.pak`. One game is enough.
 
 ### Do I still need Steam or the original install afterwards?
 

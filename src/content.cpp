@@ -159,15 +159,22 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
   }
   out.level = std::make_shared<Level>(std::move(*lv));
   if (out.name.empty() || out.name[0] != '_') {
-    auto b = vfs.read("levels/_base.dat");
+    const auto selected = ini.find("base");
+    const std::string base = selected == ini.end() ? "_base" : selected->second;
+    if (base.empty() || base[0] != '_' || base.find_first_not_of("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-") != std::string::npos) {
+      if (err) *err = out.name + ": invalid base level name";
+      return false;
+    }
+    const std::string basePath = "levels/" + base + ".dat";
+    auto b = vfs.read(basePath);
     if (!b) {
-      if (err) *err = "levels/_base.dat missing";
+      if (err) *err = basePath + " missing";
       return false;
     }
     baseBytes = std::move(b->bytes);
     auto bl = parseLevel(baseBytes, &e2);
     if (!bl) {
-      if (err) *err = "_base.dat: " + e2;
+      if (err) *err = basePath + ": " + e2;
       return false;
     }
     out.base = std::make_shared<Level>(std::move(*bl));

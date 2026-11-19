@@ -201,6 +201,16 @@ add_executable(peggleport WIN32
   src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
+add_executable(pp_edition_test EXCLUDE_FROM_ALL
+  tests/edition_test.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
+  src/mods/overlay.cpp src/editor/screen.cpp)
+target_link_libraries(pp_edition_test PRIVATE pp_ui pp_editor_core)
+add_executable(pp_wow_pack EXCLUDE_FROM_ALL examples/mods/build_wow_pack.cpp)
+target_link_libraries(pp_wow_pack PRIVATE pp_core)
+set_target_properties(pp_wow_pack PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+if(MINGW)
+  target_link_options(pp_wow_pack PRIVATE -municode)
+endif()
 if(WIN32)
   enable_language(RC)
   target_sources(peggleport PRIVATE packaging/windows/peggleport.rc)
