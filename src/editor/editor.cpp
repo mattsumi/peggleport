@@ -2,10 +2,12 @@
 #include "content.h"
 #include "gamepaths.h"
 #include "log.h"
+#include "image.h"
 #include "vfs.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <climits>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -239,6 +241,90 @@ std::string Editor::artPath(ArtSlot slot, const std::string& value) const {
     if (imageExists(pre + value)) return pre + value;
   return "";
 }
+bool Editor::hasImportedBackground() const {
+  const auto& name = meta.background;
+  return name.starts_with("imported_") && name.size() > 9 && name.find_first_not_of("0123456789_", 9) == std::string::npos;
+}
+
+static std::string backgroundKey(const std::vector<uint8_t>& bytes) {
+  return "imported_" + std::to_string(fnv1a(bytes.data(), bytes.size()));
+}
+
+static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::vector<uint8_t>& bytes, const std::string& ext, std::string& name, std::string* err) {
+  auto fail = [&] { if (err) *err = "Cannot store the background in " + pathToUtf8(folder); return false; };
+  std::error_code ec;
+  fs::create_directories(folder, ec);
+  if (ec) return fail();
+  std::map<std::string, fs::path> files;
+  for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+    files.emplace(normKey(pathToUtf8(it->path().filename())), it->path());
+  if (ec) return fail();
+  const std::string base = backgroundKey(bytes);
+  for (unsigned i = 0;; ++i) {
+    const std::string stem = base + (i ? "_" + std::to_string(i) : "");
+    const std::string leaf = stem + ext;
+    bool conflict = false, reusable = false;
+    for (const auto& pre : {stem, "_" + stem, stem + "_"}) for (const char* suffix : kArtExt) {
+      const auto file = pre + suffix;
+      if (auto it = files.find(normKey(file)); it != files.end()) {
+        std::vector<uint8_t> existing;
+        if (file == leaf && fs::is_regular_file(fs::symlink_status(it->second, ec)) && fs::file_size(it->second, ec) == bytes.size() && slurp(it->second, existing) && existing == bytes) reusable = true;
+        else conflict = true;
+      }
+      if (vfs && vfs->exists("levels/" + file)) {
+        auto hit = file == leaf ? vfs->read("levels/" + file, bytes.size()) : std::nullopt;
+        if (!hit || hit->bytes != bytes) conflict = true;
+      }
+    }
+    if (conflict) continue;
+    if (!reusable) {
+      const fs::path target = folder / leaf;
+#ifdef _WIN32
+      FILE* f = _wfopen(target.c_str(), L"wbx");
+#else
+      FILE* f = std::fopen(target.c_str(), "wbx");
+#endif
+      if (!f) return fail();
+      const bool written = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+      if (std::fclose(f) != 0 || !written) { fs::remove(target, ec); return fail(); }
+    }
+    name = stem;
+    return true;
+  }
+}
+
+bool Editor::importBackground(const fs::path& file, const fs::path& folder, std::string* err) {
+  std::string ext = lowerS(pathToUtf8(file.extension()));
+  if (ext == ".jpeg") ext = ".jpg";
+  std::vector<uint8_t> bytes;
+  Image decoded;
+  std::error_code ec;
+  if (!isArtExt(ext) || !fs::is_regular_file(file, ec) || fs::file_size(file, ec) > INT_MAX || !slurp(file, bytes) || bytes.empty() || !decodeImage(bytes, decoded)) {
+    if (err) *err = "Cannot read this image. Choose PNG, JPEG, GIF, TGA, JP2 or J2K.";
+    return false;
+  }
+  std::string name;
+  if (!storeBackground(folder, vfs, bytes, ext, name, err)) return false;
+  backgroundDir_ = folder;
+  return setArt(ArtSlot::Background, name);
+}
+
+bool Editor::prepareBackground(const fs::path& folder, std::string& name, std::string* err) const {
+  if (!hasImportedBackground()) return true;
+  const auto key = name.substr(0, name.find('_', 9));
+  if (!backgroundDir_.empty()) for (const char* ext : kArtExt) {
+    std::vector<uint8_t> bytes;
+    if (slurp(backgroundDir_ / (name + ext), bytes) && backgroundKey(bytes) == key)
+      return storeBackground(folder, vfs, bytes, ext, name, err);
+  }
+  if (vfs) for (const char* ext : kArtExt) {
+    auto hit = vfs->read("levels/" + name + ext);
+    if (hit && backgroundKey(hit->bytes) == key) return storeBackground(folder, vfs, hit->bytes, ext, name, err);
+  }
+  if (err) *err = "Cannot find imported background " + name;
+  return false;
+}
+
 std::vector<Editor::ArtItem> Editor::artChoices(ArtSlot slot, const fs::path& modDir) const {
   std::vector<ArtItem> out;
   std::set<std::string> seen;
@@ -304,7 +390,7 @@ int Editor::copyArtToMod(const fs::path& modDir) const {
   if (!vfs) return 0;
   struct Ref { ArtSlot slot; std::string value; };
   std::vector<Ref> refs;
-  refs.push_back({ArtSlot::Background, meta.background.empty() ? meta.name : meta.background});
+  if (!hasImportedBackground()) refs.push_back({ArtSlot::Background, meta.background.empty() ? meta.name : meta.background});
   for (auto& n : objects()) {
     if (n->type == 9) { if (!n->str("emitter_image").empty()) refs.push_back({ArtSlot::Emitter, n->str("emitter_image")}); }
     else if (!n->str("image").empty()) refs.push_back({ArtSlot::Object, n->str("image")});
@@ -352,14 +438,14 @@ void Editor::resetHistory() {
   changed();
 }
 
-void Editor::newLevel(const std::string& name, int boardWidth) {
+void Editor::newLevel(const std::string& name) {
   level = std::make_shared<Level>();
   level->version = 0x42;
   level->mode = 1;
   meta = LevelMeta();
   meta.name = name;
   meta.title = name;
-  meta.boardWidth = std::clamp(boardWidth, 650, 1400);
+  backgroundDir_.clear();
   savedPath.clear();
   resetHistory();
   status = "new level " + name;
@@ -434,6 +520,8 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   meta.name = lb.name;
   meta.title = lb.title;
   meta.background = lb.background;
+  const fs::path source = pathFromUtf8(nameOrPath);
+  backgroundDir_ = source.extension() == ".dat" && !source.has_parent_path() ? fs::path(".") : source.parent_path();
   meta.master = lb.master;
   meta.boardWidth = lb.cfg.boardWidth;
   meta.balls = lb.cfg.balls;
@@ -457,12 +545,14 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   auto lv = parseLevel(bytes, &e);
   if (!lv) { if (err) *err = e; return false; }
   int boardWidth = 650;
+  std::string background;
   fs::path side = p;
   side.replace_extension(".ini");
   std::error_code ec;
   if (fs::exists(side, ec)) {
     if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
     auto ini = readIni(std::string(bytes.begin(), bytes.end()));
+    if (ini.count("background")) background = ini["background"];
     if (ini.count("board_width")) boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
   }
   if (ec) { if (err) *err = "cannot read " + pathToUtf8(side) + ": " + ec.message(); return false; }
@@ -470,6 +560,8 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   meta.name = pathToUtf8(p.stem());
   meta.title = meta.name;
   meta.boardWidth = boardWidth;
+  meta.background = background;
+  backgroundDir_ = p.has_parent_path() ? p.parent_path() : fs::path(".");
   savedPath = p;
   finishLoad();
   status = "opened " + pathToUtf8(p);
@@ -486,8 +578,13 @@ bool Editor::saveDat(const fs::path& p, std::string* err) {
     if (fs::exists(side) && !slurp(side, old)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
     std::istringstream in(std::string(old.begin(), old.end()));
     std::string line, text;
-    while (std::getline(in, line))
-      if (!readIni(line).count("board_width")) text += line + "\n";
+    std::string background = meta.background;
+    if (!prepareBackground(p.has_parent_path() ? p.parent_path() : fs::path("."), background, err)) return false;
+    while (std::getline(in, line)) {
+      auto entry = readIni(line);
+      if (!entry.count("board_width") && !entry.count("background")) text += line + "\n";
+    }
+    if (!background.empty()) text += "background = " + background + "\n";
     text += "board_width = " + std::to_string(meta.boardWidth) + "\n";
     if (!saveLevelFiles(p, bytes, side, text, err)) return false;
   } catch (const std::exception& ex) {
@@ -502,7 +599,9 @@ bool Editor::saveDat(const fs::path& p, std::string* err) {
 }
 
 bool Editor::saveJson(const fs::path& p, std::string* err) {
-  std::string text = levelToJson(*level, meta).dump(2) + "\n";
+  auto exported = meta;
+  if (!prepareBackground(p.has_parent_path() ? p.parent_path() : fs::path("."), exported.background, err)) return false;
+  std::string text = levelToJson(*level, exported).dump(2) + "\n";
   if (!spit(p, text)) { if (err) *err = "cannot write " + pathToUtf8(p); return false; }
   status = "exported " + pathToUtf8(p);
   return true;
@@ -519,6 +618,7 @@ bool Editor::loadJson(const fs::path& p, std::string* err) {
   if (!levelFromJson(j, lv, m, &e)) { if (err) *err = e; return false; }
   level = std::make_shared<Level>(std::move(lv));
   meta = m;
+  backgroundDir_ = p.has_parent_path() ? p.parent_path() : fs::path(".");
   savedPath.clear();
   resetHistory();
   status = "imported " + pathToUtf8(p);
@@ -539,7 +639,9 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   if (meta.boardWidth > 650) ini << "board_width = " << meta.boardWidth << "\n";
   if (meta.balls > 0) ini << "balls = " << meta.balls << "\n";
   if (meta.orange != 25) ini << "orange = " << meta.orange << "\n";
-  if (!meta.background.empty() && meta.background != meta.name) ini << "background = " << meta.background << "\n";
+  std::string background = meta.background;
+  if (!prepareBackground(lv, background, err)) return false;
+  if (!background.empty() && background != meta.name) ini << "background = " << background << "\n";
   if (!meta.master.empty()) ini << "master = " << meta.master << "\n";
   for (int k = 0; k < PhysicsParams::KeyCount; k++)
     if (meta.physics.has(k)) ini << physicsKey(k).alias << " = " << physicsFormat(meta.physics.v.at(k)) << "\n";
@@ -580,7 +682,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   for (auto& l : levels)
     if (l.first == meta.name) { l.second = entry; found = true; }
   if (!found) levels.push_back({meta.name, entry});
-  std::string out = "// levels of this mod, written by the PegglePort level editor (Quick Play shows each Stage as a page of 5)\n";
+  std::string out;
   for (size_t i = 0; i < levels.size(); i += 5) {
     std::string stageName = pathToUtf8(modDir.filename()) + (i ? " " + std::to_string(i / 5 + 1) : "");
     out += "Stage\n{\nName: \"" + stageName + "\"\nDesc: \"Levels made with the PegglePort level editor\"\n";
@@ -1685,7 +1787,7 @@ std::string Editor::exec(const std::string& line, bool* okOut) {
   for (size_t i = 2; i < w.size(); i++) rest += (i > 2 ? " " : "") + w[i];
   std::string err;
   if (c == "new") {
-    newLevel(w.size() > 1 ? w[1] : "NewLevel", w.size() > 2 ? std::atoi(w[2].c_str()) : 650);
+    newLevel(w.size() > 1 ? w[1] : "NewLevel");
     msg = status;
   } else if (c == "save") {
     if (w.size() > 1) ok = saveDat(w[1], &err); else if (!savedPath.empty()) ok = saveDat(savedPath, &err); else { ok = false; err = "save needs a path (or use savemod)"; }

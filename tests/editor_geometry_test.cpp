@@ -27,13 +27,16 @@ static void check(bool pass, const std::string& name) {
 
 static void datWidth(const fs::path& root) {
   Editor e;
-  e.newLevel("Wide", 917);
+  e.newLevel("Wide");
+  e.meta.boardWidth = 917;
   e.place(Tool::PegOrange, {720, 250});
   std::string err;
   const fs::path dat = root / "Wide.dat";
+  e.setArt(Editor::ArtSlot::Background, "Garden");
   check(e.saveDat(dat, &err), "save wide DAT: " + err);
   Editor loaded;
   check(loaded.loadDatFile(dat, &err), "load wide DAT: " + err);
+  check(loaded.meta.background == "Garden", "standalone DAT restores the chosen background from its sidecar");
   check(loaded.meta.boardWidth == 917, "DAT sidecar preserves 917 field / 1067 full canvas");
   check(loaded.objects().size() == 1 && loaded.objects()[0]->f("x") == 720, "DAT preserves extended authored coordinate");
   {
@@ -65,6 +68,54 @@ static std::string fileBytes(const fs::path& path) {
   return bytes;
 }
 
+static void backgroundFiles(const fs::path& root) {
+  const fs::path folder = root / "art-import", library = folder / "working";
+  fs::remove_all(folder);
+  auto image = [&](const char* sub, uint8_t red) {
+    auto path = folder / sub / "scene.tga";
+    fs::create_directories(path.parent_path());
+    const uint8_t tga[] = {0,0,2,0,0,0,0,0,0,0,0,0,1,0,1,0,24,32,0,0,red};
+    std::ofstream(path, std::ios::binary).write((const char*)tga, sizeof tga);
+    return path;
+  };
+  auto first = image("one", 50), second = image("two", 200);
+  const std::string one = fileBytes(first), two = fileBytes(second);
+  Editor e;
+  std::string err;
+  e.newLevel("Travel");
+  e.meta.boardWidth = 917;
+  if (!e.importBackground(first, library, &err)) { check(false, "import first background: " + err); return; }
+  const std::string a = e.meta.background;
+  check(e.importBackground(second, library, &err), "import second background with same basename");
+  const std::string b = e.meta.background;
+  check(a != b && fileBytes(library / (a + ".tga")) == one && fileBytes(library / (b + ".tga")) == two, "both owned images retain exact source bytes");
+  std::ofstream(folder / "bad.png") << "not an image";
+  const int rev = e.revision;
+  check(!e.importBackground(folder / "bad.png", library, &err) && e.revision == rev && e.meta.background == b, "invalid image does not change selection or history");
+  check(e.importBackground(first, library, &err) && e.meta.background == a, "same image reuses the same asset");
+  fs::rename(first, first.parent_path() / "moved.tga");
+  fs::rename(second, second.parent_path() / "moved.tga");
+  const fs::path exports = folder / "exports", dat = folder / "loose" / "Travel.dat";
+  fs::create_directories(exports);
+  std::ofstream(exports / (a + ".tga")) << "unrelated";
+  check(e.saveJson(exports / "Travel.json", &err) && e.saveDat(dat, &err), "export JSON and DAT after moving originals");
+  fs::remove_all(library);
+  for (bool json : {false, true}) {
+    Editor reopened;
+    check(json ? reopened.loadJson(exports / "Travel.json", &err) : reopened.loadDatFile(dat, &err), "fresh editor loads portable export");
+    const std::string bg = reopened.meta.background;
+    check(fs::path(bg).filename() == bg && reopened.meta.boardWidth == 917 && fileBytes((json ? exports : dat.parent_path()) / (bg + ".tga")) == one, "relative image and authored width survive round trip");
+    check(fileBytes(exports / (a + ".tga")) == "unrelated" && (!json || bg != a), "JSON export kept unrelated asset and used its own key");
+    fs::path pack = folder / (json ? "FromJSON" : "FromDAT");
+    fs::create_directories(pack / "levels");
+    std::ofstream(pack / "levels" / (a + ".jpg")) << "other extension";
+    check(reopened.saveToMod(pack, &err), "package reopened level without source or authoring library");
+    Editor packed;
+    check(packed.loadDatFile(pack / "levels/Travel.dat", &err) && packed.meta.boardWidth == 917 && packed.meta.background != a && fileBytes(pack / "levels" / (packed.meta.background + ".tga")) == one, "portable pack keeps width and selected pixels despite cross-format conflict");
+    check(fileBytes(pack / "levels" / (a + ".jpg")) == "other extension", "pack collision did not overwrite existing art");
+  }
+}
+
 static void datSavePreservation(const fs::path& root) {
   for (bool hadDat : {false, true}) for (bool hadIni : {false, true}) for (bool blockDat : {false, true}) {
     const std::string label = "DAT pair " + std::to_string(hadDat) + std::to_string(hadIni) + std::to_string(blockDat);
@@ -72,7 +123,7 @@ static void datSavePreservation(const fs::path& root) {
     fs::remove_all(dir);
     fs::create_directories(dir);
     Editor e;
-    e.newLevel("Pair", 650);
+    e.newLevel("Pair");
     e.place(Tool::PegOrange, {300, 200});
     std::string err;
     const fs::path prior = dir / "Prior.dat", dat = dir / "Pair.dat", ini = dir / "Pair.ini";
@@ -129,7 +180,7 @@ static void datCommitFailure(const fs::path& root) {
     fs::remove_all(dir);
     fs::create_directories(dir);
     Editor e;
-    e.newLevel("Rollback", 650);
+    e.newLevel("Rollback");
     e.place(Tool::PegOrange, {300, 200});
     std::string err;
     const fs::path prior = dir / "Prior.dat", dat = dir / "Rollback.dat", ini = dir / "Rollback.ini";
@@ -188,7 +239,7 @@ static void datReadFailure(const fs::path& root) {
   fs::remove_all(dir);
   fs::create_directories(dir);
   Editor e;
-  e.newLevel("Locked", 650);
+  e.newLevel("Locked");
   e.place(Tool::PegOrange, {300, 200});
   std::string err;
   check(e.saveDat(dat, &err), "backup read initial save");
@@ -241,11 +292,11 @@ static void modIndexFailure(const fs::path& root) {
     const fs::path index = mod / "levels/mod_levels.cfg", metadata = mod / "mod.ini";
     fs::remove_all(mod);
     Editor e;
-    e.newLevel("First", 650);
+    e.newLevel("First");
     e.place(Tool::PegOrange, {300, 200});
     std::string err;
     check(e.saveToMod(mod, &err), label + " seed prior registration");
-    e.newLevel("Existing", 650);
+    e.newLevel("Existing");
     e.place(Tool::PegOrange, {300, 200});
     if (hadTarget) check(e.saveToMod(mod, &err), label + " seed actual destination");
     const auto oldIndex = fileBytes(index), oldMetadata = fileBytes(metadata);
@@ -288,7 +339,7 @@ static void modRollbackRecovery(const fs::path& root) {
   const fs::path index = mod / "levels/mod_levels.cfg", staging = dat.parent_path() / "Existing.dat.save-0";
   fs::remove_all(mod);
   Editor e;
-  e.newLevel("Existing", 650);
+  e.newLevel("Existing");
   e.place(Tool::PegOrange, {300, 200});
   std::string err;
   check(e.saveToMod(mod, &err), "recovery seed actual destination");
@@ -341,11 +392,11 @@ static void modMetadataFailure(const fs::path& root) {
     const fs::path index = mod / "levels/mod_levels.cfg", metadata = mod / "mod.ini";
     fs::remove_all(mod);
     Editor e;
-    e.newLevel("First", 650);
+    e.newLevel("First");
     e.place(Tool::PegOrange, {300, 200});
     std::string err;
     check(e.saveToMod(mod, &err), label + " seed prior registration");
-    e.newLevel("Existing", 650);
+    e.newLevel("Existing");
     e.place(Tool::PegOrange, {300, 200});
     if (hadTarget) check(e.saveToMod(mod, &err), label + " seed actual destination");
     fs::remove(metadata);
@@ -412,7 +463,7 @@ static void datIniAlias(const fs::path& root) {
     const fs::path dir = root / label, prior = dir / "Prior.dat", target = dir / "output" / ("Alias" + extension);
     fs::remove_all(dir);
     Editor e;
-    e.newLevel("Alias", 650);
+    e.newLevel("Alias");
     e.place(Tool::PegOrange, {300, 200});
     std::string err;
     check(e.saveDat(prior, &err), label + " establish prior target");
@@ -451,7 +502,7 @@ static void modSaveFailure(const fs::path& root) {
     fs::remove_all(dir);
     fs::create_directories(dir);
     Editor e;
-    e.newLevel("Broken", 650);
+    e.newLevel("Broken");
     e.place(Tool::PegOrange, {300, 200});
     std::string err, oldDat, oldIni;
     if (hadTarget) {
@@ -523,8 +574,8 @@ static void widthUndo() {
   check(e.meta.boardWidth == 917 && e.undoDepth() == nextDepth, "invalid width is rejected without history");
   e.setMeta("board_width", "917");
   check(e.undoDepth() == nextDepth, "unchanged width creates no undo step");
-  e.newLevel("Limited", 9999);
-  check(e.meta.boardWidth == 1400, "new level respects supported maximum width");
+  e.exec("new Classic 917");
+  check(e.meta.boardWidth == 650, "New always creates a classic level even after editing a wide level");
 }
 
 template<class E> static void roles() {
@@ -629,7 +680,8 @@ static void boardGeometry() {
   const auto originalBase = writeLevel(*base);
   for (int width : {650, 917, 1400}) {
     Editor e;
-    e.newLevel("Geometry", width);
+    e.newLevel("Geometry");
+    e.meta.boardWidth = width;
     e.base = base;
     e.snap = false;
     const float shift = e.wideShift();
@@ -703,7 +755,8 @@ static void roleRoundTrips(const fs::path& root, int side) {
     if (role == "peg" && shape != 5 && shape != 6) continue;
     Editor e;
     const std::string label = std::to_string(shape) + "_" + role + (side > 0 ? "_wide_right" : side < 0 ? "_wide_left" : "_classic");
-    e.newLevel("Role" + label, side ? 917 : 650);
+    e.newLevel("Role" + label);
+    e.meta.boardWidth = side ? 917 : 650;
     e.base = base;
     const float x = side > 0 ? 720.0f : side < 0 ? -70.0f : 300.0f;
     NodeP target;
@@ -743,6 +796,7 @@ int main(int argc, char** argv) {
   fs::path root = fs::path(argv[1]) / "editor_geometry_test";
   fs::create_directories(root);
   datWidth(root);
+  backgroundFiles(root);
   datSavePreservation(root);
   datCommitFailure(root);
   datReadFailure(root);

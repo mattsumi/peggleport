@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <set>
 #include <sstream>
 
@@ -102,6 +103,9 @@ class EditorScreen : public Screen {
   void drawArtDialog();
   void chooseArt(const Editor::ArtItem* it);
   void syncModArt();
+  void chooseBackground();
+  void restoreBackground();
+  std::future<std::optional<std::string>> chosenBackground_;
   std::string artCurrent() const;
   std::string openFilter_;
   std::vector<std::pair<std::string, std::string>> levelList_;
@@ -172,9 +176,14 @@ class EditorScreen : public Screen {
   void keyDown(int key, int mod) override;
   bool handleText(const std::string& t);
   void openLevel(const std::string& nameOrPath);
-  void newLevel(int boardWidth = 650);
+  void newLevel();
   void loadBase();
   void collectLevels();
+  bool setModName(const std::string& name) {
+    if (name.empty() || name == "." || name == ".." || name.find_first_of("/\\:") != std::string::npos) { say("Choose a mod folder name, not a path."); return false; }
+    modName_ = name;
+    return true;
+  }
   void saveMod();
   void indexMod(const fs::path& dir);
   fs::path thumbDir_;
@@ -210,8 +219,8 @@ void EditorScreen::loadBase() {
   }
   if (!ed.base) ed.base = Editor::syntheticBase();
 }
-void EditorScreen::newLevel(int boardWidth) {
-  ed.newLevel("NewLevel", boardWidth);
+void EditorScreen::newLevel() {
+  ed.newLevel("NewLevel");
   auto st = listStageLevels(app.vfs);
   if (!st.empty()) ed.meta.background = st.front().name;
   ed.meta.title = "New Level";
@@ -219,12 +228,13 @@ void EditorScreen::newLevel(int boardWidth) {
   scroll_[2] = 0;
   fitView();
   dirtyLayout();
-  say(boardWidth == 917 ? "New 16:9 level. Choose art, then place objects." : "New 4:3 level. Choose art, then place objects.");
+  say("New 4:3 level. Choose art, then place objects.");
 }
 void EditorScreen::openLevel(const std::string& nameOrPath) {
   std::string err;
   if (ed.loadFromVfs(app.vfs, nameOrPath, &err)) {
     say(ed.status);
+    restoreBackground();
     fitView();
   } else {
     say("cannot open: " + err);
@@ -277,6 +287,18 @@ void EditorScreen::centerOn(V2 p) {
 
 void EditorScreen::update() {
   Panel::update();
+  if (chosenBackground_.valid() && chosenBackground_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+    auto path = chosenBackground_.get();
+    if (!path) say("Cannot open the image chooser.");
+    else if (!path->empty()) {
+      std::string err;
+      if (ed.importBackground(pathFromUtf8(*path), Editor::modDirFor(app.userDir, modName_) / "levels", &err)) {
+        syncModArt();
+        say(ed.status);
+      } else say(err);
+    }
+    dirtyLayout();
+  }
   ticks_++;
   if (++msgAge_ > 900 && !msg_.empty() && !prompt_.on) msg_.clear();
   if (playing_) { stepPlay(); return; }
@@ -747,13 +769,12 @@ void EditorScreen::drawToolbar() {
     button({x, y, w, h}, label, fn, active, enabled);
     x += w + 6;
   };
-  add("New 4:3", 92, [&] { newLevel(650); });
-  add("New 16:9", 100, [&] { newLevel(917); });
+  add("New", 48, [&] { newLevel(); });
   add("Open", 48, [&] { collectLevels(); openDlg_ = true; openFilter_.clear(); openScroll_ = 0; dirtyLayout(); });
   add("Save", 48, [&] { quickSave(); });
   add("To mod", 58, [&] { saveMod(); });
   add("Export", 56, [&] { std::string e; if (ed.saveJson(exportPath(".json"), &e)) say("exported " + pathToUtf8(exportPath(".json"))); else say(e); });
-  add("Import", 56, [&] { std::string e; if (ed.loadJson(exportPath(".json"), &e)) { say(ed.status); fitView(); } else say(e); });
+  add("Import", 56, [&] { std::string e; if (ed.loadJson(exportPath(".json"), &e)) { say(ed.status); restoreBackground(); fitView(); } else say(e); });
   button({CW - 202, y, 118, h}, "Test play", [&] { startPlay(); }, false, true, 0, true);
   button({CW - 76, y, 64, h}, exitArmed_ ? "Sure?" : "Exit", [&] { exitEditor(); }, exitArmed_);
   x = 12;
@@ -768,8 +789,6 @@ void EditorScreen::drawToolbar() {
   add("Animate", 62, [&] { animate_ = !animate_; builtRev_ = -1; }, animate_);
   add("Oranges", 62, [&] { ed.previewOranges = !ed.previewOranges; if (ed.previewOranges) ed.previewSeed++; ed.revision++; }, ed.previewOranges);
   add("Check", 50, [&] { ed.validate(); tab_ = 4; say("checked"); });
-  std::string aspect = ed.meta.boardWidth == 650 ? "4:3" : ed.meta.boardWidth == 917 ? "16:9" : "Custom";
-  button({CW - 202, y, 190, h}, "Game canvas: " + aspect, [&] { tab_ = 2; scroll_[2] = 0; });
 }
 
 void EditorScreen::drawPalette() {
@@ -1113,18 +1132,6 @@ void EditorScreen::tabMover(float x, float y0, float w) {
 
 void EditorScreen::tabLevel(float x, float y0, float w) {
   float y = y0 - scroll_[2];
-  T(x, y, "Full game canvas", kGold);
-  y += fh_ + 10;
-  float hw = (w - 8) / 2;
-  button({x, y, hw, 34}, "4:3 Classic", [this] { ed.setMeta("board_width", "650"); fitView(); }, ed.meta.boardWidth == 650);
-  button({x + hw + 8, y, hw, 34}, "16:9 Wide", [this] { ed.setMeta("board_width", "917"); fitView(); }, ed.meta.boardWidth == 917);
-  y += 44;
-  T(x, y, std::to_string(ed.meta.boardWidth + 150) + " x 600, including HUD", kText);
-  y += fh_ + 4;
-  T(x, y, std::to_string(ed.meta.boardWidth) + " playfield + 150 HUD", kDim);
-  y += fh_ + 4;
-  T(x, y, "Switch here to convert this level.", kDim);
-  y += fh_ + 16;
   T(x, y, "Level & artwork", kGold);
   y += fh_ + 10;
   auto text = [&](const char* label, const std::string& value, const char* key) {
@@ -1142,10 +1149,13 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   text("Name", ed.meta.name, "name");
   text("Title", ed.meta.title, "title");
   propRow(x, y, w, "Art of level", ed.meta.background.empty() ? "-" : ed.meta.background, [this](int b) { if (b == 1) openArtDialog(Editor::ArtSlot::Background); }, nullptr, false);
+  button({x, y, w, 32}, "Import Background...", [this] { chooseBackground(); });
+  y += 40;
   text("Master", ed.meta.master, "master");
   T(x, y, "Stock art may keep a classic crop.", kDim);
   y += fh_ + 12;
-  num("Playfield px", ed.meta.boardWidth, "board_width", 1);
+  T(x, y, std::to_string(ed.meta.boardWidth) + " px playfield", kDim);
+  y += fh_ + 6;
   num("Balls (0=10)", ed.meta.balls, "balls", 1);
   num("Orange target", ed.meta.orange, "orange", 1);
   y += 4;
@@ -1160,7 +1170,7 @@ void EditorScreen::tabLevel(float x, float y0, float w) {
   y += 4;
   T(x, y, "Mod folder", kGold);
   y += fh_ + 2;
-  propRow(x, y, w, "Mod name", modName_, [this](int b) { if (b == 1) startPrompt("Mod name", modName_, [this](const std::string& t) { if (!t.empty()) modName_ = t; dirtyLayout(); }); }, nullptr, false);
+  propRow(x, y, w, "Mod name", modName_, [this](int b) { if (b == 1) startPrompt("Mod name", modName_, [this](const std::string& t) { if (!t.empty()) setModName(t); dirtyLayout(); }); }, nullptr, false);
   button({x, y, w, 32}, "Save to mod (shows in Quick Play)", [this] { saveMod(); });
   y += 40;
   T(x, y, pathToUtf8(app.userDir / "mods" / modName_), kDim);
@@ -1343,6 +1353,28 @@ void EditorScreen::openArtDialog(Editor::ArtSlot s) {
   artDlg_ = true;
   dirtyLayout();
 }
+void EditorScreen::chooseBackground() {
+  if (chosenBackground_.valid()) return;
+  using Choice = std::promise<std::optional<std::string>>;
+  auto pending = std::make_unique<Choice>();
+  chosenBackground_ = pending->get_future();
+  static const SDL_DialogFileFilter filters[] = {{"Background images", "png;jpg;jpeg;gif;tga;jp2;j2k"}};
+  SDL_ShowOpenFileDialog([](void* data, const char* const* files, int) {
+    std::unique_ptr<Choice> choice(static_cast<Choice*>(data));
+    if (files) choice->set_value(files[0] ? files[0] : "");
+    else choice->set_value(std::nullopt);
+  }, pending.release(), SDL_GetKeyboardFocus(), filters, 1, nullptr, false);
+}
+
+void EditorScreen::restoreBackground() {
+  std::string name = ed.meta.background, err;
+  if (!ed.hasImportedBackground()) return;
+  if (ed.prepareBackground(Editor::modDirFor(app.userDir, modName_) / "levels", name, &err)) {
+    ed.meta.background = name;
+    syncModArt();
+  } else say(err);
+}
+
 void EditorScreen::syncModArt() {
   fs::path dir = Editor::modDirFor(app.userDir, modName_);
   std::error_code ec;
@@ -1459,7 +1491,6 @@ void EditorScreen::drawArtDialog() {
   if (artSlot_ == S::Background) {
     T(px, iy, "Art and game canvas are separate.", kDim);
     T(px, iy + 24, "Stock art may keep a classic crop.", kDim);
-    T(px, iy + 48, "Use Level to select 4:3 or 16:9.", kDim);
   } else {
     T(px, iy, "Pictures of the game and of your mod folder (levels and", kDim);
     T(px, iy + 15, "images). Put your own .png or .jpg into the mod folder", kDim);
@@ -1505,7 +1536,7 @@ void EditorScreen::saveMod() {
   if (ed.saveToMod(dir, &err)) {
     int errors = 0;
     for (auto& i : ed.issues) errors += i.sev == Issue::Error;
-    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + "  enable it in Options, Mods to play it");
+    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + "  enable it in Mods on the main menu to play it");
     thumbDir_ = dir;
     indexMod(dir);
   } else {
@@ -1647,6 +1678,7 @@ bool EditorScreen::handleText(const std::string& t) {
 }
 
 bool EditorScreen::input(const Input& in) {
+  if (chosenBackground_.valid()) return true;
   auto rebuild = [&] { if (layoutDirty_) buildUi(app.gfx, false); };
   switch (in.type) {
     case Input::Text: handleText(in.text); return true;
@@ -1880,11 +1912,9 @@ std::string EditorScreen::run(const std::string& line) {
     if (!rest.empty()) {
       std::istringstream r2(rest);
       std::string nm;
-      int bw = 650;
-      r2 >> nm >> bw;
+      r2 >> nm;
       ed.meta.name = nm;
       ed.meta.title = nm;
-      ed.setMeta("board_width", std::to_string(bw));
       ed.metaDirty = false;
       fitView();
     }
@@ -1896,9 +1926,9 @@ std::string EditorScreen::run(const std::string& line) {
   if (c == "center") { float a = 0, b = 0; std::sscanf(rest.c_str(), "%f %f", &a, &b); centerOn(V2(a, b)); return "centered"; }
   if (c == "tab") { static const char* t[5] = {"object", "mover", "level", "gen", "checks"}; for (int i = 0; i < 5; i++) if (rest == t[i]) tab_ = i; if (rest == "checks") ed.validate(); dirtyLayout(); return "tab " + rest; }
   if (c == "open") { openLevel(rest); return msg_; }
-  if (c == "savemod") { if (!rest.empty()) modName_ = rest; saveMod(); return msg_; }
+  if (c == "savemod") { if (!rest.empty() && !setModName(rest)) return msg_; saveMod(); return msg_; }
   if (c == "save" && rest.empty()) { quickSave(); return msg_; }
-  if (c == "modname") { modName_ = rest; return "mod " + rest; }
+  if (c == "modname") { return setModName(rest) ? "mod " + rest : msg_; }
   if (c == "testplay") { startPlay(); return playing_ ? "test play" : msg_; }
   if (c == "stop") { if (playing_) stopPlay(); return "stopped"; }
   if (c == "play") {
@@ -1920,6 +1950,7 @@ std::string EditorScreen::run(const std::string& line) {
   ed.setZoom(zoom_);
   bool ok = true;
   std::string m = ed.exec(line, &ok);
+  if (ok && (c == "loaddat" || c == "import")) restoreBackground();
   dirtyLayout();
   return m;
 }

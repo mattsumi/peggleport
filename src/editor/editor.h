@@ -61,7 +61,10 @@ class Editor {
   std::string collisionRole(const NodeP& n) const;
   bool setCollisionRole(const std::string& role);
 
-  void newLevel(const std::string& name, int boardWidth = 650);
+  void newLevel(const std::string& name);
+  bool importBackground(const std::filesystem::path& file, const std::filesystem::path& folder, std::string* err);
+  bool hasImportedBackground() const;
+  bool prepareBackground(const std::filesystem::path& folder, std::string& name, std::string* err) const;
   bool loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err);
   bool loadDatFile(const std::filesystem::path& p, std::string* err);
   bool saveDat(const std::filesystem::path& p, std::string* err);
@@ -164,6 +167,7 @@ class Editor {
   std::string exec(const std::string& line, bool* ok = nullptr);
 
  private:
+  std::filesystem::path backgroundDir_;
   struct Step {
     std::string label;
     int widthBefore = 650, widthAfter = 650;
