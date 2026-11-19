@@ -39,8 +39,6 @@ static bool padTypes() {
 }
 
 static bool glyphFiles(const fs::path& root) {
-  std::error_code ec;
-  fs::remove_all(root, ec);
   const fs::path dark = root / "controller_base" / "images" / "api" / "dark";
   fs::create_directories(dark);
   for (const char* style : {"shared_button_", "shared_color_button_"})
@@ -61,13 +59,26 @@ static bool glyphFiles(const fs::path& root) {
   fs::remove(dark / "shared_color_button_y_md.png");
   if (steamGlyphFiles(root, Pad::Xbox) != std::array<std::string, 4>{}) ok = fail("a partial Steam glyph set was used");
   if (steamGlyphFiles(root / "missing", Pad::SteamDeck) != std::array<std::string, 4>{}) ok = fail("glyphs were found without a Steam folder");
-  fs::remove_all(root, ec);
   return ok;
 }
 
 int main(int argc, char** argv) {
   if (argc != 2) return 2;
-  const bool types = padTypes();
-  const bool files = glyphFiles(argv[1]);
-  return types && files ? 0 : 1;
+  const fs::path parent = argv[1];
+  const fs::path root = parent / "pad-glyphs";
+  std::error_code ec;
+  fs::create_directories(parent, ec);
+  if (ec || !fs::create_directory(root, ec)) {
+    std::cerr << "Need a fresh pad fixture directory: " << root << '\n';
+    return 1;
+  }
+  bool ok = false;
+  try {
+    ok = padTypes() && glyphFiles(root);
+  } catch (const fs::filesystem_error& error) {
+    fail(error.what());
+  }
+  fs::remove_all(root, ec);
+  if (ec) ok = fail(ec.message());
+  return ok ? 0 : 1;
 }

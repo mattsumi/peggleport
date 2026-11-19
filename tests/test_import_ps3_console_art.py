@@ -1,5 +1,7 @@
 import hashlib
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 from io import BytesIO
@@ -132,16 +134,38 @@ class PackTest(unittest.TestCase):
             self.assertEqual(list(output.iterdir()), [old])
             self.assertEqual(old.read_bytes(), b'keep')
 
-    def test_missing_required_member_does_not_create_pack(self):
+    def run_importers(self, root, ambiguous=False):
+        source, base, output = root / 'data', root / 'base', root / 'out'
+        source.mkdir()
+        (base / 'console/lobby').mkdir(parents=True)
+        keep = base / 'keep.txt'
+        keep.write_bytes(b'unchanged')
+        for name in ('PeGgLe.PaK', 'NiGhTs.PaK'):
+            (source / name).write_bytes(pak(('not-art', b'x')))
+        if ambiguous:
+            duplicate = source / 'peggle.pak'
+            if duplicate.exists():
+                self.skipTest('case-only archive names need a case-sensitive directory')
+            duplicate.write_bytes(pak(('other', b'y')))
+        for stage, first in (('console', 'PeGgLe.PaK'), ('secondary', 'NiGhTs.PaK'),
+                             ('lobby', 'PeGgLe.PaK'), ('online', 'PeGgLe.PaK')):
+            with self.subTest(stage=stage):
+                tool = Path(__file__).resolve().parents[1] / f'tools/import_ps3_{stage}_art.py'
+                args = [source, output] if stage == 'console' else [source, base, output]
+                result = subprocess.run([sys.executable, '-B', tool, *args], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                expected = 'ambiguous archive name: peggle.pak' if ambiguous else f'{first}: missing member'
+                self.assertIn(expected, result.stderr)
+                self.assertFalse(output.exists())
+                self.assertEqual(keep.read_bytes(), b'unchanged')
+
+    def test_each_importer_reads_mixed_case_paks_before_checking_members(self):
         with tempfile.TemporaryDirectory() as scratch:
-            parent = Path(scratch)
-            source = parent / 'source'
-            source.mkdir()
-            for archive in ('PEGGLE.PAK', 'Nights.pak'):
-                (source / archive).write_bytes(pak(('not-art', b'x')))
-            with self.assertRaisesRegex(ValueError, 'missing member'):
-                ps3.build(source, parent / 'pack')
-            self.assertFalse((parent / 'pack').exists())
+            self.run_importers(Path(scratch))
+
+    def test_each_importer_rejects_ambiguous_paks_before_staging(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            self.run_importers(Path(scratch), ambiguous=True)
 
     def test_gutter_blends_at_authored_offset_and_leaves_opaque_background(self):
         base = Image.new('RGBA', (3, 3), (18, 40, 60, 255))

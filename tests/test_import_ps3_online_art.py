@@ -35,7 +35,7 @@ class OnlineArtTest(unittest.TestCase):
             mask = Image.new('L', color.size, 255)
             mask.putpixel((136, 0), 76)
             members = [('Images/Party/ReadyButton.jpg', encoded(color)), ('Images/Party/ReadyButton_.gif', encoded(mask, 'GIF'))]
-            (data / 'peggle.pak').write_bytes(pak(*members))
+            (data / 'PeGgLe.PaK').write_bytes(pak(*members))
             cmd = [sys.executable, '-B', str(tool), str(data), str(base), str(out)]
             subprocess.run(cmd, check=True, capture_output=True)
             target = 'console/lobby/ready_button.png'
@@ -44,6 +44,7 @@ class OnlineArtTest(unittest.TestCase):
                 self.assertEqual(image.getpixel((135, 0)), (200, 20, 30, 255))
                 self.assertEqual(image.getpixel((136, 0)), (10, 210, 50, 76))
             record = json.loads((out / 'ps3-online-art-provenance.json').read_text())[target]
+            self.assertEqual([s['archive'] for s in record['sources']], ['PeGgLe.PaK'] * 2)
             self.assertEqual(record['sha256'], hashlib.sha256((out / target).read_bytes()).hexdigest())
             self.assertEqual([s['sha256'] for s in record['sources']], [hashlib.sha256(raw).hexdigest() for _, raw in members])
             self.assertFalse((base / target).exists())

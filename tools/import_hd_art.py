@@ -185,6 +185,8 @@ def load_pc(path):
 
 def build(reference, source, output):
     reference, source, output = (p.resolve() for p in (reference, source, output))
+    if any((parent / '.git').exists() for parent in (output, *output.parents)):
+        raise ValueError('choose a new output folder outside any Git checkout')
     if output.is_relative_to(reference) or output.is_relative_to(source):
         raise ValueError('choose a new output folder outside the input folders')
     edition, *lines = (reference / 'art.tsv').read_text(encoding='utf-8').splitlines()

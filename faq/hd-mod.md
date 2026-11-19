@@ -4,19 +4,19 @@ Peggle HD adapts higher-resolution artwork from the iPad edition to Deluxe and N
 
 ## Build the packs locally
 
-Configure the [PegglePort build](../README.md) with `-DPP_HD_TOOLS=ON` and build `pp_build_hd_mod` and `peggleport`. `pp_build_hd_mod` exports the unmodified PC artwork and sprite layouts as a reference for the importer. Give it your installed edition's folder containing `main.pak` and a **new** output folder outside the game install.
+Configure the [PegglePort build](../README.md) with `-DPP_HD_TOOLS=ON` and build `pp_build_hd_mod` and `peggleport`. `pp_build_hd_mod` exports the unmodified PC artwork and sprite layouts as a reference for the importer. Give it your installed edition's folder containing `main.pak` and a **new** output folder outside the game install. For both steps, replace `/external/peggle-art` with an absolute staging path outside all Git checkouts and input folders.
 
 ```sh
-pp_build_hd_mod Deluxe "/path/to/Peggle Deluxe" "pc-deluxe"
-pp_build_hd_mod Nights "/path/to/Peggle Nights" "pc-nights"
+pp_build_hd_mod Deluxe "/path/to/Peggle Deluxe" "/external/peggle-art/pc-deluxe"
+pp_build_hd_mod Nights "/path/to/Peggle Nights" "/external/peggle-art/pc-nights"
 ```
 
 Use a Python virtual environment with `tools/requirements-hd-art.txt` installed. Supply your local copy of the extracted `Content.HD` artwork with its English resource manifest, background JPEGs, and decoded PNG atlases. The importer does not download or include game artwork.
 
 ```sh
 python -m pip install -r tools/requirements-hd-art.txt
-python tools/import_hd_art.py pc-deluxe "/path/to/Content.HD" Peggle-Deluxe-Native-HD
-python tools/import_hd_art.py pc-nights "/path/to/Content.HD" Peggle-Nights-Native-HD
+python tools/import_hd_art.py "/external/peggle-art/pc-deluxe" "/path/to/Content.HD" "/external/peggle-art/Peggle-Deluxe-Native-HD"
+python tools/import_hd_art.py "/external/peggle-art/pc-nights" "/path/to/Content.HD" "/external/peggle-art/Peggle-Nights-Native-HD"
 ```
 
 The importer crops and repacks compatible HD sprites into the PC sprite grid. It aligns each level background to its PC landmarks and keeps the PC pixels where the iPad artwork is cropped or masked. It leaves unmatched textures untouched and lists what changed in `hd-art-report.json`. Allow about 1.6 GiB for the two completed packs, plus space for the sources and reference export.

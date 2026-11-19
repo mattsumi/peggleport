@@ -107,7 +107,11 @@ int main(int argc, char** argv) {
   }
   try {
     const auto source = fs::canonical(pathFromUtf8(argv[2]));
-    const auto output = fs::weakly_canonical(pathFromUtf8(argv[3]));
+    const auto output = fs::weakly_canonical(fs::absolute(pathFromUtf8(argv[3])));
+    for (auto parent = output; ; parent = parent.parent_path()) {
+      if (fs::exists(parent / ".git")) throw std::runtime_error("Choose a new output folder outside any Git checkout");
+      if (parent == parent.root_path()) break;
+    }
     auto relative = output.lexically_relative(source);
     if (relative.empty() ? output == source : *relative.begin() != "..")
       throw std::runtime_error("Choose a new output folder outside your game install");

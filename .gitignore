@@ -9,3 +9,7 @@ __pycache__/
 *.pak
 *.exe
 !packaging/**/*.exe
+/pc-deluxe/
+/pc-nights/
+/Peggle-Deluxe-Native-HD/
+/Peggle-Nights-Native-HD/

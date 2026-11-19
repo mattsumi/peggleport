@@ -5,14 +5,15 @@ from pathlib import Path
 from shutil import copytree
 
 from PIL import Image, ImageOps
-from import_ps3_console_art import Pak
+from import_ps3_console_art import Pak, archive_paths
 
 
 def build(data, base, output):
     data, base, output = data.resolve(), base.resolve(), output.resolve()
     if output.exists() or output.is_relative_to(data) or output.is_relative_to(base) or output.is_relative_to(Path(__file__).resolve().parents[1]):
         raise ValueError('choose a fresh staging folder outside the source and repository')
-    deluxe, nights = (Pak(data / name) for name in ('peggle.pak', 'nights.pak'))
+    files = archive_paths(data)
+    deluxe, nights = Pak(files['peggle.pak']), Pak(files['nights.pak'])
     room = nights.image('images/trophy/trophyroom.png', (1216, 668))
     institute = nights.image('images/mainmenu/mainmenu_nights.jpg', (1216, 668))
     firelight = nights.image('images/mainmenu/firelight.png', (1216, 668))

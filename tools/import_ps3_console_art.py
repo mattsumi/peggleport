@@ -96,6 +96,20 @@ def menu_variant(art, name):
     return art
 
 
+def archive_paths(source, required=('peggle.pak', 'nights.pak')):
+    files = {}
+    for path in source.iterdir():
+        name = path.name.lower()
+        if name in ('peggle.pak', 'nights.pak', 'nightstu.pak'):
+            if name in files:
+                raise ValueError(f'ambiguous archive name: {name}')
+            files[name] = path
+    for name in required:
+        if name not in files:
+            raise ValueError(f'{source}: missing archive {name}')
+    return files
+
+
 def build(source, output):
     source, output = source.resolve(), output.resolve()
     if output.is_relative_to(source) or output.is_relative_to(Path(__file__).resolve().parents[1]):
@@ -103,18 +117,8 @@ def build(source, output):
     if output.exists():
         raise FileExistsError(f'output already exists: {output}')
 
-    files = {}
-    required = ('peggle.pak', 'nights.pak')
-    for path in source.iterdir():
-        name = path.name.lower()
-        if name in required or name == 'nightstu.pak':
-            if name in files:
-                raise ValueError(f'ambiguous archive name: {name}')
-            files[name] = path
-    for name in required:
-        if name not in files:
-            raise ValueError(f'{source}: missing archive {name}')
-    deluxe, nights = (Pak(files[name]) for name in required)
+    files = archive_paths(source)
+    deluxe, nights = Pak(files['peggle.pak']), Pak(files['nights.pak'])
 
     menu = 'images/mainmenu/'
     loading = 'images/loading/'

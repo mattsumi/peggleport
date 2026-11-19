@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from shutil import copytree
 
-from import_ps3_console_art import Pak
+from import_ps3_console_art import Pak, archive_paths
 
 
 def build(data, base, output):
@@ -15,7 +15,7 @@ def build(data, base, output):
     manifest = 'ps3-online-art-provenance.json'
     if not (base / 'console/lobby').is_dir() or (base / target).exists() or (base / manifest).exists():
         raise ValueError('base must be an existing lobby presentation without the online overlay')
-    pak = Pak(data / 'peggle.pak')
+    pak = Pak(archive_paths(data, ('peggle.pak',))['peggle.pak'])
     image, sources = pak.image('images/party/readybutton.jpg', (272, 64), 'images/party/readybutton_.gif')
     copytree(base, output)
     path = output / target
