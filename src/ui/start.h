@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,7 +50,7 @@ class GameFolders {
   bool gameToOpen(Game& g) const;
   bool askForAnyGame(const std::string& problem = std::string());
   bool askForGame(Game g);
-  bool chooseFolders(Game running);
+  std::optional<Game> chooseFolders(Game running);
   bool readyFor(Game g);
   void drop(Game g);
   void tell(const std::string& text, bool problem = true);
@@ -68,10 +69,10 @@ class GameFolders {
   std::function<FindSources()> sources_;
   StartDialogs dialogs_;
   GameFolderStore store_;
-  std::filesystem::path dir_[2];
-  std::filesystem::path install_[2];
-  bool fromCopy_[2] = {false, false};
-  bool retried_[2] = {false, false};
+  std::filesystem::path dir_[kGameCount];
+  std::filesystem::path install_[kGameCount];
+  bool fromCopy_[kGameCount] = {};
+  bool retried_[kGameCount] = {};
   bool copyBlocked_ = false;
   FoundGames lastSearch_;
   SDL_Window* window_ = nullptr;

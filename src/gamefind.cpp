@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "gamepaths.h"
+#include "vfs.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -235,7 +236,10 @@ struct Finder {
 
   bool wanted(int i) const { return !src.skip[i] && out.dir[i].empty(); }
 
-  bool done() const { return !wanted(0) && !wanted(1); }
+  bool done() const {
+    for (int i = 0; i < kGameCount; ++i) if (wanted(i)) return false;
+    return true;
+  }
 
   static bool firstVisit(std::vector<std::string>& seen, const fs::path& p) {
     std::string k = placeKey(p);
@@ -262,13 +266,22 @@ struct Finder {
     FindLook& l = out.looks[add(kind, dir, from, spot.seen, guessed, i)];
     l.there = spot.there;
     if (!wanted(i) || spot.game.empty()) return;
+    const auto seen = classifyGameDir(spot.game);
+    if (!seen) {
+      l.seen = "World of Warcraft Edition is a level pack source, not a built-in game";
+      return;
+    }
+    if (seen != gameAt(i)) {
+      l.seen = std::string("holds ") + gameTitle(*seen) + " instead";
+      return;
+    }
     out.dir[i] = spot.game;
     out.from[i] = source;
     l.found = true;
   }
 
   void remembered() {
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < kGameCount; i++) {
       if (src.skip[i]) add(FindLook::Kind::Remembered, {}, "", "its own copy is used", false, i);
       else if (src.remembered[i].empty()) add(FindLook::Kind::Remembered, {}, "", "no folder is remembered", false, i);
       else lookAtFolder(FindLook::Kind::Remembered, i, src.remembered[i], "remembered from an earlier start", "remembered from an earlier start", false);
@@ -289,7 +302,7 @@ struct Finder {
       return;
     }
     const std::string source = "Steam library " + pathToUtf8(lib);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < kGameCount; i++) {
       if (!wanted(i)) continue;
       Game g = gameAt(i);
       const std::string record = manifestName(g);
@@ -348,7 +361,7 @@ struct Finder {
   }
 
   void installs() {
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < kGameCount; i++)
       for (auto& place : src.installs[i]) {
         if (!wanted(i)) break;
         lookAtFolder(FindLook::Kind::Install, i, place.path, place.from, place.from, place.guessed);
@@ -377,7 +390,7 @@ struct Finder {
       std::string listWhy;
       std::vector<fs::path> subs = subFolders(dir, &listWhy);
       bool any = false;
-      for (int i = 0; i < 2; i++) {
+      for (int i = 0; i < kGameCount; i++) {
         if (!wanted(i)) continue;
         for (auto& sub : subs) {
           if (!namedLike(sub, gameAt(i))) continue;
@@ -619,7 +632,17 @@ fs::path resolveGameDir(const fs::path& given) {
   return {};
 }
 
-Game classifyGameDir(const fs::path& dir) {
+std::optional<Game> classifyGameDir(const fs::path& dir) {
+  Pak pak;
+  if (loadPak(dir / "main.pak", pak, nullptr)) {
+    for (const auto& e : pak.entries) {
+      const auto key = normKey(e.name);
+      if (key == "LEVELS\\BJORNNHEAVY.DAT") return Game::Extreme;
+      if (key == "LEVELS\\HOGGER.DAT") return std::nullopt;
+      if (key == "LEVELS\\BJORN1.DAT") return Game::Nights;
+      if (key == "LEVELS\\LEVEL1.DAT") return Game::Deluxe;
+    }
+  }
   auto isNights = [](const std::string& n) { return lower(n).find("nights") != std::string::npos; };
   if (isNights(leafName(dir))) return Game::Nights;
   fs::path p = dir;
@@ -637,8 +660,8 @@ Game classifyGameDir(const fs::path& dir) {
 }
 
 std::vector<std::string> gameFolderNames(Game g) {
-  if (g == Game::Nights) return {"Peggle Nights"};
-  return {"Peggle Deluxe", "Peggle"};
+  if (g == Game::Deluxe) return {gameTitle(g), "Peggle"};
+  return {gameTitle(g)};
 }
 
 fs::path findGameIn(const fs::path& parent, Game g) {
@@ -647,7 +670,7 @@ fs::path findGameIn(const fs::path& parent, Game g) {
   for (auto& name : gameFolderNames(g))
     for (auto& s : subs)
       if (lower(leafName(s)) == lower(name))
-        if (fs::path r = resolveGameDir(s); !r.empty()) return r;
+        if (fs::path r = resolveGameDir(s); !r.empty() && classifyGameDir(r) == g) return r;
   return {};
 }
 
@@ -722,7 +745,7 @@ std::vector<std::string> searchReport(const FoundGames& found) {
   std::vector<std::string> lines;
   for (auto& n : found.notes) lines.push_back(n);
   for (auto& l : found.looks) lines.push_back(lookLine(l, false));
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < kGameCount; i++) {
     if (found.dir[i].empty()) lines.push_back(std::string(gameTitle(gameAt(i))) + " was not found.");
     else lines.push_back(std::string(gameTitle(gameAt(i))) + " is in " + pathToUtf8(found.dir[i]) + " (" + found.from[i] + ").");
   }
@@ -777,7 +800,7 @@ FindSources systemFindSources(const fs::path& programDir) {
   for (const wchar_t* fixed : {L"C:\\Program Files (x86)", L"C:\\Program Files"}) prefix.push_back(fs::path(fixed));
   for (auto& p : prefix) s.steamRoots.push_back({p / "Steam", "usual place", true});
   if (std::wstring l = envText(L"LOCALAPPDATA"); !l.empty()) s.steamRoots.push_back({fs::path(l) / "Steam", "usual place", true});
-  for (int i = 0; i < 2; i++) s.installs[i] = registryInstallDirs(gameAt(i), &s.notes);
+  for (int i = 0; i < kGameCount; i++) s.installs[i] = registryInstallDirs(gameAt(i), &s.notes);
   std::string drives;
   for (auto& d : fixedDriveRoots()) {
     drives += (drives.empty() ? " " : ", ") + pathToUtf8(d);
@@ -824,9 +847,11 @@ bool GameFolderStore::load(const fs::path& file) {
     auto eq = line.find('=');
     if (eq == std::string::npos) continue;
     std::string k = lower(line.substr(0, eq)), v = line.substr(eq + 1);
-    if (k == "deluxe") dir[0] = pathFromUtf8(v);
-    else if (k == "nights") dir[1] = pathFromUtf8(v);
-    else if (k == "home") home = lower(v) == "nights" ? Game::Nights : Game::Deluxe;
+    for (int i = 0; i < kGameCount; ++i) {
+      const std::string key = lower(gameKey(gameAt(i)));
+      if (k == key) dir[i] = pathFromUtf8(v);
+      if (k == "home" && lower(v) == key) home = gameAt(i);
+    }
   }
   return true;
 }
@@ -840,7 +865,8 @@ bool GameFolderStore::save(const fs::path& file) const {
   {
     std::ofstream o(tmp, std::ios::trunc);
     if (!o) return false;
-    o << "Deluxe=" << pathToUtf8(dir[0]) << "\nNights=" << pathToUtf8(dir[1]) << "\nHome=" << (home == Game::Nights ? "Nights" : "Deluxe") << "\n";
+    for (int i = 0; i < kGameCount; ++i) o << gameKey(gameAt(i)) << '=' << pathToUtf8(dir[i]) << '\n';
+    o << "Home=" << gameKey(home) << '\n';
     if (!o) return false;
   }
   fs::rename(tmp, file, ec);
@@ -871,7 +897,12 @@ std::vector<FindPlace> registryInstallDirs(Game g, std::vector<std::string>* not
       {HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 3540", L"InstallLocation", "HKLM uninstall entry Steam App 3540"},
       {HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 3540", L"InstallLocation", "HKCU uninstall entry Steam App 3540"},
   };
-  return registryPlaces(g == Game::Nights ? nights : deluxe, 2, notes);
+  static const RegistrySpot extreme[] = {
+      {HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 3483", L"InstallLocation", "HKLM uninstall entry Steam App 3483"},
+      {HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 3483", L"InstallLocation", "HKCU uninstall entry Steam App 3483"},
+  };
+
+  return registryPlaces(g == Game::Extreme ? extreme : g == Game::Nights ? nights : deluxe, 2, notes);
 }
 
 std::vector<fs::path> fixedDriveRoots() {

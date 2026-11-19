@@ -24,6 +24,7 @@ namespace {
 namespace fs = std::filesystem;
 
 const char* const kChoose = "Choose Folder...";
+const char* const kDonor = "Peggle World of Warcraft Edition is a source for the WoW level pack. Choose Deluxe, Nights, or Extreme to play.";
 
 struct FolderWait {
   std::mutex m;
@@ -230,34 +231,35 @@ fs::path GameFolders::copyFolder(Game g) const { return storeFile_.empty() ? fs:
 
 void GameFolders::detect() {
   store_.load(storeFile_);
-  GameCopyCheck have[2];
+  GameCopyCheck have[kGameCount];
   bool search = false;
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < kGameCount; i++) {
     const fs::path copy = copyFolder(gameAt(i));
     if (!copy.empty()) have[i] = checkGameCopy(copy);
+    if (have[i].state == GameCopyCheck::State::Intact && classifyGameDir(copy) != gameAt(i)) have[i] = {};
     if (have[i].state != GameCopyCheck::State::Intact) search = true;
   }
   FoundGames found;
   if (search) {
     FindSources s = sources_ ? sources_() : FindSources();
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < kGameCount; i++) {
       s.remembered[i] = store_.dir[i];
       s.skip[i] = have[i].state == GameCopyCheck::State::Intact;
     }
     found = findGames(s);
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < kGameCount; i++)
       if (s.skip[i]) {
         found.dir[i] = copyFolder(gameAt(i));
         found.from[i] = "its own copy";
       }
-    log::info("start", "Looking for Peggle Deluxe and Peggle Nights.");
+    log::info("start", "Looking for Peggle editions.");
     for (auto& line : searchReport(found)) log::info("start", line);
   } else {
-    log::info("start", "Peggle Deluxe and Peggle Nights are read from their own copies, so nothing else is looked at.");
+    log::info("start", "The installed editions are read from their own copies.");
   }
   lastSearch_ = found;
   bool changed = false;
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < kGameCount; i++) {
     const Game g = gameAt(i);
     fromCopy_[i] = false;
     if (have[i].state == GameCopyCheck::State::Intact) {
@@ -275,8 +277,8 @@ void GameFolders::detect() {
       changed = true;
     }
   }
-  if (changed && !store_.save(storeFile_)) log::warn("start", "The game folders could not be written to " + pathToUtf8(storeFile_));
-  for (int i = 0; i < 2; i++)
+  if (changed && !storeFile_.empty() && !store_.save(storeFile_)) log::warn("start", "The game folders could not be written to " + pathToUtf8(storeFile_));
+  for (int i = 0; i < kGameCount; i++)
     if (!dir_[i].empty() && !fromCopy_[i]) keepCopy(gameAt(i));
 }
 
@@ -294,7 +296,7 @@ void GameFolders::keepCopy(Game g) {
       return;
     }
   }
-  if (have.state == GameCopyCheck::State::Intact && sameFolder(pathFromUtf8(have.source), install_[i])) {
+  if (have.state == GameCopyCheck::State::Intact && sameFolder(pathFromUtf8(have.source), install_[i]) && classifyGameDir(copy) == g) {
     dir_[i] = copy;
     fromCopy_[i] = true;
     log::info("start", std::string(gameTitle(g)) + " is read from its own copy in " + pathToUtf8(copy) + ".");
@@ -342,9 +344,11 @@ bool GameFolders::gameToOpen(Game& g) const {
     g = first;
     return true;
   }
-  if (has(otherGame(first))) {
-    g = otherGame(first);
-    return true;
+  for (int i = 0; i < kGameCount; ++i) {
+    if (has(gameAt(i))) {
+      g = gameAt(i);
+      return true;
+    }
   }
   return false;
 }
@@ -378,7 +382,7 @@ void GameFolders::tell(const std::string& text, bool problem) {
 void GameFolders::tellNoChooser() {
   fs::path games = programDir() / "Games";
   tell("I could not open a folder chooser on this computer.\n\nMake a folder named Games next to PegglePort (" + pathToUtf8(games) +
-       "), put your Peggle Deluxe or Peggle Nights folder into it and start PegglePort again.");
+       "), put your Peggle game folder into it and start PegglePort again.");
 }
 
 fs::path GameFolders::startFolder(Game g) const {
@@ -393,14 +397,14 @@ fs::path GameFolders::startFolder(Game g) const {
 int GameFolders::adopt(const fs::path& chosen) {
   fs::path direct = resolveGameDir(chosen);
   if (!direct.empty()) {
-    Game g = classifyGameDir(direct);
-    if (g == Game::Deluxe) g = classifyGameDir(chosen);
-    remember(g, direct);
+    const auto g = classifyGameDir(direct);
+    if (!g) return -1;
+    remember(*g, direct);
     return 1;
   }
   FoundGames found = lookInside(chosen);
   int n = 0;
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < kGameCount; i++) {
     if (found.dir[i].empty()) continue;
     remember(gameAt(i), found.dir[i]);
     n++;
@@ -412,7 +416,7 @@ bool GameFolders::askForAnyGame(const std::string& problem) {
   if (!dialogs_.message || !dialogs_.folder) return false;
   std::string text = problem;
   if (text.empty()) {
-    text = "PegglePort plays your own copy of Peggle Deluxe or Peggle Nights, and I could not find one on this computer.";
+    text = "PegglePort could not find a supported Peggle installation on this computer.";
     std::vector<std::string> looked = searchSummary(lastSearch_);
     if (!looked.empty()) {
       text += "\n\nWhere I looked:";
@@ -425,14 +429,15 @@ bool GameFolders::askForAnyGame(const std::string& problem) {
   bool warn = !problem.empty();
   for (;;) {
     if (ask("PegglePort", text, {kChoose, "Quit"}, warn) != 0) return false;
-    FolderAnswer a = dialogs_.folder(window_, "Choose the folder Peggle Deluxe or Peggle Nights is installed in", startFolder(Game::Deluxe));
+    FolderAnswer a = dialogs_.folder(window_, "Choose the Peggle folder holding main.pak", startFolder(Game::Deluxe));
     if (a.status == FolderAnswer::Status::Unavailable) {
       tellNoChooser();
       return false;
     }
     if (a.status != FolderAnswer::Status::Chosen) return false;
-    if (adopt(a.path) > 0) return true;
-    text = "There is no Peggle game in " + pathToUtf8(a.path) + ".\n\nChoose the folder Peggle Deluxe or Peggle Nights is installed in. It is the folder that holds main.pak.";
+    const int count = adopt(a.path);
+    if (count > 0) return true;
+    text = count < 0 ? kDonor : "There is no supported Peggle game in " + pathToUtf8(a.path) + ".\n\nChoose the folder that holds main.pak.";
     warn = true;
     log::warn("start", "No game in the chosen folder " + pathToUtf8(a.path));
   }
@@ -451,17 +456,18 @@ bool GameFolders::askForGame(Game g) {
     }
     if (a.status != FolderAnswer::Status::Chosen) return false;
     fs::path found = resolveGameDir(a.path);
-    Game seen = g;
+    std::optional<Game> seen = g;
     if (!found.empty()) {
       seen = classifyGameDir(found);
-      if (seen == Game::Deluxe) seen = classifyGameDir(a.path);
     } else {
       FoundGames inside = lookInside(a.path);
       found = inside.dir[gameIndex(g)];
-      if (found.empty() && inside.has(otherGame(g))) seen = otherGame(g);
+      if (found.empty())
+        for (int i = 0; i < kGameCount; ++i)
+          if (inside.has(gameAt(i))) { seen = gameAt(i); break; }
     }
     if (seen != g) {
-      text = "That folder holds " + std::string(gameTitle(seen)) + ", not " + title + ".\n\nChoose the folder " + title + " is installed in.";
+      text = seen ? "That folder holds " + std::string(gameTitle(*seen)) + ", not " + title + ".\n\nChoose the folder " + title + " is installed in." : kDonor;
       continue;
     }
     if (found.empty()) {
@@ -473,20 +479,31 @@ bool GameFolders::askForGame(Game g) {
   }
 }
 
-bool GameFolders::chooseFolders(Game running) {
-  if (!dialogs_.message) return false;
-  std::string text;
-  for (int i = 0; i < 2; i++) text += std::string(gameTitle(gameAt(i))) + ":\n" + (dir_[i].empty() ? std::string("not found") : pathToUtf8(installDir(gameAt(i)))) + "\n\n";
-  text += "Which game do you want to choose a folder for?";
-  int hit = ask("Game Folders", text, {gameTitle(Game::Deluxe), gameTitle(Game::Nights), "Close"}, false);
-  if (hit != 0 && hit != 1) return false;
-  Game g = gameAt(hit);
+std::optional<Game> GameFolders::chooseFolders(Game running) {
+  if (!dialogs_.message) return {};
+  const int group = ask("Game Folders", "Choose a game to open or change its folder.", {"Deluxe / Nights", "Extreme", "Close"}, false);
+  if (group != 0 && group != 1) return {};
+  Game g = Game::Extreme;
+  if (group == 0) {
+    std::string text;
+    for (Game edition : {Game::Deluxe, Game::Nights})
+      text += std::string(gameTitle(edition)) + ":\n" + (has(edition) ? pathToUtf8(installDir(edition)) : "not found") + "\n\n";
+    const int hit = ask("Game Folders", text, {"Deluxe", "Nights", "Close"}, false);
+    if (hit != 0 && hit != 1) return {};
+    g = gameAt(hit);
+  }
+  if (g != running && has(g)) {
+    const int action = ask("Game Folders", gameTitle(g), {"Open", kChoose, "Cancel"}, false);
+    if (action == 0) {
+      if (combinedEdition(g)) setHome(g);
+      return g;
+    }
+    if (action != 1) return {};
+  }
   const fs::path before = has(g) ? installDir(g) : fs::path();
-  if (!askForGame(g)) return false;
-  bool reopen = g == running && !sameFolder(before, installDir(g));
-  if (reopen) tell(std::string(gameTitle(g)) + " opens again now, from " + pathToUtf8(installDir(g)) + ".", false);
-  else tell(std::string(gameTitle(g)) + " is ready in " + pathToUtf8(installDir(g)) + ".", false);
-  return reopen;
+  if (!askForGame(g) || (g == running && sameFolder(before, installDir(g)))) return {};
+  if (combinedEdition(g)) setHome(g);
+  return g;
 }
 
 bool GameFolders::readyFor(Game g) {

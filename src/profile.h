@@ -15,7 +15,7 @@
 
 namespace pp {
 
-enum class Game { Deluxe, Nights };
+enum class Game { Deluxe, Nights, Extreme };
 enum class GameMode { None = 0, Adventure = 1, QuickPlay = 2, Duel = 3, Challenge = 4, Replay = 5, Demo = 6 };
 
 class DataWriter {

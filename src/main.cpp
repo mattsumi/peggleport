@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -51,9 +52,17 @@ pp::ui::RunResult playGame(const pp::ui::GameRequest& request, pp::Vfs& vfs, pp:
 
 int main(int argc, char** argv) {
   std::string invite;
+  std::optional<pp::Game> edition;
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
-    if (arg == "+connect" && i + 1 < argc) {
+    if (arg == "--game") {
+      if (i + 1 >= argc) return 2;
+      const std::string key = argv[++i];
+      if (key == "deluxe") edition = pp::Game::Deluxe;
+      else if (key == "nights") edition = pp::Game::Nights;
+      else if (key == "extreme") edition = pp::Game::Extreme;
+      else return 2;
+    } else if (arg == "+connect" && i + 1 < argc) {
       std::string link = argv[++i];
       if (pp::online::isInviteLike(link)) invite = link;
     } else if (pp::online::isInviteLike(arg)) {
@@ -74,7 +83,14 @@ int main(int argc, char** argv) {
         pp::ui::GameFolders::defaultStoreFile(), [] { return pp::systemFindSources(pp::ui::GameFolders::programDir()); }, pp::ui::systemDialogs());
     folders.detect();
     pp::ui::GameRequest request;
-    bool play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
+    bool play;
+    if (edition) {
+      request.game = *edition;
+      play = folders.has(*edition) || folders.askForGame(*edition);
+      if (play && pp::combinedEdition(*edition)) folders.setHome(*edition);
+    } else {
+      play = folders.gameToOpen(request.game) || (folders.askForAnyGame() && folders.gameToOpen(request.game));
+    }
     pp::ui::GameWindow window;
     while (play) {
       folders.setWindow(window.window());
@@ -91,7 +107,7 @@ int main(int argc, char** argv) {
           folders.tell(problem);
           continue;
         }
-        if (folders.askForAnyGame(problem + "\n\nChoose the folder Peggle Deluxe or Peggle Nights is installed in.") && folders.gameToOpen(request.game)) continue;
+        if (folders.askForAnyGame(problem + "\n\nChoose the folder that holds main.pak.") && folders.gameToOpen(request.game)) continue;
         exitCode = 1;
         break;
       }
