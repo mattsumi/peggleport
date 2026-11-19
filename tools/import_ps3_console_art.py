@@ -74,6 +74,10 @@ def compose_gutter(base, layer, size, offset):
 
 
 def menu_variant(art, name):
+    if name == 'title_shadow':
+        shadow = Image.new('RGBA', art.size, 'white')
+        shadow.putalpha(art.getchannel('B'))
+        return shadow
     if name == 'footer':
         return art.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
     if name == 'footer_sleeve':
@@ -162,6 +166,7 @@ def build(source, output):
         ('sun', menu + 'blanksun.gif', (149, 149), menu + 'blanksun_.gif'),
         ('sun_glow', 'images/sunglow.jpg', (800, 800), 'images/sunglow_.jpg'),
         ('title_sun', loading + 'sunhead.jpg', (150, 150), loading + 'sunhead_.gif'),
+        ('title_shadow', loading + 'shadow_.jpg', (460, 236), None),
         ('title_plate', loading + 'loaderoverlay.jpg', (400, 100), loading + 'loaderoverlay_.gif'),
         ('title_buttons', loading + 'playnow.jpg', (344, 100), loading + 'playnow_.gif'),
         ('loader_lights', loading + 'loaderlights.jpg', (90, 49), loading + 'loaderlights_.gif'),
@@ -197,6 +202,16 @@ def build(source, output):
         assets[f'console/trim/{part}.png'] = (
             art, art_sources, {'reference_1280x720_offset': [x, y], 'reference_scale': 1.08},
         )
+    for name, key, size, mask in (
+        ('ballotron', 'images/ip/ballotron.jpg', (100, 538), 'images/ip/ballotron_.gif'),
+        ('fevermeter', 'images/ip/fevermeter.jpg', (100, 538), 'images/ip/fevermeter_.gif'),
+        ('ball_back', 'images/interface/ballback.gif', (28, 400), None),
+        ('ball_glass', 'images/interface/rglass.jpg', (70, 487), 'images/interface/rglass_.gif'),
+        ('replay_spin', 'images/dialog/replayspin.jpg', (100, 100), 'images/dialog/replayspin_.gif'),
+        ('replay_button', 'images/dialog/replaybutton.jpg', (51, 102), 'images/dialog/replaybutton_.gif'),
+    ):
+        art, art_sources = deluxe.image(key, size, mask)
+        assets[f'console/trim/{name}.png'] = (art, art_sources, {})
 
     provenance = {
         'source_title_id': 'NPUA30005',

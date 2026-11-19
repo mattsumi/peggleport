@@ -53,6 +53,7 @@ class Gfx {
   SDL_Renderer* renderer() const { return r_; }
   bool headless() const { return r_ == nullptr; }
 
+  void refreshOutputSize();
   void begin(int canvasW = 800, int canvasH = 600);
   float scale() const { return s_; }
   float offX() const { return ox_; }

@@ -18,6 +18,7 @@ enum class Flow { Browse, Quick, Custom, Host, Join };
 void addMainMenuButton(Panel& menu);
 bool handleMenuButton(App& app, int id);
 void tickMainMenu(App& app);
+SDL_Keycode onlinePadKey(App& app, SDL_GamepadButton button);
 void setPendingInvite(const std::string& url);
 void showOnline(App& app);
 void showOnline(App& app, Flow flow, bool party);

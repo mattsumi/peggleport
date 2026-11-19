@@ -206,6 +206,7 @@ struct BoardConfig {
   bool clearLevel = false;
   bool coinFlipSeen = true;
   bool nights = false;
+  bool legacyMissCoin = false;
   int prevFirst = -1, prevFirstRun = 0;
   ChallengeRules ch;
   bool liveSpin = false;

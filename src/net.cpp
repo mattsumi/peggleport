@@ -29,7 +29,7 @@ namespace pp {
 namespace {
 enum : uint8_t { HELLO = 1, WELCOME, READY, START, SHOT, HASH, DESYNC, ERR, SWITCH, BYE, REMATCH_REQ, REMATCH, ROSTER, LOBBY_LOST, STEAM_OFFER, STEAM_CHOICE };
 constexpr size_t maxPendingHashes = 4096;
-constexpr uint32_t PROTOCOL = 0x50500002;
+constexpr uint32_t PROTOCOL = 0x50500003;
 
 struct W {
   std::vector<uint8_t> b;

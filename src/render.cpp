@@ -10,7 +10,10 @@
 #include <string_view>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 
+#include "gamepaths.h"
 #include "image.h"
 
 namespace pp {
@@ -442,6 +445,24 @@ Renderer::Tex* Renderer::objImage(const std::string& name) {
   return nullptr;
 }
 
+Renderer::Tex* Renderer::fileTex(const std::string& file) {
+  const std::string key = "file:" + file;
+  if (auto it = cache_.find(key); it != cache_.end()) return it->second.t ? &it->second : nullptr;
+  Tex T;
+  std::ifstream in(pathFromUtf8(file), std::ios::binary);
+  const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  Image im;
+  if (!bytes.empty() && decodeImage(bytes, im, nullptr, true) && (T.t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h))) {
+    SDL_UpdateTexture(T.t, nullptr, im.rgba.data(), im.w * 4);
+    SDL_SetTextureBlendMode(T.t, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(T.t, SDL_SCALEMODE_LINEAR);
+    T.w = im.w;
+    T.h = im.h;
+  }
+  auto& slot = cache_[key] = T;
+  return slot.t ? &slot : nullptr;
+}
+
 void Renderer::put(Tex* t, SDL_FRect sl, float x, float y, Paint p, float w, float h, float rot, float pivx, float pivy) {
   if (!t || !t->t) return;
   SDL_FRect src{sl.x * t->scale, sl.y * t->scale, sl.w * t->scale, sl.h * t->scale};
@@ -857,79 +878,73 @@ void Renderer::drawBall(const Board& b, const Ball& bl, bool inGun) {
   if (Tex* t = img("IMAGE_BIGBALL")) put(t, {0, 0, t->lw(), t->lh()}, cx - r, cy - r, {}, r * 2, r * 2);
 }
 
-void Renderer::doDrawGuide(const Board& b, const Board::GuideTrace& tr, float x0, float y0, float ang, float speed, int hitStep, int len,
-                           int start, bool far, bool fireball, bool superCol) {
-  Tex* rect = img("IMAGE_GUIDERECT");
-  Tex* arrow = img("IMAGE_GUIDEARROW");
-  Tex* hitImg = img("IMAGE_GUIDEHIT");
-  const float vx = std::cos(ang) * speed, vy = -speed * std::sin(ang), ay = b.physics.gravityY * 0.5f, ax = b.physics.gravityX * 0.5f;
-  uint32_t col = fireball ? 0x903010u : superCol ? 0xaaaa60u : 0x109090u;
-  Paint add{(col << 8) | 0xffu, Blend::Add};
-  bool atHit = hitStep == -1, reached = false;
-  int n = 2;
-  V2 prev{x0 + vx * 2, y0 + vy * 2 + ay * 4};
-  if (ax != 0.0f) prev.x += ax * 4;
-  (void)b;
-  if (!(2 < len)) return;
-  do {
-    n += 4;
-    V2 cur{x0 + vx * (float)n, y0 + vy * (float)n + ay * (float)n * (float)n};
-    if (ax != 0.0f) cur.x += ax * (float)n * (float)n;
-    V2 at = cur;
-    if (superCol && n - 3 >= (int)tr.pts.size()) break;
-    if (n >= 3 && n - 3 < (int)tr.pts.size()) at = tr.pts[(size_t)(n - 3)];
-    bool farSeg = n >= len && far;
-    int lim = farSeg ? hitStep + 2 : hitStep;
-    if (!atHit && lim < n - 0) {
-      atHit = true;
-      reached = true;
-    }
-    if (n >= start) {
-      if (reached) {
-        if (b.guideOn() && !tr.pts.empty()) {
-          if (Tex* t = img("IMAGE_ALPHABALL")) {
-            float rot = 4.712389f - tr.hitAng;
-            putCentered(t, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
-            putCentered(t, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
-          }
-        } else if (hitImg) {
-          float rot = std::atan2(prev.y - cur.y, cur.x - prev.x);
-          if (b.cfg.nights) {
-            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {(col << 8) | 0xffu, Blend::Normal}, 1.0f, rot);
-            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, add, 1.0f, rot);
-          } else {
-            putCentered(hitImg, BX + tr.hit.x, BY + tr.hit.y, {0xffffffffu, Blend::Normal}, 1.0f, rot);
-          }
-        }
-        if (!superCol) break;
-        reached = false;
-      }
-      V2 next = superCol ? at : cur;
-      float rot = std::atan2(prev.y - next.y, next.x - prev.x);
-      if (!farSeg) {
-        if (rect) putCentered(rect, BX + at.x, BY + at.y, add, 1.0f, rot);
-      } else if (arrow) {
-        putCentered(arrow, BX + (float)(int)at.x, BY + (float)(int)at.y, add, 1.0f, rot);
-      }
-    }
-    prev = superCol ? at : cur;
-  } while (n < len);
-}
-
 void Renderer::drawGuide(const Board& b) {
-  int g = guideAge_;
-  int len = 40 + (b.guideOn() ? 40 : 0);
-  bool far = true;
-  if (g != 0) {
-    if (g < 11) return;
-    int l2 = g * 4 - 40;
-    far = l2 >= len;
-    len = std::min(l2, len);
+  const int age = guideAge_;
+  if (age && age < 11) return;
+  const bool powered = b.guideOn();
+  const auto tr = b.guideTrace(b.gunAngle, powered);
+  const int count = (int)tr.pts.size();
+  const bool rebound = powered && tr.hitStep >= 0;
+  const int full = rebound ? std::max(tr.hitStep + 1, count) : powered ? 80 : 40;
+  const int len = age ? std::min(full, rebound ? (age - 10) * full / 20 : age * 4 - 40) : full;
+  const bool fire = b.master[b.cur] == Board::P_FIREBALL && b.turns[b.cur] > 0;
+  const uint32_t color = fire ? 0x903010ffu : 0x109090ffu;
+  const Paint add{color, Blend::Add};
+  const V2 muzzle = b.muzzle(b.gunAngle, b.physics.ballRadius);
+  const V2 velocity{std::cos(b.gunAngle) * b.physics.launchSpeed, -std::sin(b.gunAngle) * b.physics.launchSpeed};
+  const V2 accel{b.physics.gravityX * .5f, b.physics.gravityY * .5f};
+  auto ballistic = [&](int n) { return muzzle + velocity * (float)n + accel * (float)(n * n); };
+  V2 prev = ballistic(2);
+  Tex* rect = img("IMAGE_GUIDERECT");
+  for (int n = 6; n - 4 < len; n += 4) {
+    const int i = n - 3;
+    if (powered && (i >= count || (rebound && i >= std::min(len, tr.hitStep)))) break;
+    const V2 at = i < count ? tr.pts[i] : ballistic(n);
+    const V2 next = powered ? at : ballistic(n);
+    const float rot = std::atan2(prev.y - next.y, next.x - prev.x);
+    const bool arrow = !rebound && n >= len && len == full;
+    if (!powered && tr.hitStep >= 0 && n > tr.hitStep + (arrow ? 2 : 0)) {
+      if (auto* hit = img("IMAGE_GUIDEHIT")) {
+        putCentered(hit, BX + tr.hit.x, BY + tr.hit.y, {b.cfg.nights ? color : 0xffffffffu, Blend::Normal}, 1, rot);
+        if (b.cfg.nights) putCentered(hit, BX + tr.hit.x, BY + tr.hit.y, add, 1, rot);
+      }
+      break;
+    }
+    if (arrow) putCentered(img("IMAGE_GUIDEARROW"), BX + (int)at.x, BY + (int)at.y, add, 1, rot);
+    else putCentered(rect, BX + at.x, BY + at.y, add, 1, rot);
+    prev = next;
   }
-  Board::GuideTrace tr = b.guideTrace(b.gunAngle, b.guideOn());
-  V2 m = b.muzzle(b.gunAngle, b.physics.ballRadius);
-  bool fire = b.master[b.cur] == Board::P_FIREBALL && b.turns[b.cur] > 0;
-  doDrawGuide(b, tr, m.x, m.y, b.gunAngle, b.physics.launchSpeed, tr.hitStep, len, 2, far, fire, b.guideOn());
+  if (!rebound || tr.hitStep >= len) return;
+  const int end = std::min(count, len);
+  if (Tex* line = img("IMAGE_GUIDERECT2"); line && tr.hitStep < end) {
+    std::vector<SDL_Vertex> strip;
+    std::vector<int> indices;
+    const SDL_FColor tint{(color >> 24) / 255.f, ((color >> 16) & 255) / 255.f, ((color >> 8) & 255) / 255.f, 1};
+    strip.reserve(2 * (end - tr.hitStep + 1));
+    indices.reserve(6 * (end - tr.hitStep));
+    auto point = [&](int i) { return i < tr.hitStep ? tr.hit : tr.pts[i]; };
+    for (int i = tr.hitStep - 1; i < end; ++i) {
+      const V2 p = point(i), tangent = point(std::min(i + 1, end - 1)) - point(i - 1);
+      const float length = std::sqrt(tangent.len2());
+      if (length == 0) continue;
+      const V2 side = V2{-tangent.y, tangent.x} * (5.f / length);
+      const int k = (int)strip.size();
+      const float u = (k & 2) ? 1.f : 0.f;
+      strip.push_back({{px(BX + p.x + side.x), py(BY + p.y + side.y)}, tint, {u, 0}});
+      strip.push_back({{px(BX + p.x - side.x), py(BY + p.y - side.y)}, tint, {u, 1}});
+      if (k) indices.insert(indices.end(), {k - 2, k - 1, k, k, k - 1, k + 1});
+    }
+    if (!indices.empty()) {
+      SDL_SetTextureBlendMode(line->t, SDL_BLENDMODE_ADD);
+      SDL_RenderGeometry(r_, line->t, strip.data(), (int)strip.size(), indices.data(), (int)indices.size());
+      SDL_SetTextureBlendMode(line->t, SDL_BLENDMODE_BLEND);
+    }
+  }
+  if (Tex* marker = img("IMAGE_ALPHABALL")) {
+    const float rot = 4.712389f - tr.hitAng;
+    putCentered(marker, BX + tr.hit.x, BY + tr.hit.y, add, 1, rot);
+    putCentered(marker, BX + tr.hit.x, BY + tr.hit.y, add, 1, rot);
+  }
 }
 
 void Renderer::drawBoardShadow() {
@@ -981,7 +996,7 @@ void Renderer::drawZoomFrame(const Board& b) {
   Tex* bt = img("IMAGE_SCREENFRAMEBOTTOM");
   Tex* r = img("IMAGE_SCREENFRAMERIGHT");
   float dw = (float)(canvasW_ - 800);
-  if (l && t && bt && r) {
+  if (!trimClip_ && l && t && bt && r) {
     put(l, {0, 0, l->lw(), l->lh()}, 0, 0);
     put(t, {0, 0, t->lw(), t->lh()}, l->lw(), 0, {}, t->lw() + dw, t->lh());
     put(bt, {0, 0, bt->lw(), bt->lh()}, l->lw(), l->lh() - bt->lh(), {}, bt->lw() + dw, bt->lh());
@@ -1228,22 +1243,26 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
     SDL_RenderTexture(r_, bg->t, nullptr, &d);
     SDL_SetTextureColorMod(bg->t, 255, 255, 255);
   }
-  SDL_Rect canvasClip{(int)std::floor(frameOx), (int)std::floor(frameOy), (int)std::ceil(canvasW_ * frameS), (int)std::ceil(600 * frameS)};
+  const int canvasL = (int)std::floor(frameOx), canvasT = (int)std::floor(frameOy);
+  SDL_Rect canvasClip{canvasL, canvasT, (int)std::ceil(frameOx + canvasW_ * frameS) - canvasL, (int)std::ceil(frameOy + 600 * frameS) - canvasT};
   SDL_SetRenderClipRect(r_, &canvasClip);
   SDL_SetRenderDrawColor(r_, 0, 0, 0, 255);
   SDL_FRect cv{px(inset), py(0), (canvasW_ - 2 * inset) * s_, 600 * s_};
   SDL_RenderFillRect(r_, &cv);
   if (leftGutter && rightGutter) {
-    const int x0 = (int)std::round(frameOx), x1 = (int)std::round(px(inset));
-    const int x2 = (int)std::round(px(canvasW_ - inset)), x3 = (int)std::round(frameOx + canvasW_ * frameS);
+    const int x0 = canvasClip.x, x1 = (int)std::round(px(inset));
+    const int x2 = (int)std::round(px(canvasW_ - inset)), x3 = canvasClip.x + canvasClip.w;
     const int y0 = (int)std::round(frameOy), y1 = (int)std::round(frameOy + 600 * frameS);
     const auto gutter = [&](Tex* t, const char* bezel, int l, int r, bool left) {
       const SDL_Rect clip{l, y0, r - l, y1 - y0};
       SDL_SetRenderClipRect(r_, &clip);
       if (view.k < 1) {
-        const float gw = t->lw() * 600.0f / t->lh(), gx = left ? 101.7f - gw : canvasW_ - 101.7f;
+        const float gw = t->lw() * 600.0f / t->lh(), gx = left ? canvasW_ * 0.5f - 400 - gw : canvasW_ * 0.5f + 400;
         const SDL_FRect dst{frameOx + gx * frameS, frameOy, gw * frameS, 600 * frameS};
         SDL_RenderTexture(r_, t->t, nullptr, &dst);
+        const SDL_FRect edge{left ? (float)t->w - 1 : 0.0f, 0, 1, (float)t->h};
+        const SDL_FRect rest = left ? SDL_FRect{dst.x + dst.w, dst.y, r - dst.x - dst.w, dst.h} : SDL_FRect{(float)l, dst.y, dst.x - l, dst.h};
+        if (rest.w > 0) SDL_RenderTexture(r_, t->t, &edge, &rest);
         return;
       }
       const float k = std::max(inset / t->lw(), 600.0f / t->lh());
@@ -1266,7 +1285,7 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   if (view.k < 1) {
     SDL_SetRenderClipRect(r_, &canvasClip);
     const auto piece = [&](const char* path, float u, float v) {
-      if (Tex* t = tex(path)) quad(t, {0, 0, (float)t->w, (float)t->h}, inset + u, v, t->lw(), t->lh());
+      if (Tex* t = tex(path)) quad(t, {0, 0, (float)t->w, (float)t->h}, inset + u - 1, v, t->lw() + 2, t->lh());
     };
     piece("console/trim/top", 94, -45);
     piece("console/trim/bottom", 94, 582);
@@ -1351,10 +1370,6 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   SDL_SetRenderClipRect(r_, &canvasClip);
   fxDrawTexts(b, 0);
   fxDrawTexts(b, 1);
-  SDL_SetRenderClipRect(r_, &objClip);
-  const float launcherShift = (float)(b.W - 650) * 0.5f;
-  for (auto& bl : b.balls)
-    if (bl.bx0 <= 425.0f + launcherShift && 225.0f + launcherShift < bl.bx1 && bl.by0 <= 127.0f && -73.0f < bl.by1) drawBall(b, bl, false);
   if (b.phase == Phase::Aim) zenOn_ = b.turns[b.cur] > 0 && b.master[b.cur] == Board::P_ZEN;
   if (zenOn_ && !b.balls.empty()) {
     SDL_SetRenderClipRect(r_, &canvasClip);
@@ -1369,7 +1384,17 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   oy_ = baseOy;
   fxDrawEffects(b, 3);
   fxDrawTexts(b, 3);
-  if (b.zoomFade > 0) centeredHud([&] { drawZoomFrame(b); });
+  if (b.zoomFade > 0) {
+    if (inset > 0) {
+      s_ = frameS;
+      ox_ = frameOx;
+      oy_ = frameOy;
+    }
+    drawZoomFrame(b);
+    s_ = baseS;
+    ox_ = baseOx;
+    oy_ = baseOy;
+  }
   if (g_modOverlay) {
     SDL_SetRenderClipRect(r_, &canvasClip);
     g_modOverlay(*this, b);
@@ -1377,8 +1402,8 @@ void Renderer::draw(const Board& b, const LevelBundle& lb, const Hud& hud) {
   if (bloomOn_) bloomPass(ow, oh, canvasClip);
   SDL_SetRenderClipRect(r_, nullptr);
   if (inset > 0) {
-    const float x = std::round((ow - canvasW_ * frameS) * 0.5f);
-    const float y = std::round((oh - 600 * frameS) * 0.5f);
+    const float x = std::floor((ow - canvasW_ * frameS) * 0.5f);
+    const float y = std::floor((oh - 600 * frameS) * 0.5f);
     if (x > 0 || y > 0) {
       const SDL_FRect bars[]{{0, 0, (float)ow, y}, {0, oh - y, (float)ow, y},
                              {0, y, x, oh - 2 * y}, {ow - x, y, x, oh - 2 * y}};

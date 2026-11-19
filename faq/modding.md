@@ -14,7 +14,7 @@ The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs
 
 1. Put the mod folder, or the `.zip`, into the `mods` folder of the game. The **Mods** screen has an **Open Folder** button that opens it. The folder sits next to your profiles: `<save folder>/userdata/mods` (see the FAQ for the save folders).
    A zip may hold the mod at its top level or inside one folder. It is unpacked into `mods/.cache` the first time.
-2. Open **Options, then Mods**. Every mod is listed with a tick box, its state, the result of the scan and a **Scan report** or **Allow...** button. Tick the mods you want. Up and Down change the load order.
+2. From the main menu, select **Options → Mods** in Classic 4:3 or **Mods** in widescreen. Every mod is listed with a tick box, its state, the result of the scan and a **Scan report** or **Allow...** button. Tick the mods you want. Up and Down change the load order.
 3. That is all. Ticking a mod, Up and Down, and **Allow...** take effect the moment you press them. You do not leave the game or restart it. The line at the bottom of the Mods screen says what happened, for example `Applied: 3 of 4 mods active`.
 
 The choices are saved in `userdata/mods.json`.

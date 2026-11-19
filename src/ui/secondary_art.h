@@ -17,6 +17,7 @@ inline Rect secondaryCover(Tex& t, float w, float h = 600) {
 }
 
 float drawInstituteScene(Gfx& g, float width, int tick);
+void drawPromptGlyph(Gfx& g, float cx, float cy, int glyph, const char* key, const PadGlyphs& pad, float alpha = 1);
 float drawPromptSleeve(Gfx& g, float x, float y, int glyph, const char* key, const char* label, const PadGlyphs& pad, float alpha = 1);
 bool drawConsoleTitle(Gfx& g, float cx, float width, const char* title);
 void drawConsoleRail(Gfx& g, float width);

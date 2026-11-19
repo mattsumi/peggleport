@@ -44,7 +44,7 @@ void Board::flipFlippers(bool up) {
     const int cur = posMod(o.mtick, T);
     float frac;
     if (!up) {
-      if (cur < 1) continue;
+      if (cur == 0 && !o.canMove) continue;
       frac = 1.0f;
     } else {
       if (T / 2 < cur) {
@@ -52,11 +52,11 @@ void Board::flipFlippers(bool up) {
       }
       frac = 0.5f;
     }
-    const int n = phaseImpl(o.mv, o.mtick, frac);
-    if (n >= 1) {
-      o.canMove = true;
-      o.moveCount = n;
-    }
+    const int cycle = T + (o.mv.pause1 > 0 ? o.mv.pause1 + o.mv.pause2 : 0);
+    if (cycle <= 0) continue;
+    const int n = phaseImpl(o.mv, o.mtick, frac) % cycle;
+    o.moveCount = !up && n == 0 && o.canMove ? cycle : n;
+    o.canMove = o.moveCount > 0;
     any = true;
   }
   if (any) ev(Event::FlipperMove, up ? 1 : 0);

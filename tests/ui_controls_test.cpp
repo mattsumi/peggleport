@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include "ui/app.h"
+#include "ui/cfg.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
@@ -53,7 +54,22 @@ struct LogTestFont : FontProvider {
   }
 };
 
+static bool challengeGroupLabels() {
+  const auto items = cfgParse("Stage\n{\nName: Garden\n}\nPage \"Pack Page\" {\n"
+      "Trophy \"First Tile\" {\nId: 501\n}\nTrophy Fern\r\n{\nId: 502\n}\nTrophy Ivy {\nId: 503\n}\n}\n");
+  if (items.size() != 2 || items[0].key != "Stage" || !items[0].label.empty() ||
+      items[1].key != "Page" || items[1].label != "Pack Page" || items[1].kids.size() != 3) return false;
+  const char* names[] = {"First Tile", "Fern", "Ivy"};
+  for (int i = 0; i < 3; ++i) {
+    const auto& t = items[1].kids[i];
+    if (!t.isGroup || t.key != "Trophy" || t.label != names[i] || t.kids.size() != 1 || t.kids[0].key != "Id" ||
+        cfgValues(t.kids[0].label) != std::vector<std::string>{std::to_string(501 + i)}) return false;
+  }
+  return true;
+}
+
 int main(int argc, char** argv) {
+  if (!challengeGroupLabels()) { std::cerr << "FAIL quoted and bare challenge group labels\n"; return 1; }
   if (argc < 2 || argc > 3) {
     std::cerr << "Usage: " << argv[0] << " <Deluxe asset directory> [Nights asset directory]\n";
     return 2;
@@ -86,6 +102,7 @@ int main(int argc, char** argv) {
       cfg.bothGames = both;
       cfg.noSave = true;
       cfg.noAudio = true;
+      cfg.noRoomDiscovery = true;
       cfg.userDir = userDir;
       PlayerInfo profile;
       App app(gfx, vfs, nullptr, nullptr, cfg);
@@ -428,6 +445,14 @@ int main(int argc, char** argv) {
       settle(app);
       auto* d = dynamic_cast<OptionsDialog*>(app.getDialog(D_Options));
       if (!check(d != nullptr, "Options opens")) return 1;
+      Widget* mods = d->findWidget(12);
+      if (!check(mods && mods->visible && mods->enabled, "Classic Options includes Mods")) return 1;
+      for (size_t i = 0; i <= d->widgets.size() && d->focusW != mods; ++i) keypress(SDLK_TAB);
+      if (!check(d->focusW == mods, "Classic Mods is keyboard reachable")) return 1;
+      keypress(SDLK_RETURN);
+      if (!check(app.helpOverlay() && std::string(app.helpOverlay()->name()) == "mods", "Classic Mods opens with Enter")) return 1;
+      keypress(SDLK_ESCAPE);
+      check(!app.helpOverlay() && app.topDialog() == d && d->focusW == mods, "Back restores Options and Mods focus");
       if (game == Game::Nights) {
         check(d->findWidget(17) == nullptr, "Nights Options removes Online instead of hiding its hit target");
         Button* preceding = d->homeBtn->visible ? d->homeBtn : d->visuals;
@@ -651,6 +676,7 @@ int main(int argc, char** argv) {
         settle(app);
         d = dynamic_cast<OptionsDialog*>(app.getDialog(D_Options));
         if (!check(d && d->fromGame, "in-game Options opens")) return 1;
+        check(!d->findWidget(12), "Mods remains a front-end setting, not a Pause action");
         click(app, *d, *d->visuals);
         settle(app);
         v = dynamic_cast<VisualsDialog*>(app.getDialog(D_Visuals));

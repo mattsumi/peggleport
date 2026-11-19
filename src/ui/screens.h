@@ -9,6 +9,8 @@
 
 namespace pp::ui {
 
+float drawConsolePrompt(Gfx& g, float x, int glyph, const char* key, const char* label, const PadGlyphs& pad, float alpha);
+
 class LoadingScreen : public Screen {
  public:
   explicit LoadingScreen(App& a);
@@ -32,6 +34,8 @@ class LoadingScreen : public Screen {
   std::unique_ptr<NightsLoading> nights;
   std::vector<NightsCmd> cmds;
   int mouseX = 0, mouseY = 0;
+  void lostFocus() override;
+  void placePlayButton();
   void updateNights();
   void updateDeluxe(int cnt, float loadTime);
   void renderNights(Gfx& g);
@@ -59,6 +63,8 @@ class MainMenu : public Screen {
   void syncPlayerInfo();
   void startGame();
   void startAdventure();
+  void chooseAdventure(Game edition);
+  static void restoreAdventurePage(App& app, StartPlace place);
   void drawSpeechBubble(Gfx& g, int which, float alpha, bool fading);
   static bool mantelEarned(App& app, int id);
   static int mantelAt(App& app, float mx, float my);
@@ -92,7 +98,7 @@ class MainMenu : public Screen {
   static constexpr int kFooterButtons = 3;
   std::array<Button*, kMenuRows> consoleRows_{};
   std::array<Button*, kFooterButtons> consoleFooter_{};
-  Button* loungeBack_ = nullptr;
+  Button* classicAction_ = nullptr;
   int consoleFocus_ = 0;
   int consoleLayoutWidth_ = 800;
   int slideTicks_ = 0;
@@ -134,13 +140,15 @@ class LevelScreen : public Screen {
   void onButtonEnter(int id) override;
   void onButtonLeave(int id) override;
   void keyDown(int key, int mod) override;
-  void syncStageNum();
+  int lastPageStart() const;
+  void syncStageNum(int first = 0);
   void doPlay(int id);
   bool canSelect(int id) const;
   void drawLevelInfo(Gfx& g, float x, float y);
   const StageInfo* pageStage() const;
   bool groupOpen() const;
   int stage = 0, hovered = -1, hoverTicks = 0;
+  int firstLevel = 0;
   Button* bLevel[5];
   Button *bBack, *bNext, *bMenu, *bRandom;
   OtherGame* og = nullptr;
@@ -194,7 +202,7 @@ class HelpScreen : public Screen {
   bool fromBoard;
   int numPages() const;
  private:
-  void layoutFooter(bool wide);
+  bool groupedFooter_ = false;
   void drawConsole(Gfx& g);
 };
 

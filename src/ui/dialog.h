@@ -59,6 +59,7 @@ class Dialog : public Panel {
  private:
   bool usesConsoleQuestion() const;
   bool usesConsoleTip() const;
+  bool usesConsoleLock() const;
 };
 
 }

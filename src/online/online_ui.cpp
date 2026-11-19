@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <system_error>
@@ -29,7 +30,9 @@
 #include "online/online_ui.h"
 #include "online/steam.h"
 #include "gamefind.h"
+#include "ui/screens.h"
 #include "ui/secondary_art.h"
+#include "ui/loader_tray.h"
 
 namespace pp::ui::online {
 
@@ -106,7 +109,7 @@ constexpr int kArrowHalf = 6;
 constexpr int kHoldTicks = 1000, kNoticeTicks = 800;
 constexpr float kAddrWidth = 300;
 constexpr float kJoinX = 283, kJoinY = 150, kJoinW = 500, kJoinH = 380;
-constexpr float kHostX = 313, kHostY = 44, kHostW = 440, kHostH = 486;
+constexpr float kHostX = 321, kHostY = 34, kHostW = 400, kHostH = 500;
 constexpr float kListX = 187, kListY = 160, kListW = 693, kListH = 360, kListTop = kListY + 88, kListRow = 30;
 constexpr int kListRows = 8;
 
@@ -254,8 +257,7 @@ class OnlineScreen : public Screen {
       bGo_->label = "Host Match";
     }
     for (const auto& w : widgets) {
-      baseX_[w->id] = w->x;
-      baseY_[w->id] = w->y;
+      base_[w->id] = w->rect();
     }
     layout();
     if (!invite.empty()) {
@@ -272,6 +274,7 @@ class OnlineScreen : public Screen {
       job_->session = std::move(sess_);
       pp::online::retireOnlineWork(std::shared_ptr<Job>(std::move(job_)));
     }
+    cancelOwnerCheck();
     browser_.cancel();
     savePrefs();
     if (sess_) sess_->leave();
@@ -286,11 +289,23 @@ class OnlineScreen : public Screen {
       const bool right = id == E_Code || (id >= B_Refresh && id <= B_Create) || id == B_Test || id == B_Register || id == B_Leave;
       const bool create = (id >= B_Go && id <= B_MasNext) || id == B_Destination;
       const bool center = id == B_Ready || id == B_Start || create;
-      w->x = baseX_[id] + (right ? extra : center ? extra / 2 : 0);
-      if (create) w->y = baseY_[id] + (extra > 0 ? kCreateWideDown + (id == B_Go || id == B_Cancel ? kCreateFooterGap : 0) : 0);
+      const Rect& base = base_[id];
+      w->w = base.w;
+      w->h = base.h;
+      w->y = base.y;
+      w->x = base.x + (right ? extra : center ? extra / 2 : 0);
+      if (create) w->y = base.y + (extra > 0 ? kCreateWideDown + (id == B_Go || id == B_Cancel ? kCreateFooterGap : 0) : 0);
     }
     for (auto* b : {bBack_, bCopy_, bReady_, bStart_, bLeave_}) b->y = extra > 0 ? 557.0f : 520.0f;
-    if (flow_ == Flow::Browse || extra <= 0) return;
+    if (flow_ != Flow::Browse && extra > 0) placeConsoleWidgets(extra);
+    if (linksRegistered_.value_or(false) && codeEdit_->visible) {
+      discordCheck_->x = bRegister_->x;
+      discordCheck_->y = bRegister_->y;
+      discordCheck_->w = bRegister_->w;
+    }
+  }
+
+  void placeConsoleWidgets(float extra) {
     const float crop = (extra - 267) / 2;
     auto put = [&](Widget* w, float x, float y, float width = 0) {
       w->x = x + crop;
@@ -303,8 +318,9 @@ class OnlineScreen : public Screen {
     put(bTest_, kJoinX + 60, kJoinY + 176, 380);
     put(bRegister_, kJoinX + 60, kJoinY + 230, 380);
     put(discordCheck_, kJoinX + 60, kJoinY + 288, 380);
-    put(bLvlPrev_, kHostX + 40, kHostY + 93);
-    put(bLvlNext_, kHostX + kHostW - 40 - bLvlNext_->w, kHostY + 93);
+    put(bLvlPrev_, kHostX + 54, kHostY + 67, 40);
+    put(bLvlNext_, kHostX + kHostW - 94, kHostY + 67, 40);
+    bLvlPrev_->h = bLvlNext_->h = 130;
     put(bMasPrev_, kHostX + 40, kHostY + 258);
     put(bMasNext_, kHostX + kHostW - 40 - bMasNext_->w, kHostY + 258);
     put(bMode_, kHostX + 60, kHostY + 324, kHostW - 120);
@@ -445,7 +461,7 @@ class OnlineScreen : public Screen {
   }
 
   void startList() {
-    if (job_ || room_ || create_) return;
+    if (app.cfg.noRoomDiscovery || job_ || room_ || create_) return;
     if (listStarted_ && app.updateCount() - lastRefresh_ < 200) return;
     pp::online::BrowseOptions options;
     options.configured = configuredLobby_;
@@ -469,7 +485,7 @@ class OnlineScreen : public Screen {
     j->th = std::thread([j, host, port] {
       if (host.rfind("wss://", 0) == 0) {
         j->ok = Session::listRooms(host, port, &j->lines, &j->err, &j->stop);
-        j->text = j->ok ? "Secure lobby connection is working. Matches use the relay." : troubleText(j->err, Where::List, false, host, "");
+        j->text = j->ok ? "Secure lobby connection is working." : troubleText(j->err, Where::List, false, host, "");
         j->done = true;
         return;
       }
@@ -483,24 +499,59 @@ class OnlineScreen : public Screen {
     say("Testing the connection to " + jobAddr_ + " ...");
   }
 
+  void cancelOwnerCheck() {
+    if (!ownerCheck_) return;
+    ownerCheck_->stop = true;
+    pp::online::retireOnlineWork(std::move(ownerCheck_));
+  }
+
+  void startOwnerCheck() {
+    linksRegistered_ = false;
+    if (!kUrlRegistration || app.cfg.noSave) return;
+    ownerCheck_ = std::make_shared<Job>();
+    Job* j = ownerCheck_.get();
+    try {
+      j->th = std::thread([j] {
+        j->ok = pp::online::urlHandlerRegistered(pp::online::selfExePath(nullptr), &j->stop);
+        j->done = true;
+      });
+    } catch (const std::system_error&) { ownerCheck_.reset(); }
+  }
+
   void startRegister() {
-    if (job_ || room_ || create_) return;
+    if (job_ || !bRegister_->visible) return;
+    cancelOwnerCheck();
     job_ = std::make_unique<Job>();
     jobKind_ = Register;
     Job* j = job_.get();
     j->th = std::thread([j] {
       std::string report;
-      j->ok = pp::online::registerUrlHandler(pp::online::selfExePath(nullptr), &report);
+      const std::string exe = pp::online::selfExePath(nullptr);
+      if (exe.empty()) report = "could not identify the running executable";
+      const bool written = !exe.empty() && pp::online::registerUrlHandler(exe, &report, &j->stop);
+      j->ok = written && pp::online::urlHandlerRegistered(exe, &j->stop);
+      if (written && !j->ok) report += " (could not confirm both invite handlers)";
       pp::log::write(j->ok ? pp::log::Level::Info : pp::log::Level::Warn, "net", "registering invite links: " + report);
-      if (!j->ok) j->text = "Invite links could not be registered. Press F10 for the details.";
-      else if (report.find("xdg-mime was not available") != std::string::npos) j->text = "The entry for invite links was written, but xdg-mime is missing, so links may not open the game yet. F10 shows the command to run.";
-      else j->text = "Invite links are registered. Opening one now starts PegglePort.";
+      if (written && !j->ok && report.find("xdg-mime did not set") != std::string::npos) j->text = "The invite entry was written, but xdg-mime did not set both defaults. F10 shows the command to retry.";
+      else if (written && !j->ok) j->text = "Invite entries were written, but their default handlers could not be confirmed. Check your default apps and retry. F10 shows details.";
+      else if (!j->ok) j->text = "Invite links could not be registered. Press F10 for the details.";
       j->done = true;
     });
     say("Registering invite links ...");
   }
 
-  void finishReport(const Job& j) { hold(j.text, j.ok ? 2 : 1, true); }
+  void confirmOwner() {
+    linksRegistered_ = true;
+    if (hover == bRegister_) releaseHover();
+    if (capture == bRegister_) { capture->down = false; capture = nullptr; }
+    layout();
+  }
+
+  void finishReport(const Job& j) {
+    if (jobKind_ != Register || !j.ok) { hold(j.text, j.ok ? 2 : 1, true); return; }
+    confirmOwner();
+    say(listLine_, listKind_);
+  }
 
   void finishList(pp::online::BrowseSnapshot snapshot) {
     pp::online::LobbyEndpoint selected;
@@ -692,7 +743,8 @@ class OnlineScreen : public Screen {
     codeEdit_->visible = browse && (!console || join);
     for (Button* b : {bRefresh_, bJoin_, bPaste_, bCreate_, bTest_}) b->visible = browse && !console;
     bJoin_->visible = bPaste_->visible = bTest_->visible = codeEdit_->visible;
-    bRegister_->visible = codeEdit_->visible && kUrlRegistration;
+    if (codeEdit_->visible && !linksRegistered_.has_value()) startOwnerCheck();
+    bRegister_->visible = codeEdit_->visible && kUrlRegistration && !linksRegistered_.value_or(false);
     discordCheck_->visible = !console || join;
     bBack_->visible = browse && !console;
     bCopy_->visible = bReady_->visible = bStart_->visible = bLeave_->visible = room_ && !console;
@@ -709,6 +761,7 @@ class OnlineScreen : public Screen {
     if (create_) bDestination_->label = hostTarget_ ? "Destination: LAN " + std::to_string(hostTarget_) : configuredLobby_ == pp::online::publicLobby ? "Destination: Global" : "Destination: Custom";
     if (codeEdit_->visible) focusW = codeEdit_, codeEdit_->focused = true;
     else if (focusW == codeEdit_) focusW = nullptr, codeEdit_->focused = false;
+    if (linksRegistered_.value_or(false)) placeWidgets(float(app.gfx.canvasW() - 800));
   }
 
   void onButton(int id) override {
@@ -771,6 +824,17 @@ class OnlineScreen : public Screen {
         else if (flow_ == Flow::Custom || flow_ == Flow::Join) onButton(B_Join);
         return;
       }
+      if (create_) {
+        switch (key) {
+          case SDLK_SELECT:
+            if (Button* b = hostControlAtPointer(); b && b->enabled) onButton(b->id);
+            return;
+          case SDLK_LEFT: onButton(B_LvlPrev); return;
+          case SDLK_RIGHT: onButton(B_LvlNext); return;
+          case SDLK_UP: onButton(B_MasPrev); return;
+          case SDLK_DOWN: onButton(B_MasNext); return;
+        }
+      }
       if (key == SDLK_F5 && flow_ == Flow::Custom && !room_) {
         if (bRefresh_->enabled) onButton(B_Refresh);
         return;
@@ -803,6 +867,10 @@ class OnlineScreen : public Screen {
 
   void update() override {
     Panel::update();
+    if (ownerCheck_ && ownerCheck_->done) {
+      if (ownerCheck_->ok) confirmOwner();
+      ownerCheck_.reset();
+    }
     discordCheck_->checked = app.discordEnabled();
     if (discordInviteUntil_ && (!app.discordEnabled() || SDL_GetTicks() >= discordInviteUntil_)) discardDiscordInvite();
     if (!nonDiscordInvite_ && !room_ && !create_ && !job_ && !app.anyDialog() && !app.moving()) {
@@ -931,7 +999,8 @@ class OnlineScreen : public Screen {
   }
 
   bool input(const Input& in) override {
-    if (in.type == Input::MouseDown && in.button == 1 && in.y >= 535)
+    placeWidgets(float(app.gfx.canvasW() - 800));
+    if (in.type == Input::MouseDown && in.button == 1 && in.y >= 529 && in.y < 594)
       for (const auto& p : prompts_)
         if (in.x >= p.x && in.x < p.x + p.w) {
           app.playSample("BUTTON1");
@@ -966,6 +1035,26 @@ class OnlineScreen : public Screen {
   }
 
   bool console() const { return flow_ != Flow::Browse && app.gfx.canvasW() > 800; }
+  Button* hostControlAtPointer() const {
+    for (Button* b : {bLvlPrev_, bLvlNext_, bMasPrev_, bMasNext_, bMode_, bDestination_})
+      if (b->hit(app.mouseX - x, app.mouseY - y)) return b;
+    return nullptr;
+  }
+
+  SDL_Keycode padKey(SDL_GamepadButton button) const {
+    if (!console()) return SDLK_UNKNOWN;
+    switch (button) {
+      case SDL_GAMEPAD_BUTTON_SOUTH: return create_ && hostControlAtPointer() ? SDLK_SELECT : SDLK_RETURN;
+      case SDL_GAMEPAD_BUTTON_EAST: return SDLK_ESCAPE;
+      case SDL_GAMEPAD_BUTTON_WEST: return room_ ? SDLK_C : flow_ == Flow::Custom ? SDLK_F5 : SDLK_UNKNOWN;
+      case SDL_GAMEPAD_BUTTON_DPAD_UP: return SDLK_UP;
+      case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return SDLK_DOWN;
+      case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return SDLK_LEFT;
+      case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return SDLK_RIGHT;
+      default: return SDLK_UNKNOWN;
+    }
+  }
+
   int visibleRows() const { return console() ? kListRows : 10; }
 
   void selectRoom(int i) {
@@ -1085,8 +1174,8 @@ class OnlineScreen : public Screen {
   }
 
   float prompt(Gfx& g, float x, int glyph, const char* key, const char* label, int code) {
-    const float next = drawConsolePrompt(g, x, glyph, key, label, app.pad);
-    prompts_.push_back({x, next - x, code});
+    const float next = drawConsolePrompt(g, x, glyph, key, label, app.pad, code ? 1.0f : 0.5f);
+    if (code) prompts_.push_back({x, next - x, code});
     return next;
   }
 
@@ -1099,7 +1188,8 @@ class OnlineScreen : public Screen {
         drawConsoleRail(g, width);
       }
       float x = 66;
-      if (isHost_ ? bStart_->enabled : bReady_->enabled) x = prompt(g, x, 0, "ENTER", isHost_ ? "Start Game" : "Ready", SDLK_RETURN);
+      const bool primary = isHost_ ? bStart_->enabled : bReady_->enabled;
+      x = prompt(g, x, 0, "ENTER", isHost_ ? "Start Game" : "Ready", primary ? SDLK_RETURN : 0);
       x = prompt(g, x, 1, "ESC", "Quit", SDLK_ESCAPE);
       prompt(g, x, 3, "C", app.updateCount() - copiedAt_ < 150 ? "Copied!" : "Copy Invite", SDLK_C);
       return;
@@ -1109,7 +1199,7 @@ class OnlineScreen : public Screen {
     const bool searching = !job_ && (flow_ == Flow::Quick || (flow_ == Flow::Custom && rooms_.empty() && browse_.busy()));
     const bool busy = hosting || joining || searching;
     const bool plate = !hosting && !joining && (flow_ == Flow::Custom || flow_ == Flow::Join);
-    if (plate) drawConsoleTitle(g, 445 + crop, width, flow_ == Flow::Custom ? "CUSTOM MATCH" : "JOIN WITH CODE");
+    if (busy || plate) drawSearchHeader(g, width, crop, plate);
     if (busy) drawBar(g, 367 + crop, plate ? 278.0f : 228.0f,
                       hosting ? "HOSTING GAME" : joining ? "JOINING GAME" : flow_ == Flow::Quick ? "SEARCHING FOR GAME" : "SEARCHING FOR GAMES");
     else if (flow_ == Flow::Custom) drawRoomList(g, crop);
@@ -1122,6 +1212,28 @@ class OnlineScreen : public Screen {
     if (flow_ == Flow::Custom && !busy) prompt(g, x, 3, "F5", "Refresh List", SDLK_F5);
   }
 
+  void drawSearchHeader(Gfx& g, float width, float crop, bool plate) {
+    const float cx = 435 + crop, start = (plate ? 22 : 518) + crop;
+    Tex* cap = menuTex(g, "header_cap");
+    Tex* rail = menuTex(g, "header_rail");
+    const char* title = flow_ == Flow::Join ? "JOIN WITH CODE" : "CUSTOM MATCH";
+    if (!cap || !rail) {
+      if (plate) drawConsoleTitle(g, cx, width, title);
+      return;
+    }
+    g.drawStretch(cap, start - 68, -7, 150, 87);
+    const float end = plate ? cx - 202 : width;
+    for (float x = start + 82; x < end; x += 418) {
+      const float w = std::min(418.0f, end - x);
+      g.drawStretchSrc(rail, 0, 0, rail->lw() * w / 418, rail->lh(), x, 0, w, 54);
+    }
+    if (plate) {
+      g.pushClip(end, 0, width - end, 160);
+      drawConsoleTitle(g, cx, width, title);
+      g.popClip();
+    }
+  }
+
   void drawWaitScene(Gfx& g, float width) {
     const float crop = (width - 1067) / 2;
     Tex* back = menuTex(g, "wait");
@@ -1132,34 +1244,29 @@ class OnlineScreen : public Screen {
     }
     const Rect r = secondaryCover(*back, width);
     g.drawStretch(back, r.x, r.y, r.w, r.h);
+    const bool custom = flow_ == Flow::Custom || flow_ == Flow::Join;
+    const float sunX = (custom ? 691 : 743) + crop, sunY = custom ? 66.0f : 84.0f;
     if (Tex* glow = menuTex(g, "sun_glow")) {
-      const float s = 528.0f / glow->lw();
-      g.drawRot(glow, 636 + crop, 121, app.updateCount() * 0.0008f, s, s);
+      const float s = 700.0f / glow->lw();
+      g.drawRot(glow, sunX, sunY, app.updateCount() * 0.0008f, s, s);
     }
-    if (Tex* sun = menuTex(g, "sun")) g.drawStretch(sun, 578 + crop, 63, 116, 116);
+    if (Tex* sun = menuTex(g, "sun")) g.drawStretch(sun, sunX - 63, sunY - 63, 126, 126);
     if (Tex* front = menuTex(g, "wait_front")) g.drawStretch(front, r.x, r.y, r.w, r.h);
   }
 
   void drawBar(Gfx& g, float x, float y, const char* caption) {
-    constexpr float k = 356.0f / 400;
-    if (Tex* plate = menuTex(g, "title_plate")) g.drawStretch(plate, x, y, 356, 89);
-    else secondaryPanel(g, x, y + 18, 356, 53);
-    const Rect trough{x + 25 * k, y + 24 * k, 349 * k, 54 * k};
-    if (Tex* lights = menuTex(g, "loader_lights")) {
-      constexpr float pieces[5][2] = {{0, 18}, {19, 17}, {37, 17}, {55, 17}, {76, 14}};
-      const float end = trough.x + trough.w * ((app.updateCount() % 300) / 300.0f);
-      const float top = trough.y + (trough.h - 49 * k) / 2;
-      const auto piece = [&](int i, float px) {
-        g.drawStretchSrc(lights, pieces[i][0], 0, pieces[i][1], lights->lh(), px, top, pieces[i][1] * k, 49 * k);
-        return px + pieces[i][1] * k;
-      };
-      g.pushClip(trough.x, trough.y, trough.w, trough.h);
-      float px = piece(0, trough.x);
-      for (int i = 1; px + (17 + 14) * k <= end; i = i % 3 + 1) px = piece(i, px);
-      piece(4, px);
-      g.popClip();
+    const Rect tray{x, y, 360, 90};
+    Tex* plate = menuTex(g, "title_plate");
+    if (plate) g.drawStretch(plate, tray.x, tray.y, tray.w, tray.h);
+    else secondaryPanel(g, x, y + 18, tray.w, 53);
+    if (Tex* lights = plate ? menuTex(g, "loader_lights") : nullptr) {
+      constexpr int waveCells = kLoaderCells - 1;
+      constexpr float trail[] = {1, .85f, .72f, .60f, .49f, .40f, .32f, .24f, .17f, .10f};
+      const int head = (updateCount % 100) * waveCells / 100;
+      for (int age = 0; age < int(std::size(trail)); ++age)
+        drawLoaderCell(g, lights, tray, (waveCells + head - age) % waveCells, trail[age]);
     }
-    consoleText(g, "OVERLOAD24OUTLINE", x + 178, y + 107, caption, 0xffffff);
+    consoleText(g, "OVERLOAD24OUTLINE", x + 180, y + 112, caption, 0xffffff);
     if (held_ || statusKind_ != 0)
       g.drawWrapped("PLAINOUTLINE", {x + 178 - 300, y + 132, 600, 60}, status_, statusColor(), 1, Align::Center);
   }
@@ -1212,16 +1319,38 @@ class OnlineScreen : public Screen {
     g.popClip();
   }
 
+  void drawPreviewWindow(Gfx& g, const std::string& file, Rect bounds) {
+    g.fill(bounds.x, bounds.y, bounds.w, bounds.h, 0x100c26);
+    if (Tex* thumb = g.img("levels/cached_thumbnails/" + file); thumb && thumb->valid()) {
+      const float scale = std::max(bounds.w / thumb->lw(), bounds.h / thumb->lh());
+      const float w = bounds.w / scale, h = bounds.h / scale;
+      g.drawStretchSrc(thumb, (thumb->lw() - w) / 2, (thumb->lh() - h) / 2, w, h,
+                       bounds.x, bounds.y, bounds.w, bounds.h);
+    }
+  }
+
+  void drawStageCaption(Gfx& g, const LevelInfo& li, float cx, float y, float width) {
+    const std::string number = std::to_string(li.stage + 1) + "-" + std::to_string(li.index + 1);
+    const std::string label = li.stage < app.stages.numStages() ? "Stage " + number
+      : fitText(g, "OVERLOAD10OUTLINE", number + " " + cleanText(stripColorCodes(app.stages.title(li.stage)), 64), width);
+    g.drawString("OVERLOAD10OUTLINE", cx, y, label, 0xffffff, 1, Align::Center);
+  }
+
+  void drawLevelCaption(Gfx& g, const std::string& file, const std::string& title, float cx, float bottom, float width) {
+    if (const auto* li = app.stages.levelByName(file)) drawStageCaption(g, *li, cx, bottom - 27, width);
+    g.drawString("OVERLOAD16OUTLINE", cx, bottom, fitText(g, "OVERLOAD16OUTLINE", title, width), 0xffffff, 1, Align::Center);
+  }
+
   void drawHostPanel(Gfx& g, float crop) {
     const float x = kHostX + crop, cx = x + kHostW / 2;
     consolePanel(g, x, kHostY, kHostW, kHostH, party_ ? "PEG PARTY OPTIONS" : "DUEL OPTIONS");
-    g.fill(cx - 100, kHostY + 62, 200, 112, 0x07062a);
     const float pickW = kHostW - 2 * 110;
     if (!levels_.empty()) {
       const LevelChoice& lc = levels_[levelIdx_];
-      drawLevelPreview(g, lc.file, cx - 100, kHostY + 62, 200, 112);
-      g.drawString("PLAINOUTLINE", cx, kHostY + 198, fitText(g, "PLAINOUTLINE", lc.title, kHostW - 80), 0xffe070, 1, Align::Center);
-      g.drawString("PLAINOUTLINE", cx, kHostY + 218, fitText(g, "PLAINOUTLINE", lc.group, kHostW - 80), 0xc5d9ff, 1, Align::Center);
+      const Rect preview{cx - 92, kHostY + 71, 184, 122};
+      drawPreviewWindow(g, lc.file, preview);
+      g.frame(preview.x - 2, preview.y - 2, preview.w + 4, preview.h + 4, 0xe9ae50);
+      drawLevelCaption(g, lc.file, lc.title, cx, kHostY + 187, preview.w - 8);
     }
     consoleText(g, "OVERLOAD16OUTLINE", cx, kHostY + 246, "MASTER", 0xb6efff);
     g.drawString("PLAINOUTLINE", cx, kHostY + 289, fitText(g, "PLAINOUTLINE", masterNameAt(app.game == Game::Nights, master_), pickW), 0xffe070, 1, Align::Center);
@@ -1313,42 +1442,42 @@ class OnlineScreen : public Screen {
     const Rect stageBounds = secondaryCover(*stage, width);
     g.drawStretch(stage, stageBounds.x, stageBounds.y, stageBounds.w, stageBounds.h);
     g.pushOrigin((width - 1067) / 2, 0);
-    g.drawStretch(marquee, 179, -10, 720, 194);
-    g.drawStretch(title, 373, -4, 333, 125);
+    g.drawStretch(marquee, 186, mi.party ? -12.0f : -1.0f, 720, 194);
+    g.drawStretch(title, 366, mi.party ? -12.0f : -2.0f, 360, 135);
 
-    constexpr float sidebarX = 672, sidebarY = 0, sidebarScale = 0.81f;
+    constexpr float sidebarX = 673, sidebarY = -1, sidebarScale = 5.0f / 6;
     constexpr Rect opening{sidebarX + 32 * sidebarScale, sidebarY + 182 * sidebarScale, 244 * sidebarScale, 177 * sidebarScale};
-    g.fill(opening.x, opening.y, opening.w, opening.h, 0x12102b);
-    if (Tex* thumb = g.img("levels/cached_thumbnails/" + mi.level)) {
-      const float scale = std::max(opening.w / thumb->lw(), opening.h / thumb->lh());
-      const float w = thumb->lw() * scale, h = thumb->lh() * scale;
-      g.pushClip(opening.x, opening.y, opening.w, opening.h);
-      g.drawStretch(thumb, opening.x + (opening.w - w) / 2, opening.y + (opening.h - h) / 2, w, h);
-      g.popClip();
-    }
+    drawPreviewWindow(g, mi.level, opening);
     g.drawStretch(sidebar, sidebarX, sidebarY, sidebar->lw() * sidebarScale, sidebar->lh() * sidebarScale);
     constexpr float sideCenter = sidebarX + 154 * sidebarScale;
-    const std::string level = roomLevelTitle(mi.level);
-    g.drawString("OVERLOAD16OUTLINE", sideCenter, 292, fitText(g, "OVERLOAD16OUTLINE", level, 181), 0xffffff, 1, Align::Center);
+    drawLevelCaption(g, mi.level, roomLevelTitle(mi.level), sideCenter, 294, 193);
     g.drawString("PLAIN", sideCenter, 330, "ROOM CODE", 0xc5d9ff, 1, Align::Center);
     g.drawString("OVERLOAD24GRAD1", sideCenter, 363, roomCode_, 0xffffff, 1, Align::Center);
 
     const auto& roster = sess_->roster();
-    constexpr float left = 187, seatW = 502;
-    const float sourceH = seats->lh() / 2, seatH = mi.party ? 100.0f : sourceH * seatW / seats->lw();
+    Tex* readyButton = art("ready_button");
+    const float left = mi.party ? 187.0f : 180.0f, seatW = 509;
+    const float sourceH = seats->lh() / 2, seatH = sourceH * seatW / seats->lw();
     for (int i = 0; i < mi.players; ++i) {
-      const float y = 137 + static_cast<float>(i) * (mi.party ? 92.0f : 149.0f);
+      const float y = 137 + static_cast<float>(i) * (mi.party ? 96.0f : 149.0f);
       const bool connected = i < (int)roster.size() && roster[i].connected;
+      if (console() && !connected && !(isHost_ && i == 0)) continue;
       const bool ready = connected && (roster[i].ready || (i == sess_->localPlayer() && readySent_));
       g.drawStretchSrc(seats, 0, i == 0 ? sourceH : 0, seats->lw(), sourceH, left, y, seatW, seatH);
       const std::string name = connected ? roster[i].name : i == 0 && isHost_ ? playerName() : "(open seat)";
-      const float nameX = left + (mi.party ? 160 : 53), nameY = y + (mi.party ? 44 : 51);
-      g.drawString("OVERLOAD16OUTLINE", nameX, nameY, fitText(g, "OVERLOAD16OUTLINE", name, left + 407 - nameX),
+      const float nameX = left + (mi.party ? 166 : 60), nameY = y + (mi.party ? 54 : 60);
+      g.drawString("OVERLOAD24OUTLINE", nameX, nameY, fitText(g, "OVERLOAD24OUTLINE", name, left + 407 - nameX),
                    connected || i == 0 ? 0xffffff : 0xc0c8e3);
-      const char* state = i == 0 ? "HOST" : !connected ? "OPEN" : ready ? "READY" : "NOT READY";
-      g.drawString("PLAINOUTLINE", left + 93, y + (mi.party ? 47 : 108), state,
-                   ready || i == 0 ? 0x9cffb7 : 0xffdfae, 1, Align::Center);
-      if (i == 0) g.drawStretch(badge, left + 421, y + 10, 49, 49);
+      if (readyButton && connected) {
+        const float celW = readyButton->lw() / 2;
+        g.drawStretchSrc(readyButton, ready ? celW : 0, 0, celW, readyButton->lh(),
+                         mi.party ? 221.0f : 224.0f, y + (mi.party ? 24 : 69), 118, 56);
+      } else {
+        const char* state = !connected ? "OPEN" : ready ? "READY" : "NOT READY";
+        g.drawString("PLAINOUTLINE", left + 93, y + (mi.party ? 57 : 108), state,
+                     ready ? 0x9cffb7 : 0xffdfae, 1, Align::Center);
+      }
+      if (i == 0) g.drawStretch(badge, mi.party ? 591.0f : 595.0f, y + (mi.party ? 15 : 22), 57, 57);
       g.drawString("PLAINOUTLINE", left + 388, y + (mi.party ? 82.0f : 132.0f), "Seat " + std::to_string(i + 1), 0xffffff, 1, Align::Center);
       if (!masters::all().empty()) {
         const auto master = masterNameForPower(mi.master[mi.party ? 0 : i]);
@@ -1357,15 +1486,18 @@ class OnlineScreen : public Screen {
       }
     }
 
-    g.drawString("PLAIN", sideCenter, 426, std::to_string(mi.players) + " seats", 0xc5d9ff, 1, Align::Center);
+    const int occupied = (int)std::count_if(roster.begin(), roster.end(), [](const Session::Seat& s) { return s.connected; });
+    g.drawString("OVERLOAD10OUTLINE", sideCenter, 412, "PLAYERS", 0xb6e7ff, 1, Align::Center);
+    g.drawString("OVERLOAD16OUTLINE", sideCenter, 440, std::to_string(occupied) + " / " + std::to_string(mi.players), 0xffffff, 1, Align::Center);
     const std::string link = linkText(sess_->linkNote(), true);
     if (!link.empty()) {
-      g.pushClip(sideCenter - 78, 434, 156, 89);
-      g.drawWrapped("PLAIN", {sideCenter - 78, 434, 156, 89}, link, 0xffffff, 1, Align::Center);
+      g.drawString("OVERLOAD10OUTLINE", sideCenter, 466, "CONNECTION", 0xb6e7ff, 1, Align::Center);
+      g.pushClip(sideCenter - 78, 473, 156, 56);
+      g.drawWrapped("PLAIN", {sideCenter - 78, 473, 156, 56}, link, 0xffffff, 1, Align::Center);
       g.popClip();
     }
 
-    constexpr float messageX = left + 20, messageW = 449, messageCenter = messageX + messageW / 2;
+    const float messageX = left + 20, messageW = 449, messageCenter = messageX + messageW / 2;
     const char* hint = isHost_ ? (sess_->allReady() ? (flow_ != Flow::Browse ? "Everybody is ready - press Start Game." : "Everybody is ready - press Start Match.") : "Waiting for players to join and press Ready...")
                               : (readySent_ ? "Waiting for the host to start..." : guestChecked_ ? "Press Ready when you are." : "Checking the host's game files...");
     if (flow_ != Flow::Browse) {
@@ -1399,6 +1531,8 @@ class OnlineScreen : public Screen {
       panel(g, left, 100, 228, 232, "Selected Level");
       drawLevelPreview(g, mi.level, left + 17, 132, 194, 156);
       g.drawString("PLAIN", left + 114, 308, fitText(g, "PLAIN", roomLevelTitle(mi.level), 198), 0xffe070, 1, Align::Center);
+      if (const auto* li = app.stages.levelByName(mi.level); li && li->stage >= app.stages.numStages())
+        drawStageCaption(g, *li, left + 114, 326, 198);
     }
 
     const auto& roster = sess_->roster();
@@ -1432,6 +1566,8 @@ class OnlineScreen : public Screen {
 
  private:
   Checkbox* discordCheck_ = nullptr;
+  std::optional<bool> linksRegistered_;
+  std::shared_ptr<Job> ownerCheck_;
   Flow flow_ = Flow::Browse;
   bool party_ = false;
   std::set<std::string> tried_;
@@ -1473,10 +1609,15 @@ class OnlineScreen : public Screen {
   LevelBundle lb_;
   MatchInfo hostInfo_;
   EditBox* codeEdit_;
-  std::array<float, E_Code + 1> baseX_{}, baseY_{};
+  std::array<Rect, E_Code + 1> base_{};
   Button *bRefresh_, *bJoin_, *bPaste_, *bCreate_, *bTest_, *bRegister_, *bBack_, *bCopy_, *bReady_, *bStart_, *bLeave_, *bMode_, *bLvlPrev_, *bLvlNext_, *bMasPrev_, *bMasNext_, *bGo_, *bCancel_, *bDestination_;
 };
 
+}
+
+SDL_Keycode onlinePadKey(App& app, SDL_GamepadButton button) {
+  auto* screen = dynamic_cast<OnlineScreen*>(app.screen());
+  return screen && !app.anyDialog() && !app.helpOverlay() ? screen->padKey(button) : SDLK_UNKNOWN;
 }
 
 void showOnline(App& app) {

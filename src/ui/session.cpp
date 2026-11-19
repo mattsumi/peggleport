@@ -28,7 +28,7 @@ namespace pp::ui {
 namespace {
 
 constexpr uint32_t kMagic = 0x53535050;
-constexpr uint32_t kVersion = 2;
+constexpr uint32_t kLegacyVersion = 2, kVersion = 3;
 constexpr size_t kHeadBytes = 20;
 
 struct Ar {
@@ -272,7 +272,7 @@ std::vector<uint8_t> SavedSession::bytes() const {
   std::vector<uint8_t> file;
   Ar h;
   h.out = &file;
-  uint32_t magic = kMagic, version = kVersion, size = (uint32_t)body.size();
+  uint32_t magic = kMagic, version = cfg.legacyMissCoin ? kLegacyVersion : kVersion, size = (uint32_t)body.size();
   uint64_t sum = digest(body.data(), body.size());
   h.u32(magic); h.u32(version); h.u32(size); h.u64(sum);
   file.insert(file.end(), body.begin(), body.end());
@@ -287,7 +287,7 @@ bool SavedSession::parse(const std::vector<uint8_t>& data, SavedSession& out) {
   uint32_t magic = 0, version = 0, size = 0;
   uint64_t sum = 0;
   h.u32(magic); h.u32(version); h.u32(size); h.u64(sum);
-  if (h.bad || magic != kMagic || version != kVersion) return false;
+  if (h.bad || magic != kMagic || (version != kLegacyVersion && version != kVersion)) return false;
   if ((size_t)size != data.size() - kHeadBytes) return false;
   if (digest(data.data() + kHeadBytes, size) != sum) return false;
   Ar r;
@@ -295,6 +295,7 @@ bool SavedSession::parse(const std::vector<uint8_t>& data, SavedSession& out) {
   r.n = size;
   SavedSession s;
   syncBody(r, s);
+  s.cfg.legacyMissCoin = version == kLegacyVersion;
   if (r.bad || r.pos != r.n || !bodySane(s)) return false;
   out = std::move(s);
   return true;

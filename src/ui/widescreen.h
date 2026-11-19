@@ -35,7 +35,7 @@ inline bool parseWidescreen(const char* s, WidescreenMode& out) {
 inline int widescreenCanvasWidth(WidescreenMode m, int outW, int outH) {
   int w = 800;
   switch (m) {
-    case WidescreenMode::Auto: w = outH > 0 ? (int)std::lround(600.0 * outW / outH) : 800; break;
+    case WidescreenMode::Auto: return outH > 0 && 5LL * outW >= 8LL * outH ? 1067 : 800;
     case WidescreenMode::W16x9: w = 1067; break;
     case WidescreenMode::W16x10: w = 960; break;
     case WidescreenMode::W21x9: w = 1400; break;

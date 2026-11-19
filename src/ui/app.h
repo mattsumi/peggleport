@@ -111,6 +111,7 @@ class App : public WidgetHost {
     uint32_t seed = 0;
     bool noAudio = false;
     bool noSave = false;
+    bool noRoomDiscovery = false;
   };
   App(Gfx& gfx, Vfs& vfs, Audio* audio, Renderer* boardRenderer, Config cfg);
   ~App();
@@ -224,6 +225,7 @@ class App : public WidgetHost {
 
   Dialog* doDialog(int id, bool modal, const std::string& header, const std::string& lines, const std::string& footer, int buttonMode);
   Dialog* getDialog(int id) const;
+  Dialog* topDialog() const;
   void killDialog(int id);
   void addDialog(int id, std::unique_ptr<Dialog> d);
   bool hasModal() const;
@@ -285,6 +287,7 @@ class App : public WidgetHost {
   void playReplayFile(const std::filesystem::path& path);
   void dialogButton(int dialogId, int buttonId);
   void finishOptionsDialog(bool apply, bool scrollOff);
+  bool classicDialogPositions() const { return consoleCanvasWidth() < 960; }
   void positionDialog(Dialog* d, float width, bool fromMenu = false);
 
   void incLevel(int delta);
@@ -361,6 +364,7 @@ class App : public WidgetHost {
   bool foldersWanted_ = false;
   GameRequest switchTo_;
   std::unique_ptr<OtherGame> other_;
+  int canvasOverride_ = 0;
   float canvasW_ = 800;
   uint32_t rng_ = 0x2545f491;
   CrtRand crt_;

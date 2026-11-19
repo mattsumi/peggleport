@@ -37,7 +37,7 @@ std::string fitName(const Font& f, std::string name, const std::string& mark, in
 }
 }
 
-void Renderer::drawFrame(int dw) {
+void Renderer::drawFrame(const Board& b, int dw) {
   struct P { const char* id; int x, y; int anchor; int stretch; bool whole; };
   const P pieces[] = {
       {"IMAGE_IP_TLC", 0, 0, 0, 0, false},      {"IMAGE_IP_TL1", 130, 42, 0, dw / 2, false}, {"IMAGE_IP_TL2", 292, 0, 1, 0, false},
@@ -49,17 +49,25 @@ void Renderer::drawFrame(int dw) {
   };
   struct R { int x, y, w, h; };
   const R regions[] = {{88, 0, 624 + dw, 74}, {345 + dw / 2, 74, 110, 70}, {0, 0, 88, 600}, {712 + dw, 0, 88, 600}, {88, 586, 624 + dw, 14}};
+  Tex* tube = trimClip_ ? tex("console/trim/ballotron") : nullptr;
+  Tex* meter = trimClip_ ? tex("console/trim/fevermeter") : nullptr;
   for (int pass = 0; pass < 2; ++pass) {
     if (pass == 1 && trimClip_) {
       SDL_SetRenderClipRect(r_, &*trimClip_);
       for (auto [path, u] : {std::pair{"console/trim/left", -143.0f}, std::pair{"console/trim/right", 707.0f + dw}})
         if (Tex* t = tex(path)) quad(t, {0, 0, (float)t->w, (float)t->h}, u, -44, t->lw(), t->lh());
+      if (tube) {
+        drawBallColumn(b, true);
+        put(tube, {0, 0, tube->lw(), tube->lh()}, -13.3f, 62.7f);
+      }
+      if (meter) put(meter, {0, 0, meter->lw(), meter->lh()}, 714.5f + dw, 62.7f);
     }
     for (auto& rg : regions) {
       SDL_Rect clip{(int)std::floor(px((float)rg.x)), (int)std::floor(py((float)rg.y)), (int)std::ceil(rg.w * s_), (int)std::ceil(rg.h * s_)};
       SDL_SetRenderClipRect(r_, &clip);
       for (auto& p : pieces) {
         if (p.whole != (pass == 1)) continue;
+        if ((tube && std::string_view(p.id) == "IMAGE_IP_BALLOTRON") || (meter && std::string_view(p.id) == "IMAGE_IP_FEVERMETER")) continue;
         Tex* t = img(p.id);
         if (!t) continue;
         float x = (float)p.x + (p.anchor == 2 ? (float)dw : p.anchor == 1 ? dw / 2.0f : 0.0f);
@@ -78,25 +86,39 @@ void Renderer::drawFrame(int dw) {
       }
     }
   }
+  if (Tex* top = trimClip_ ? tex("console/trim/top") : nullptr) {
+    SDL_SetRenderClipRect(r_, &*trimClip_);
+    put(top, {218, 0, 176, top->lh()}, 312, -45);
+  }
   SDL_Rect all{(int)std::floor(px(0)), (int)std::floor(py(0)), (int)std::ceil((800 + dw) * s_), (int)std::ceil(600 * s_)};
-  SDL_SetRenderClipRect(r_, &all);
+  SDL_SetRenderClipRect(r_, trimClip_ ? &*trimClip_ : &all);
 }
 
-void Renderer::drawBallColumn(const Board& b) {
-  Tex* back = img("IMAGE_INT_BALLBACK");
+void Renderer::drawBallColumn(const Board& b, bool console) {
+  Tex* back = console ? tex("console/trim/ball_back") : nullptr;
+  Tex* glass = console ? tex("console/trim/ball_glass") : nullptr;
+  const int drop = back && glass ? 70 : 0;
+  if (!drop) {
+    back = img("IMAGE_INT_BALLBACK");
+    glass = img("IMAGE_INT_BALLGLASS");
+  }
   Tex* ball = img("IMAGE_INT_BALL");
-  Tex* glass = img("IMAGE_INT_BALLGLASS");
+  if (drop && trimClip_) {
+    const SDL_Rect tube{trimClip_->x, trimClip_->y, trimClip_->w, (int)std::lround(py(600.7f)) - trimClip_->y};
+    SDL_SetRenderClipRect(r_, &tube);
+  }
   if (back) put(back, {0, 0, back->lw(), back->lh()}, 24, 180);
   int n = b.ballsLeft[b.cur];
   if (b.fever && b.feverBallsPaid > 0) n = std::max(0, n - b.feverBallsPaid);
   if (b.phase == Phase::Aim) n = std::max(0, n - 1);
   int shown = std::min(n, 15);
   int spacing = ball ? (int)ball->lh() : 20;
-  int bottom = 410 + 3 * shown;
+  int bottom = 410 + drop + 3 * shown;
   if (Tex* plunger = img("IMAGE_INT_PLUNGER")) put(plunger, {0, 0, plunger->lw(), plunger->lh()}, 28, (float)(17 + bottom));
   int vis = std::min(n, 25);
   for (int i = 0; i < vis; i++) put(ball, {0, 0, ball->lw(), ball->lh()}, 30, (float)(bottom - i * spacing));
   if (glass) put(glass, {0, 0, glass->lw(), glass->lh()}, 3, 92);
+  if (drop && trimClip_) SDL_SetRenderClipRect(r_, &*trimClip_);
 }
 
 void Renderer::shotMeterTick(const Board& b) {
@@ -128,18 +150,30 @@ void Renderer::drawShotMeter() {
   const int v = shotMeter_;
   if (v <= 0) return;
   const float cw = meter->cw(), mh = meter->lh(), ch = cap->lh();
-  const int bottom = (int)mh + 165;
+  const bool extended = mh == 348 && trimClip_ && tex("console/trim/ballotron");
+  const int top = extended ? 164 : 165, height = (int)mh + (extended ? 78 : 0);
   auto pair = [&](Tex* t, int cel, float sy, float sh, float dy) {
     const SDL_FRect src{cel * cw, sy, cw, sh};
-    put(t, src, 5, dy);
+    put(t, src, extended ? 4.0f : 5.0f, dy);
     const bool was = flipX_;
     flipX_ = !was;
     put(t, src, 59, dy);
     flipX_ = was;
   };
+  auto body = [&](int cel, int filled) {
+    auto slice = [&](int row, int length, int source) {
+      int skip = std::max(0, height - filled - row);
+      if (skip < length) pair(meter, cel, (float)(source + skip), (float)(length - skip), (float)(top + row + skip));
+    };
+    if (extended) {
+      slice(0, 211, 0);
+      slice(210, 79, 121);
+      slice(288, height - 288, 210);
+    } else slice(0, height, 0);
+  };
   int baseCel = -1, fillCel = 0, progress = v, span = 25000;
   if (v > 125000) {
-    pair(meter, 2, 0, mh, 165);
+    body(2, height);
     return;
   }
   if (v > 75000) {
@@ -153,17 +187,19 @@ void Renderer::drawShotMeter() {
     progress = v - 25000;
     span = 50000;
   }
-  if (baseCel >= 0) pair(meter, baseCel, 0, mh, 165);
-  int filled = (int)mh * progress / span;
+  if (baseCel >= 0) body(baseCel, height);
+  int filled = std::min(height, height * progress / span);
+  if (extended && progress > 0) filled = std::max(1, filled);
   if (filled <= 0) return;
-  filled = std::min(filled, (int)mh);
-  const float fillTop = (float)(bottom - filled);
-  pair(meter, fillCel, mh - (float)filled, (float)filled, fillTop);
-  float capY = fillTop - ch, capSrc = 0, capH = ch;
-  if (capY < 163) {
-    capSrc = 163 - capY;
+  body(fillCel, filled);
+  if (extended && filled < ch) return;
+  const float fillTop = (float)(top + height - filled);
+  float capY = fillTop - ch + (extended ? 1 : 0), capSrc = 0, capH = ch;
+  const int capLimit = extended ? top : 163;
+  if (capY < capLimit) {
+    capSrc = capLimit - capY;
     capH = ch - capSrc;
-    capY = 163;
+    capY = (float)capLimit;
   }
   if (capH > 0) pair(cap, fillCel, capSrc, capH, capY);
 }
@@ -178,7 +214,7 @@ void Renderer::drawOrbBack(const Board& b, const Hud& hud, int dw) {
   Tex* seams = img("IMAGE_IP_SEAMS");
   if (sh) {
     int row = 0;
-    if (b.turns[b.cur] > 0 && b.master[b.cur]) row = 1;
+    if (b.turns[b.cur] > 0 && b.master[b.cur] && b.master[b.cur] != Board::P_GUIDE) row = 1;
     if (b.phase == Phase::Shot && b.shotSteps < 4) row = 2;
     V2 pv = b.pivot();
     float px0 = BX + pv.x, py0 = BY + pv.y;
@@ -189,12 +225,6 @@ void Renderer::drawOrbBack(const Board& b, const Hud& hud, int dw) {
     float pivx = rx, pivy = ry;
     if (seams) put(seams, {0, std::clamp(stageCel_, 0, seams->rows - 1) * seams->ch(), seams->cw(), seams->ch()}, ox, oy + 1, {}, -1, -1, rot, pivx, pivy - 1);
     put(sh, {0, row * sh->ch(), sh->cw(), sh->ch()}, ox + 10, oy + 3, {}, -1, -1, rot, pivx - 10, pivy - 3);
-  }
-  if (b.phase == Phase::Aim) {
-    Ball g;
-    g.r = b.physics.ballRadius;
-    g.pos = b.muzzleArmed(b.gunAngle);
-    drawBall(b, g, true);
   }
   (void)hud;
 }
@@ -304,7 +334,8 @@ void Renderer::drawPortrait(const Board& b, int dw) {
   }
   if (!P.ok) return;
   const int fw = P.frames.w, fh = P.frames.h / std::max(1, ci->frames);
-  const float x0 = 355.0f + dw / 2.0f + ci->posX, y0 = 24.0f + ci->posY;
+  const float left = pw == Board::P_FLIPPERS ? 400.0f - fw * 0.5f : 355.0f;
+  const float x0 = left + dw / 2.0f + ci->posX, y0 = 24.0f + ci->posY;
   V2 pv = b.pivot();
   V2 look = V2(BX + pv.x, BY + pv.y) + V2(std::cos(b.gunAngle), -std::sin(b.gunAngle)) * 200.0f;
   if (!b.balls.empty()) look = V2(BX + b.balls[0].pos.x, BY + b.balls[0].pos.y);
@@ -413,15 +444,37 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
   int dw = canvasW_ - 800;
   drawOrbBack(b, hud, dw);
   drawPortrait(b, dw);
-  drawBallColumn(b);
-  drawFrame(dw);
+  const bool console = trimClip_ && tex("console/trim/ballotron") && tex("console/trim/fevermeter");
+  if (!console) drawBallColumn(b, false);
+  drawFrame(b, dw);
   drawShotMeter();
   drawOrbFront(b, dw);
-  if (Tex* t = tex("images/dialog/menubutton", 2, 1, "roundbutton_"); t && hud.menuOver) putCelAt(t, 0, 0, 12.0f, 540.0f);
-  if (b.shotIndex == 0) {
-    if (Tex* t = img("IMAGE_INT_BUTTONCOVER")) put(t, {0, 0, t->lw(), t->lh()}, 735.0f + dw, 538);
-  } else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_"); t && hud.replayOver) {
-    putCelAt(t, 0, 0, 736.0f + dw, 540.0f);
+  Tex* menuButton = tex("images/dialog/menubutton", 2, 1, "roundbutton_");
+  if (console) {
+    if (menuButton && hud.menuOver) putCelAt(menuButton, 0, 0, 12.0f, 540.0f);
+    if (hud.replayReady) {
+      Tex* spin = tex("console/trim/replay_spin");
+      Tex* glyph = hud.replayGlyph.empty() ? nullptr : fileTex(hud.replayGlyph);
+      Tex* ps3 = hud.replayTriangle ? tex("console/trim/replay_button", 2, 1) : nullptr;
+      if (glyph) put(glyph, {0, 0, glyph->lw(), glyph->lh()}, 745.7f + dw, 549.1f, {}, 34, 34);
+      else if (ps3) putCelAt(ps3, 0, 0, 737.2f + dw, 540.6f);
+      else if (spin && !hud.replayTriangle) {
+        drawText(font("FONT_OVERLOAD16OUTLINE"), 761 + dw, 581, std::string_view(&hud.replayFace, 1),
+                 hud.replayOver ? 0xffff88ff : 0xffffffff, TextAlign::Center);
+      }
+      else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_")) {
+        putCelAt(t, 0, hud.replayOver ? 0 : 1, 736.0f + dw, 540.0f);
+        spin = nullptr;
+      }
+      if (spin) put(spin, {0, 0, spin->lw(), spin->lh()}, 712.7f + dw, 516.1f);
+    }
+  } else {
+    if (menuButton && hud.menuOver) putCelAt(menuButton, 0, 0, 12.0f, 540.0f);
+    if (b.shotIndex == 0) {
+      if (Tex* t = img("IMAGE_INT_BUTTONCOVER")) put(t, {0, 0, t->lw(), t->lh()}, 735.0f + dw, 538);
+    } else if (Tex* t = tex("images/dialog/replaybutton", 2, 1, "roundbutton_"); t && hud.replayOver) {
+      putCelAt(t, 0, 0, 736.0f + dw, 540.0f);
+    }
   }
   drawOrangeMeter(b, dw);
   if (hud.clearedBefore)
@@ -429,24 +482,31 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
 
   int p = b.cur;
   Font* score = font("FONT_SCORE_DISP");
-  Font* small = font("FONT_SMALL_DISP");
+  Font* small = trimClip_ ? font("FONT_OVERLOAD12") : nullptr;
+  if (!small) small = font("FONT_SMALL_DISP");
   Font* left = font("FONT_BALLSLEFT");
+  const std::string ownScore = commaSep(b.dispScore[p < 2 ? p : 0]);
+  const int otherValue = hud.mode == Hud::ModeStage ? hud.totalScore : hud.topScore;
+  const std::string otherScore = (otherValue > 0 || hud.mode == Hud::ModeDuel) && hud.mode != Hud::ModeChallenge ? commaSep(otherValue) : "";
+  const auto scoreEnd = [&](bool own, int width) { return (own ? 295.0f + dw / 2.0f : 670.0f + dw) + (width > 100 ? 5 : 0); };
   if (small) {
-    auto mode = [&](const std::string& t, bool leftSide) {
-      float x = leftSide ? 128.0f : 508.0f + dw / 2.0f;
+    auto label = [&](const std::string& t, bool leftSide, float off, bool second) {
+      float x = (leftSide ? 128.0f : 508.0f + dw / 2.0f) + off;
       if (small->width(t) > 75) x -= 6;
-      drawText(small, x, 20, t, 0xffffffff);
+      const float scale = trimClip_ ? 0.9f : 1.0f;
+      const float y = (second ? 35.0f : 20.0f) + (trimClip_ ? 3.0f : 0.0f);
+      if (!trimClip_) { drawText(small, x, y, t, 0xffffffff); return; }
+      const int digits = score ? score->width(leftSide ? ownScore : otherScore) : 0;
+      const int room = (int)((scoreEnd(leftSide, digits) - digits - 4 - x) / scale);
+      drawText(small, x, y, fitName(*small, t, "", room), 0xffffffff, TextAlign::Left, scale, false);
     };
-    auto detail = [&](const std::string& t, bool leftSide, float off) {
-      float x = leftSide ? 128.0f : 508.0f + dw / 2.0f;
-      if (small->width(t) > 75) x -= 6;
-      drawText(small, x + off, 35, t, 0xffffffff);
-    };
+    auto mode = [&](const std::string& t, bool leftSide) { label(t, leftSide, 0, false); };
+    auto detail = [&](const std::string& t, bool leftSide, float off) { label(t, leftSide, off, true); };
     if (hud.mode == Hud::ModeStage) {
       char buf[32];
       std::snprintf(buf, sizeof buf, "%d-%d", (hud.stageNo >= 0 ? hud.stageNo : stageNo_) + 1, (hud.levelNo >= 0 ? hud.levelNo : levelNo_) + 1);
       mode(b.cfg.nights && trimClip_ ? "Nights Stage" : "Stage", true);
-      detail(buf, true, 12);
+      detail(buf, true, trimClip_ ? 0 : 12);
       if (hud.totalScore > 0) detail("Total", false, 0);
     } else if (hud.mode == Hud::ModeDuel) {
       mode(hud.challengeText, true);
@@ -472,20 +532,9 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
       if (!hud.challengeRight.empty()) mode(hud.challengeRight, false);
     }
   }
-  if (Font* sc = font("FONT_SCORE_DISP")) {
-    int v = hud.mode == Hud::ModeStage ? hud.totalScore : hud.topScore;
-    if ((v > 0 || hud.mode == Hud::ModeDuel) && hud.mode != Hud::ModeChallenge) {
-      std::string t = commaSep(v);
-      int w = sc->width(t);
-      float right = 670.0f + dw + (w > 100 ? 5 : 0);
-      drawText(sc, right - w, 28, t, 0xffffffff);
-    }
-  }
-  if (score && hud.mode != Hud::ModeParty) {
-    std::string s = commaSep(b.dispScore[p < 2 ? p : 0]);
-    int w = score->width(s);
-    float right = 295.0f + (w > 100 ? 5 : 0) + dw / 2.0f;
-    drawText(score, right - w, 28, s, 0xffffffff);
+  if (score) {
+    if (!otherScore.empty()) drawText(score, scoreEnd(false, score->width(otherScore)), 28, otherScore, 0xffffffff, TextAlign::Right);
+    if (hud.mode != Hud::ModeParty) drawText(score, scoreEnd(true, score->width(ownScore)), 28, ownScore, 0xffffffff, TextAlign::Right);
   }
   if (left) {
     std::string s = std::to_string(b.ballsLeft[p]);

@@ -23,7 +23,7 @@ The importer crops and repacks compatible HD sprites into the PC sprite grid. It
 
 ## Install
 
-Open **Options → Mods → Open Folder** in the edition you want to mod. Copy the matching `Peggle-Deluxe-Native-HD` or `Peggle-Nights-Native-HD` folder there, then enable it on the Mods screen. Do not stack it with another texture pack. In **Options → Widescreen**, choose **Auto** or the matching aspect ratio. **Classic 4:3** keeps the HD textures without adding side art. Untick the mod to return to stock rendering.
+Open **Mods → Open Folder** in the edition you want to mod. Copy the matching `Peggle-Deluxe-Native-HD` or `Peggle-Nights-Native-HD` folder there, then enable it on the Mods screen. Do not stack it with another texture pack. In **Options → Widescreen**, choose **Auto** or the matching aspect ratio. **Classic 4:3** keeps the HD textures without adding side art. Untick the mod to return to stock rendering.
 
 With the tested sources, the mod replaces 72 textures per edition, including the ball, pegs, bricks, and colorblind variants. It replaces all 55 Deluxe backgrounds and 55 of 70 Nights backgrounds. Unmatched UI, bitmap fonts, and the 15 other Nights backgrounds stay stock.
 
@@ -33,10 +33,19 @@ A data mod can add an image at `widescreen/levels/<background>` with a supported
 
 ## Console menus and 16:9 gameplay
 
-The console layout is built into PegglePort. **Auto** selects it for widescreen menus, and the centered gameplay frame is used at 16:9. **Classic 4:3** keeps the PC layout. No mod is required.
+The console layout is built into PegglePort. **Auto** uses the 16:9 presentation when the window is 16:10 or wider, and Classic 4:3 in narrower windows. It fits one frame to the window instead of mixing a widescreen menu with a different gameplay layout. You can still select an explicit aspect ratio. No mod is required.
 
-To use the original PS3 art, run `python tools/import_ps3_console_art.py "/path/to/NPUA30005/USRDIR/data" "/path/to/peggleport-folder/presentation"` with Pillow installed and a new output folder. Place `presentation` beside the executable. Both editions pick it up automatically. Without those files the layouts still work with PC artwork. The original assets are not included in the source repository. Peggle Native HD remains a separate optional texture mod.
+To import the menus, gameplay frame and online rooms from your PS3 copy, install Pillow and run the commands below from the repository. Replace `DATA` with the path to `NPUA30005/USRDIR/data`. Replace each `OUT` with the same staging directory outside the repository and the PS3 dump. The four output folders must not already exist.
 
-The console layout covers Home, Single Player, and the Nights hub. Other screens, including in-game Options and the online lobby, still use the existing PegglePort UI. The Nights lounge remains available from the hub.
+```text
+python tools/import_ps3_console_art.py "DATA" "OUT/base"
+python tools/import_ps3_secondary_art.py "DATA" "OUT/base" "OUT/menus"
+python tools/import_ps3_lobby_art.py "DATA" "OUT/menus" "OUT/lobbies"
+python tools/import_ps3_online_art.py "DATA" "OUT/lobbies" "OUT/presentation"
+```
+
+Copy the final `presentation` folder beside `peggleport.exe`. Both editions load it automatically. Without it, PegglePort falls back to PC artwork. The original artwork is not included in the repository. Peggle Native HD is a separate, optional texture mod.
+
+The widescreen menus keep Custom Levels, Join With Code, the two-column Pause and Options dialogs, and the Nights Lounge. Online rooms show the port's actual players, readiness and room code rather than PSN statistics.
 
 At 16:9 the machine and HUD are centered at their Classic width. PegglePort tries a complete side-art pair under `console/gutters` for the level, then a shared default pair. Without a complete pair it uses dimmed level artwork outside the rails. The playable field, aim coordinates, and scoring are unchanged. Other ratios and authored wide boards still use the existing gameplay layouts.

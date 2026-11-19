@@ -318,11 +318,13 @@ OptionsDialog::OptionsDialog(App& a, bool fg)
   vsync = mkCheck(5, "Vertical Sync", a.settings.vsync);
   colorblind = mkCheck(6, "Colorblind Mode", a.curProfile ? a.curProfile->colorblind : false);
   help = patchButton(7, "Help", "IMAGE_DLG_BUTTON3", 0, 0);
+  if (!fg) {
+    modsBtn = patchButton(12, "Mods", "IMAGE_DLG_BUTTON3", 0, 0);
+    modsBtn->visible = !consolePresentation_;
+  }
   mainMenu = patchButton(8, "Main Menu", "IMAGE_DLG_BUTTON3", 0, 0);
   newLevel = patchButton(9, "New Level", "IMAGE_DLG_BUTTON3", 0, 0);
   newChallenge = patchButton(10, "New Challenge", "IMAGE_DLG_BUTTON3", 0, 0);
-  modsBtn = patchButton(12, "Mods", "IMAGE_DLG_BUTTON3", 0, 0);
-  modsBtn->visible = !fg;
   editor = patchButton(13, "Level Editor", "IMAGE_DLG_BUTTON3", 0, 0);
   editor->visible = !fg;
   gamesBtn = patchButton(15, "Game Folders...", "IMAGE_DLG_BUTTON3", 0, 0);
@@ -344,22 +346,50 @@ OptionsDialog::OptionsDialog(App& a, bool fg)
   help->visible = true;
   if (fg && watching) { newLevel->visible = false; help->visible = false; }
   widescreen->visible = !fg;
-  if (consolePresentation_) {
-    header = fg ? "PAUSED" : "HELP & OPTIONS";
-    help->label = "How to Play";
-    sfx->label = "Sound";
-    music->label = "Music";
-    fever->label = "Fever";
-    if (fg) yesBtn->label = "Resume Game";
-    for (Button* b : {help, mainMenu, newLevel, newChallenge, modsBtn, editor, gamesBtn, widescreen, visuals, homeBtn, yesBtn})
-      styleConsoleAction(*b);
-  }
+  if (consolePresentation_) stylePresentation();
   extraH = (float)(0xdc + (fg ? 0x24 : 0x50));
   if (editor->visible) extraH += 0x20;
   if (homeBtn->visible) extraH += 0x20;
   if (mainMenu->visible) extraH += 0x20;
   if (help->visible) extraH += 0x20;
   if (fg && chal) extraH += 0x20;
+}
+
+void OptionsDialog::stylePresentation() {
+  header = fromGame ? "PAUSED" : consolePresentation_ ? "HELP & OPTIONS" : "OPTIONS";
+  help->label = consolePresentation_ ? "How to Play" : "Help";
+  sfx->label = consolePresentation_ ? "Sound" : "Sound Effects";
+  music->label = consolePresentation_ ? "Music" : "Music Volume";
+  fever->label = consolePresentation_ ? "Fever" : "Fever Volume";
+  if (fromGame) yesBtn->label = "Resume Game";
+  for (Button* b : {help, mainMenu, newLevel, newChallenge, editor, gamesBtn, widescreen, visuals, homeBtn, yesBtn}) {
+    if (consolePresentation_) styleConsoleAction(*b);
+    else {
+      b->image = modsBtn->image;
+      b->labelStyle = modsBtn->labelStyle;
+      b->labelFullGradient = modsBtn->labelFullGradient;
+      b->textOffY = modsBtn->textOffY;
+    }
+  }
+}
+
+void OptionsDialog::syncPresentation(int canvasWidth) {
+  if (fromGame || scrollingOff || consolePresentation_ == (canvasWidth >= 960)) return;
+  consolePresentation_ = canvasWidth >= 960;
+  modsBtn->visible = !consolePresentation_;
+  if (!modsBtn->visible && focusW == modsBtn) {
+    modsBtn->focused = false;
+    focusW = help;
+    help->focused = true;
+  }
+  if (capture == modsBtn && !modsBtn->visible) {
+    modsBtn->mouseLeave();
+    capture = nullptr;
+  }
+  releaseHover();
+  stylePresentation();
+  app.positionDialog(this, preferredWidth(), consolePresentation_);
+  layout();
 }
 
 void OptionsDialog::updateHomeLabel() { homeBtn->label = std::string("Main Menu: ") + (app.homeGame == Game::Nights ? "Peggle Nights" : "Peggle Deluxe"); }
@@ -398,7 +428,7 @@ void OptionsDialog::layoutConsole() {
   if (fromGame) {
     for (Button* button : {yesBtn, help, visuals, newLevel, newChallenge, mainMenu}) action(button);
   } else {
-    for (Button* button : {help, visuals, widescreen, homeBtn, editor, gamesBtn, modsBtn}) action(button);
+    for (Button* button : {help, visuals, widescreen, homeBtn, editor, gamesBtn}) action(button);
     rowY = h - insB - buttonH;
     action(yesBtn);
   }
@@ -425,10 +455,11 @@ void OptionsDialog::layout() {
   }
   float bw = W / 2 - 2, bh = help->h;
   if (!fromGame) {
-    help->x = yesBtn->x; help->y = yesBtn->y - 0x1e - bh + 0; help->w = yesBtn->w;
-    help->y = yesBtn->y - bh - 24;
-    help->w = bw;
-    modsBtn->x = help->x + bw; modsBtn->y = help->y; modsBtn->w = bw; modsBtn->h = bh;
+    help->x = yesBtn->x; help->y = yesBtn->y - bh - 24; help->w = yesBtn->w;
+    if (modsBtn->visible) {
+      help->w = bw;
+      modsBtn->x = help->x + bw; modsBtn->y = help->y; modsBtn->w = bw; modsBtn->h = bh;
+    }
     if (editor->visible) { editor->x = help->x; editor->w = bw; editor->y = help->y - bh; }
     if (gamesBtn->visible) { gamesBtn->x = help->x + bw; gamesBtn->w = bw; gamesBtn->y = help->y - bh; }
   } else {
@@ -444,7 +475,7 @@ void OptionsDialog::layout() {
       help->x = mainMenu->x; help->w = mainMenu->w; help->y = mainMenu->y - bh;
     }
   }
-  for (Button* b : {help, mainMenu, newLevel, newChallenge, modsBtn, editor, gamesBtn}) b->h = bh;
+  for (Button* b : {help, mainMenu, newLevel, newChallenge, editor, gamesBtn}) b->h = bh;
 }
 
 void OptionsDialog::drawChromeFooter(Gfx& g, bool nested, float fade) const {
@@ -533,10 +564,10 @@ void OptionsDialog::onButton(int id) {
       app.showHelpScreen(app.hasBoard());
       if (!app.hasBoard() && app.consoleCanvasWidth() == 800) app.finishOptionsDialog(true, true);
       break;
-    case 12: app.showModsScreen(); app.finishOptionsDialog(true, true); break;
     case 8: app.doConfirmMainMenuDialog(); fitConsoleQuestion(D_ReturnToMenu); break;
     case 9: app.doConfirmRestartLevelDialog(); fitConsoleQuestion(D_RestartLevel); break;
     case 10: app.doConfirmNewChallengeDialog(); fitConsoleQuestion(D_NewChallenge); break;
+    case 12: if (modsBtn && modsBtn->visible) app.showModsScreen(); break;
     case 13: app.finishOptionsDialog(true, true); app.showEditor(); break;
     case 14: app.doVisualsDialog(); break;
     case 15: app.requestGameFolders(); break;

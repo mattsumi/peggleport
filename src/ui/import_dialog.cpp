@@ -266,8 +266,10 @@ void App::doImportProfileDialog() {
   auto d = std::make_unique<ImportDialog>(*this);
   Dialog* raw = d.get();
   positionDialog(raw, 400);
-  raw->x = 0x96;
-  raw->y = 0x28;
+  if (classicDialogPositions()) {
+    raw->x = 0x96;
+    raw->y = 0x28;
+  }
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }

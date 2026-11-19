@@ -53,6 +53,12 @@ def encoded(image, fmt='PNG'):
 
 
 class ArtTest(unittest.TestCase):
+    def test_title_shadow_uses_the_mask_as_opacity(self):
+        mask = Image.new('RGBA', (3, 1))
+        mask.putdata([(0, 0, b, 255) for b in (0, 95, 255)])
+        shadow = ps3.menu_variant(mask, 'title_shadow')
+        self.assertEqual([shadow.getpixel((x, 0)) for x in range(3)], [(255, 255, 255, a) for a in (0, 95, 255)])
+
     def test_footer_sleeve_removes_only_unused_atlas_space(self):
         atlas = Image.new('RGBA', (190, 72))
         atlas.putpixel((0, 0), (145, 115, 72, 255))

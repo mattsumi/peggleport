@@ -21,6 +21,7 @@
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
+#include "ui/mods_screen.h"
 #include "ui/other_game.h"
 #include "ui/character_dialog.h"
 #include "ui/screens.h"
@@ -436,6 +437,7 @@ void App::startAt(const StartTarget& start, SDL_Surface* lastPicture, bool pictu
   cur_ = std::make_unique<LastPicture>(*this, lastPicture, pictureFillsWindow);
   scrollDir = 0;
   if (start.place == StartPlace::Adventure && curProfile) enterAdventure();
+  else if (start.place == StartPlace::NightsHub || start.place == StartPlace::SinglePlayer) MainMenu::restoreAdventurePage(*this, start.place);
   else if (!startInList(start)) showMainMenu();
 }
 
@@ -831,11 +833,13 @@ bool App::hasModal() const {
   return false;
 }
 
-bool App::anyDialog() const {
-  for (auto& d : dialogs_)
-    if (!d->gone) return true;
-  return false;
+Dialog* App::topDialog() const {
+  for (auto it = dialogs_.rbegin(); it != dialogs_.rend(); ++it)
+    if (!(*it)->gone) return it->get();
+  return nullptr;
 }
+
+bool App::anyDialog() const { return topDialog() != nullptr; }
 
 void App::releaseCovered() {
   bool covered = false;
@@ -882,15 +886,30 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
   float minW = gfx.textWidth(d->headerFont, d->header) + d->insL + d->insR + 0x14;
   if (width < minW) width = minW;
   float hgt = d->preferredHeight(width);
+  if (!classicDialogPositions()) {
+    const float height = cur_ ? static_cast<float>(cur_->canvasHeight()) : 600.0f;
+    float top = (height - hgt) / 2;
+    if (d->dialogId == D_Locked) top = std::min(150.0f, height - hgt - 10);
+    if (d->dialogId == D_Options && width > 440) top = std::min(top, 530 - hgt);
+    top = std::max(0.0f, top);
+    if (d->scrollActive) {
+      d->scrollTarget = d->scrollingOff ? -hgt : top;
+      top = d->y;
+    }
+    d->resize((800 - width) / 2, top, width, hgt);
+    return;
+  }
   float y = 0x96;
   if (y + hgt > 0x244 && (y = 0x244 - hgt) < 10) y = 10;
   Dialog* other = nullptr;
-  for (auto& o : dialogs_)
+  for (auto& o : dialogs_) {
+    if (o.get() == d && d->dialogId == D_Options) break;
     if (!o->gone && !o->scrollingOff && o.get() != d) other = o.get();
+  }
   float x;
   if (!other) {
     bool menuUp = cur_ && std::string(cur_->name()) == "mainmenu";
-    if (!menuUp || fromMenu || consoleCanvasWidth() >= 960) {
+    if (!menuUp || fromMenu) {
       x = 400 - width / 2;
     } else if (hgt >= 300) {
       x = 0x226 - width;
@@ -904,6 +923,10 @@ void App::positionDialog(Dialog* d, float width, bool fromMenu) {
     x = std::trunc((other->w - width) / 2) + other->x;
   }
   if (d->dialogId == D_Options && width > 440) y = std::min(y, 530 - hgt);
+  if (d->dialogId == D_Options && d->scrollActive) {
+    d->scrollTarget = d->scrollingOff ? -hgt : y;
+    y = d->y;
+  }
   d->resize(x, y, width, hgt);
 }
 
@@ -920,8 +943,10 @@ void App::doNotYet(const std::string& text) {
 
 void App::doConfirmQuitDialog() {
   Dialog* d = doDialog(D_Quit, true, game == Game::Nights ? "Quit?" : "Quit Peggle?", "Are you sure you want to\nquit the game?", "", BUTTONS_YES_NO);
-  d->x = 235;
-  d->scrollTarget = 280;
+  if (classicDialogPositions()) {
+    d->x = 235;
+    d->scrollTarget = 280;
+  }
 }
 void App::doConfirmNewChallengeDialog() {
   Dialog* d = doDialog(D_NewChallenge, true, "New Challenge?", "Are you sure that you want to choose a new challenge? Your progress on this challenge will be lost.", "", BUTTONS_YES_NO);
@@ -978,6 +1003,10 @@ void App::tick() {
   }
 }
 
+static bool aboveOptions(const Panel* p, bool wide, const Dialog* options) {
+  return (wide && dynamic_cast<const HelpScreen*>(p)) || (options && dynamic_cast<const ModsScreen*>(p));
+}
+
 void App::input(const Input& in) {
   if (in.type == Input::MouseMove || in.type == Input::MouseDown) { mouseX = in.x; mouseY = in.y; }
   if (in.type == Input::KeyDown && in.key == SDLK_F10) {
@@ -997,16 +1026,30 @@ void App::input(const Input& in) {
     return;
   }
   if (switchWanted_) return;
+  auto* options = dynamic_cast<OptionsDialog*>(getDialog(D_Options));
   Input din = in;
+  if (options && !options->fromGame) {
+    int oldW, oldH, w, h;
+    gfx.outputSize(oldW, oldH);
+    gfx.refreshOutputSize();
+    gfx.outputSize(w, h);
+    const int width = canvasOverride_ ? canvasOverride_ : (cur_ ? cur_->canvasWidth() : 800);
+    if (w > 0 && h > 0 && (width != canvasW_ || w != oldW || h != oldH)) {
+      const float s = gfx.scale(), x = gfx.offX(), y = gfx.offY();
+      gfx.begin(width, cur_ ? cur_->canvasHeight() : 600);
+      canvasW_ = static_cast<float>(width);
+      gfx.toCanvas(x + in.x * s, y + in.y * s, din.x, din.y);
+      gfx.toCanvas(x + mouseX * s, y + mouseY * s, mouseX, mouseY);
+    }
+    options->syncPresentation(width);
+  }
   din.x -= (canvasW_ - 800) * 0.5f;
   if (overlay_ && overlay_->mouseVisible) {
     overlay_->input(din);
     return;
   }
-  if (canvasW_ >= 960 && (dynamic_cast<HelpScreen*>(overlay_.get()) ||
-      std::any_of(movers_.begin(), movers_.end(), [](const Mover& m) {
-        return dynamic_cast<HelpScreen*>(m.owned.get()) != nullptr;
-      }))) return;
+  if (aboveOptions(overlay_.get(), canvasW_ >= 960, options) ||
+      std::any_of(movers_.begin(), movers_.end(), [&](const Mover& m) { return aboveOptions(m.owned.get(), canvasW_ >= 960, options); })) return;
   for (size_t i = dialogs_.size(); i-- > 0;) {
     Dialog* d = dialogs_[i].get();
     if (d->gone) continue;
@@ -1026,8 +1069,7 @@ WidescreenMode App::widescreenMode() const { return (WidescreenMode)std::clamp(s
 
 int App::consoleCanvasWidth() const {
   int ow = 800, oh = 600;
-  if (auto* r = gfx.renderer()) SDL_GetRenderOutputSize(r, &ow, &oh);
-  else gfx.outputSize(ow, oh);
+  gfx.outputSize(ow, oh);
   const int width = widescreenCanvasWidth(widescreenMode(), ow, oh);
   return width < 960 ? 800 : std::min(width, 1067);
 }
@@ -1049,20 +1091,27 @@ int App::frameCanvasWidth(int boardCanvas) const {
   if (mode == WidescreenMode::W16x9 && boardCanvas == 800 && !settings.vis.ultraWideHud) return 1066;
   int ow = 800, oh = 600;
   gfx.outputSize(ow, oh);
-  const int width = widescreenFrameWidth(boardCanvas, ow, oh, widescreenCanvasWidth(mode, ow, oh), settings.vis.ultraWideHud);
+  const int canvas = widescreenCanvasWidth(mode, ow, oh);
+  if (mode == WidescreenMode::Auto) return boardCanvas + 2 * (std::max(0, canvas - boardCanvas) / 2);
+  const int width = widescreenFrameWidth(boardCanvas, ow, oh, canvas, settings.vis.ultraWideHud);
   return mode == WidescreenMode::W16x9 && boardCanvas == 800 ? std::max(1066, width) : width;
 }
 
 void App::frame(int canvasW) {
+  canvasOverride_ = canvasW;
+  gfx.refreshOutputSize();
   gfx.begin(canvasW ? canvasW : (cur_ ? cur_->canvasWidth() : 800), cur_ ? cur_->canvasHeight() : 600);
   canvasW_ = (float)gfx.canvasW();
+  if (auto* options = dynamic_cast<OptionsDialog*>(getDialog(D_Options))) options->syncPresentation(gfx.canvasW());
   if (auto* visuals = dynamic_cast<VisualsDialog*>(getDialog(D_Visuals))) visuals->fitConsoleFooter();
-  gfx.setBackdropEnabled(widescreenMode() != WidescreenMode::Classic4x3);
+  gfx.setBackdropEnabled(widescreenMode() != WidescreenMode::Classic4x3 &&
+                         (widescreenMode() != WidescreenMode::Auto || consoleCanvasWidth() > 800));
   const bool backdrop = !(cur_ && cur_->isGame()) && gfx.beginBackdrop();
   gfx.clear(0);
   if (!backdrop) gfx.clipToCanvas();
+  const auto* overlayParent = getDialog(D_Options);
   for (auto& m : movers_)
-    if (m.owned && !(canvasW_ >= 960 && dynamic_cast<HelpScreen*>(m.owned.get()))) m.owned->draw(gfx);
+    if (m.owned && !aboveOptions(m.owned.get(), canvasW_ >= 960, overlayParent)) m.owned->draw(gfx);
   const bool clipGameplayUi = cur_ && cur_->isGame() && canvasW_ >= 960 &&
       widescreenMode() != WidescreenMode::Classic4x3;
   const auto drawScreen = [&](GameScreen* game) {
@@ -1086,12 +1135,13 @@ void App::frame(int canvasW) {
       boardRenderer->drawPauseBackdrop(amount, {x, y, ow - 2 * x, oh - 2 * y}, [&] { drawScreen(gameScreen); });
     } else drawScreen(gameScreen);
   }
+  if (auto* game = dynamic_cast<GameScreen*>(cur_.get())) game->drawBarePause(gfx);
   if (clipGameplayUi) gfx.clipToCanvas();
   gfx.pushOrigin((canvasW_ - 800) * 0.5f, 0);
   for (auto& d : dialogs_)
     if (!d->gone) d->draw(gfx);
-  if (canvasW_ >= 960) for (auto& m : movers_)
-    if (auto* help = dynamic_cast<HelpScreen*>(m.owned.get())) help->draw(gfx);
+  for (auto& m : movers_)
+    if (aboveOptions(m.owned.get(), canvasW_ >= 960, overlayParent)) m.owned->draw(gfx);
   if (overlay_) overlay_->draw(gfx);
   gfx.popOrigin();
   if (clipGameplayUi) gfx.popClip();

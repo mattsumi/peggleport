@@ -20,6 +20,7 @@
 namespace pp::ui {
 
 Gfx::Gfx(SDL_Renderer* r, const Vfs& vfs) : r_(r), vfs_(vfs) {
+  refreshOutputSize();
   haveMan_ = man_.load(vfs_);
   fp_ = makeDefaultFontProvider(r_, this);
 }
@@ -32,6 +33,10 @@ Gfx::~Gfx() {
     if (t.t) SDL_DestroyTexture(t.t);
   for (auto& [_, t] : dimCache_)
     if (t.t) SDL_DestroyTexture(t.t);
+}
+
+void Gfx::refreshOutputSize() {
+  if (r_) SDL_GetRenderOutputSize(r_, &ow_, &oh_);
 }
 
 void Gfx::begin(int canvasW, int canvasH) {
