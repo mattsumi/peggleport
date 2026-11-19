@@ -116,12 +116,14 @@ std::vector<std::string> LogView::wrapText(const std::string& s, float maxW) {
       cut = 1;
       while (cut < rest.size() && ((unsigned char)rest[cut] & 0xC0) == 0x80) cut++;
     }
-    size_t brk = rest.rfind(' ', cut);
     size_t take = cut, skip = cut;
-    if (brk != std::string::npos && brk > cut / 2 && cut < rest.size()) {
-      take = brk;
-      skip = brk;
-      while (skip < rest.size() && rest[skip] == ' ') skip++;
+    if (cut < rest.size()) {
+      size_t brk = rest[cut] == ' ' ? cut : rest.find_last_of(" /\\", cut - 1);
+      if (brk != std::string::npos && brk > cut / 2) {
+        bool space = rest[brk] == ' ';
+        take = skip = brk + (space ? 0 : 1);
+        if (space) while (skip < rest.size() && rest[skip] == ' ') skip++;
+      }
     }
     out.push_back(rest.substr(0, take));
     pos += skip;
@@ -212,7 +214,8 @@ void LogView::layout(Gfx& g) {
   float cx = kPad, cy = kPad;
   for (Button* b : buttons_) {
     b->h = bh;
-    b->w = std::max(70.0f, g.textWidth(kButtonFont, b->label) + 22);
+    const float capWidth = b->image ? 2 * std::floor(b->image->lw() / 3) : 0.0f;
+    b->w = std::max({70.0f, capWidth, g.textWidth(kButtonFont, b->label) + 22});
     if (cx + b->w > w - kPad && cx > kPad) {
       cx = kPad;
       cy += bh + 4;
@@ -350,28 +353,25 @@ void LogView::drawLayer(Gfx& g) {
     const Row& r = rows_[(size_t)idx];
     float base = g.originY() + areaY_ + (float)i * rowH_ + ascent_;
     float ox = g.originX() + areaX_;
-    if (r.first) {
-      fp.draw(kFont, ox, base, r.time, kColTime, 1.0f);
-      fp.draw(kFont, ox + timeW_, base, r.src, kColSource, 1.0f);
+    if (r.first || i == 0) {
+      size_t header = (size_t)idx;
+      while (header > 0 && !rows_[header].first) --header;
+      fp.draw(kFont, ox, base, rows_[header].time, kColTime, 1.0f);
+      fp.draw(kFont, ox + timeW_, base, rows_[header].src, kColSource, 1.0f);
     }
     fp.draw(kFont, ox + timeW_ + srcW_ + 6, base, r.text, levelColor(r.level), 1.0f);
   }
   g.popClip();
 
-  const float tx = areaX_ + areaW_ + 2;
-  g.fill(tx, areaY_, kBar, areaH_, 0xffffff, 0.08f);
-  const long total = (long)rows_.size();
-  if (total > visRows_) {
-    float th = std::max(18.0f, areaH_ * (float)visRows_ / (float)total);
-    float tp = areaY_ + (areaH_ - th) * (maxTop() > 0 ? (float)top_ / (float)maxTop() : 0.0f);
-    g.fill(tx, tp, kBar, th, follow_ ? 0x80ff80 : 0xb0c8ff, 0.7f);
-  }
+  const Rect thumb = scrollThumb();
+  g.fill(thumb.x, areaY_, thumb.w, areaH_, 0xffffff, 0.08f);
+  if (maxTop() > 0) g.fill(thumb.x, thumb.y, thumb.w, thumb.h, follow_ ? 0x80ff80 : 0xb0c8ff, 0.7f);
 
   std::string left;
   if (statusTicks_ > 0 && !status_.empty()) {
     left = status_;
   } else {
-    left = std::to_string(shown_) + " of " + std::to_string(entries_.size()) + " lines, " + filterName();
+    left = std::to_string(shown_) + " of " + std::to_string(entries_.size()) + " entries match, " + filterName();
     if (!sourceFilter_.empty()) left += ", " + sourceFilter_;
     left += follow_ ? ", following" : ", scrolled back";
   }
@@ -386,6 +386,13 @@ void LogView::drawLayer(Gfx& g) {
 bool LogView::inTrack(float px, float py) const {
   const float lx = px - x, ly = py - y;
   return lx >= areaX_ + areaW_ - 2 && lx < areaX_ + areaW_ + kBar + 6 && ly >= areaY_ && ly < areaY_ + areaH_;
+}
+
+Rect LogView::scrollThumb() const {
+  const long last = maxTop();
+  const float h = last > 0 ? std::min(areaH_, std::max(18.0f, areaH_ * visRows_ / rows_.size())) : areaH_;
+  const float y = areaY_ + (last > 0 ? (areaH_ - h) * top_ / last : 0.0f);
+  return {areaX_ + areaW_ + 2, y, kBar, h};
 }
 
 void LogView::scrollTo(long row) {
@@ -404,9 +411,10 @@ void LogView::wheelScroll(float wheel) {
 }
 
 void LogView::dragTo(float py) {
-  const float ly = py - y - areaY_;
-  const float f = std::clamp(ly / std::max(1.0f, areaH_), 0.0f, 1.0f);
-  scrollTo((long)std::lround(f * (float)maxTop()));
+  const float travel = areaH_ - scrollThumb().h;
+  if (travel <= 0) return;
+  const float f = std::clamp((py - y - areaY_ - dragOffset_) / travel, 0.0f, 1.0f);
+  scrollTo((long)std::lround(f * maxTop()));
 }
 
 void LogView::pressKey(int key) {
@@ -443,7 +451,10 @@ bool LogView::handle(const Input& in) {
         return true;
       }
       bool used = Panel::input(in);
-      if (!used && inTrack(in.x, in.y)) {
+      if (!used && in.button == 1 && maxTop() > 0 && inTrack(in.x, in.y)) {
+        const Rect thumb = scrollThumb();
+        const float grab = in.y - y - thumb.y;
+        dragOffset_ = grab >= 0 && grab < thumb.h ? grab : thumb.h / 2;
         dragging_ = true;
         dragTo(in.y);
       }

@@ -58,6 +58,8 @@ class Editor {
   int copyArtToMod(const std::filesystem::path& modDir) const;
   std::string customType(const NodeP& n) const;
   void setCustomType(const std::string& key);
+  std::string collisionRole(const NodeP& n) const;
+  bool setCollisionRole(const std::string& role);
 
   void newLevel(const std::string& name, int boardWidth = 650);
   bool loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err);
@@ -164,6 +166,7 @@ class Editor {
  private:
   struct Step {
     std::string label;
+    int widthBefore = 650, widthAfter = 650;
     std::vector<Val> eb, ea;
     std::vector<NodeP> touched;
     std::vector<NodeSnap> sb, sa;

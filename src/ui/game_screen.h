@@ -71,6 +71,7 @@ class GameScreen : public Screen {
   void drawOverlay(Gfx& g) override;
   bool input(const Input& in) override;
   void menuThroughDialog(const Input& in);
+  Renderer::View consoleView() const;
   void onButton(int id) override;
   void keyDown(int key, int mod) override;
   void lostFocus() override;
@@ -176,6 +177,7 @@ class GameScreen : public Screen {
   int pauseCount_ = 0, pauseFade_ = 0;
   int mouseBx_ = 0, mouseBy_ = 0;
   int boardLeft() const { return 75 + (canvasWidth() - 800 - (board_.W - 650)) / 2; }
+  int hudInset() const { return Renderer::hudInset(canvasWidth(), board_.W); }
   bool haveMouse_ = false;
   std::string levelFile_;
   int pendingMode_ = 0, pendingRank_ = 0;

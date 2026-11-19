@@ -1,10 +1,12 @@
 #pragma once
 #include <SDL3/SDL.h>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <string>
 #include <vector>
@@ -62,6 +64,11 @@ class Renderer {
   int canvasWidth() const { return canvasW_; }
   float boardLeft() const { return BX; }
   void setFrameCanvas(int w) { frameCanvas_ = w; }
+  static int hudInset(int frameWidth, int boardWidth) {
+    return boardWidth == 650 && frameWidth >= 1064 && frameWidth <= 1068 ? (frameWidth - 800) / 2 : 0;
+  }
+  struct View { float k = 1, x = 0, y = 0; };
+  View consoleView(int frameWidth, int boardWidth) const;
   V2 toBoard(float px, float py) const;
   void advance(const Board& b);
   std::vector<FxSound> takeSounds() { return std::exchange(fx_.sounds, {}); }
@@ -71,6 +78,7 @@ class Renderer {
   int drawTextWrapped(Font* f, float x, float y, int wrapWidth, std::string_view s, uint32_t rgba, TextAlign al = TextAlign::Left,
                       int lineSpacing = -1, float scale = 1);
   int wrappedHeight(Font* f, int wrapWidth, std::string_view s, int lineSpacing = -1) const;
+  void drawPauseBackdrop(float amount, const SDL_Rect& area, const std::function<void()>& drawScene);
   void beginCanvas(int canvasW = 800);
   void reloadAssets(const VfsChange& change);
 
@@ -97,6 +105,7 @@ class Renderer {
   void putCelCentered(Tex* t, int cel, float cx, float cy, Paint p = {});
   Tex* objImage(const std::string& name);
   Tex* wideBackground(const std::string& path, int targetW, float* topY = nullptr);
+  std::pair<Tex*, Tex*> consoleGutters(int frameWidth, int boardWidth, const std::string& background);
   VisualOptions vis_;
   struct BloomRec {
     SDL_Texture* t;
@@ -192,6 +201,7 @@ class Renderer {
   float BX = 75;
   static constexpr float BY = 40;
   int stageCel_ = 0, stageNo_ = 0, levelNo_ = 0;
+  std::optional<SDL_Rect> trimClip_;
   std::string stageFor_;
   SDL_Texture* fontTexture(const Image* img);
   void blitGlyphs(const std::vector<GlyphQuad>& q, float x, float y, float scale);
@@ -219,6 +229,7 @@ class Renderer {
   std::map<const Image*, SDL_Texture*> fontTex_;
   float s_ = 1, ox_ = 0, oy_ = 0;
   int canvasW_ = 800, boardW_ = 650, frameCanvas_ = 0;
+  SDL_Texture* pauseTargets_[4]{};
 };
 
 inline void (*g_modOverlay)(Renderer&, const Board&) = nullptr;

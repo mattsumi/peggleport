@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -187,6 +188,7 @@ struct ChallengeRules {
 
 struct BoardConfig {
   int boardWidth = 650;
+  int authoredWidth = 650;
   int players = 1;
   bool duel = false;
   int balls = 0;
@@ -471,7 +473,7 @@ class Board {
   std::vector<Mover> freeMovers_;
   bool updateBall(Ball& b);
   std::vector<int> gather(const Ball& b) const;
-  bool collide(Ball& b, int bi, const std::vector<int>* pre = nullptr, V2* firstHit = nullptr);
+  bool collide(Ball& b, int bi, const std::vector<int>* pre = nullptr, V2* firstHit = nullptr, const std::function<bool(int)>& eligible = {});
   void stepBalls();
   void shotLogic();
   void resolveShot();

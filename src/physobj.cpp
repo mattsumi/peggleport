@@ -1,6 +1,7 @@
 #include "physobj.h"
 #include "physball.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -216,7 +217,8 @@ bool Line::penetration(V2 pos, float r, V2& outPos, V2& outN, V2& outV) const {
 }
 
 bool Line::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, bool checkB, bool& kiss) const {
-  if (bx0 - MARGIN <= r + pos.x && pos.x - r <= bx1 + MARGIN && by0 - MARGIN <= pos.y + r && pos.y - r <= by1 + MARGIN) {
+  const float margin = std::max(MARGIN, std::max(std::fabs(vel.x), std::fabs(vel.y)) * hitT);
+  if (bx0 - margin <= r + pos.x && pos.x - r <= bx1 + margin && by0 - margin <= pos.y + r && pos.y - r <= by1 + margin) {
     if (penetration(pos, r, hitPt, hitN, hitV)) {
       hitT = 0.0f;
       return true;
@@ -384,7 +386,8 @@ void Poly::setVelocity(float x, float y) {
 }
 
 bool Poly::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& hitV, V2& angV, bool& kiss) {
-  if (!(bx0 - MARGIN <= r + pos.x && pos.x - r <= bx1 + MARGIN && by0 - MARGIN <= pos.y + r && pos.y - r <= by1 + MARGIN)) return false;
+  const float margin = std::max(MARGIN, std::max(std::fabs(vel.x), std::fabs(vel.y)) * hitT);
+  if (!(bx0 - margin <= r + pos.x && pos.x - r <= bx1 + margin && by0 - margin <= pos.y + r && pos.y - r <= by1 + margin)) return false;
   ensureLines();
   bool isConvex = convex;
   bool checkPen = normalDir == 1 && closed;
@@ -423,6 +426,7 @@ bool Poly::check(V2 pos, V2 vel, float r, float& hitT, V2& hitPt, V2& hitN, V2& 
     hitLine = closestLine;
   }
   if (hitLine) {
+    angV = {};
     if (angVel != 0.0f) {
       angV.x = (hitPt.y - cy) * angVel + angV.x;
       angV.y = angV.y - angVel * (hitPt.x - cx);

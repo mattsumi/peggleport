@@ -343,7 +343,9 @@ bool SavedSession::rebuild(const LevelBundle& lb, Board& board, Board& snap, boo
   if (lb.contentHash != content) return false;
   std::string err;
   Board b;
-  if (!b.load(lb.base, lb.level, cfg, &err)) return false;
+  BoardConfig restored = cfg;
+  restored.authoredWidth = lb.cfg.authoredWidth;
+  if (!b.load(lb.base, lb.level, restored, &err)) return false;
   haveSnap = false;
   bool begun = false;
   size_t next = 0;
@@ -427,8 +429,7 @@ bool SessionKeeper::find(GameMode m) {
     r->saved.levelNo = li->index;
   }
   if (!ok) {
-    pp::log::warn("game", "the saved level in " + pathToUtf8(path) + " could not be used and was removed");
-    std::filesystem::remove(path, ec);
+    pp::log::warn("game", "the saved level in " + pathToUtf8(path) + " could not be used and was preserved");
     return false;
   }
   ready_ = std::move(r);
@@ -729,6 +730,7 @@ GameScreen::GameScreen(App& a, const ReadySession& r) : Screen(a) {
   levelFile_ = r.saved.level;
   lb_ = r.bundle;
   cfg_ = r.saved.cfg;
+  cfg_.authoredWidth = lb_.cfg.authoredWidth;
   log_ = r.saved.log;
   board_ = r.board;
   snap_ = r.snap;

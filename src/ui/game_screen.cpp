@@ -431,7 +431,7 @@ void GameScreen::showReplayPanel() {
 }
 
 void GameScreen::layoutReplayPanel() {
-  const float dw = (float)(canvasWidth() - 800);
+  const float dw = (float)(canvasWidth() - 800 - hudInset());
   Button* const b[3] = {rbReplay_, rbSave_, rbDone_};
   const float top[3] = {395, 468, 539};
   for (int i = 0; i < 3; i++) {
@@ -447,7 +447,7 @@ void GameScreen::drawReplayHousing(Gfx& g) {
   Tex* top = g.img("IMAGE_DLG_REPLAYTOP");
   Tex* seg = g.img("IMAGE_DLG_REPLAYSEGMENT");
   if (!top || !seg) return;
-  const float x = 726 + (float)(canvasWidth() - 800);
+  const float x = 726 + (float)(canvasWidth() - 800 - hudInset());
   float y = 385;
   g.draw(top, x, y);
   y += top->lh() - 2;
@@ -473,8 +473,9 @@ void GameScreen::drawReplayText(Gfx& g) {
   centred(189, "Instant Replay Finished!", "Instant Replay Finished!");
   centred(213, "Hit ^FF44FF^Done Button^oldclr^ to Return to Game.", "Hit Done Button to Return to Game.");
   centred(237, "Hit ^00FF00^Instant Replay Button^oldclr^ to Watch Again.", "Hit Instant Replay Button to Watch Again.");
-  g.drawString(font, 99, 85, "Replay", 0xffff00, 1, Align::Left);
-  g.drawString(font, 637 + dw, 85, "Replay", 0xffff00, 1, Align::Left);
+  const float inset = (float)hudInset();
+  g.drawString(font, 99 + inset, 85, "Replay", 0xffff00, 1, Align::Left);
+  g.drawString(font, 637 + dw - inset, 85, "Replay", 0xffff00, 1, Align::Left);
 }
 
 void GameScreen::onButton(int id) {
@@ -520,6 +521,7 @@ bool GameScreen::startViewer(const ReplayData& d) {
   viewer_ = true;
   recording_ = false;
   BoardConfig rcfg = d.cfg;
+  rcfg.authoredWidth = lb_.cfg.authoredWidth;
   rcfg.liveSpin = true;
   cfg_ = rcfg;
   if (app.audio) app.audio->dropQueued();
@@ -1101,19 +1103,36 @@ void GameScreen::nextLevel() {
 static bool inReplayButton(float x, float y, float dw) { return x >= 736 + dw && x < 787 + dw && y >= 540 && y < 591; }
 static bool inMenuButton(float x, float y) { return x >= 12 && x < 63 && y >= 540 && y < 591; }
 
-bool GameScreen::input(const Input& in) {
-  if (replayPanel_) return Panel::input(in);
-  const auto menuLive = [&]() { return inMenuButton(in.x, in.y) && !done_ && pauseCount_ == 0; };
+Renderer::View GameScreen::consoleView() const {
+  return app.boardRenderer ? app.boardRenderer->consoleView(canvasWidth(), board_.W) : Renderer::View{};
+}
+
+static Input inView(const Input& in, const Renderer::View& v) {
+  Input out = in;
+  out.x = (in.x - v.x) / v.k;
+  out.y = (in.y - v.y) / v.k;
+  return out;
+}
+
+bool GameScreen::input(const Input& raw) {
+  const Input in = inView(raw, consoleView());
+  if (replayPanel_) {
+    layoutReplayPanel();
+    return Panel::input(in);
+  }
+  const float inset = (float)hudInset();
+  const float rightOffset = canvasWidth() - 800 - inset;
+  const auto menuLive = [&]() { return inMenuButton(in.x - inset, in.y) && !done_ && pauseCount_ == 0; };
   const auto replayLive = [&]() {
-    return inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn();
+    return inReplayButton(in.x, in.y, rightOffset) && haveSnap_ && board_.shotIndex > 0 && pauseCount_ == 0 && !done_ && board_.phase == Phase::Aim && humanTurn();
   };
   switch (in.type) {
     case Input::MouseMove:
       mouseBx_ = (int)std::floor(in.x) - boardLeft();
       mouseBy_ = (int)std::floor(in.y) - 40;
       haveMouse_ = true;
-      mouseOverMenu_ = inMenuButton(in.x, in.y);
-      mouseOverReplay_ = inReplayButton(in.x, in.y, (float)(canvasWidth() - 800));
+      mouseOverMenu_ = inMenuButton(in.x - inset, in.y);
+      mouseOverReplay_ = inReplayButton(in.x, in.y, rightOffset);
       pushMouse();
       break;
     case Input::MouseLeave:
@@ -1123,7 +1142,7 @@ bool GameScreen::input(const Input& in) {
       mouseBx_ = (int)std::floor(in.x) - boardLeft();
       mouseBy_ = (int)std::floor(in.y) - 40;
       haveMouse_ = true;
-      if (in.button == 3 && ready_ && !replaying_ && inReplayButton(in.x, in.y, (float)(canvasWidth() - 800)) && canSaveReplay() && board_.shotIndex > 0 && pauseCount_ == 0 &&
+      if (in.button == 3 && ready_ && !replaying_ && inReplayButton(in.x, in.y, rightOffset) && canSaveReplay() && board_.shotIndex > 0 && pauseCount_ == 0 &&
           !done_ && board_.phase == Phase::Aim && humanTurn()) { startReplay(true); break; }
       if (in.button == 3) { rightDown_ = true; break; }
       if (in.button != 1 || !ready_) break;
@@ -1160,9 +1179,10 @@ bool GameScreen::input(const Input& in) {
   return true;
 }
 
-void GameScreen::menuThroughDialog(const Input& in) {
+void GameScreen::menuThroughDialog(const Input& raw) {
+  const Input in = inView(raw, consoleView());
   if (!charPaused_ || done_ || in.button != 1) return;
-  const bool over = inMenuButton(in.x, in.y);
+  const bool over = inMenuButton(in.x - hudInset(), in.y);
   if (in.type == Input::MouseDown) {
     if (over) heldButton_ = 1;
   } else if (in.type == Input::MouseUp && heldButton_ == 1) {

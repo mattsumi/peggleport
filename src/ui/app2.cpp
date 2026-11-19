@@ -194,7 +194,7 @@ void App::doOptionsDialog() {
   pauseBoard(true);
   auto d = std::make_unique<OptionsDialog>(*this, hasBoard());
   OptionsDialog* raw = d.get();
-  positionDialog(raw, 0x1b8);
+  positionDialog(raw, raw->preferredWidth(), raw->preferredWidth() > 440);
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }
@@ -227,7 +227,7 @@ void App::setGames(bool both, Game home) {
   d->fullscreen->checked = old->fullscreen->checked;
   d->colorblind->checked = old->colorblind->checked;
   old->gone = true;
-  positionDialog(d.get(), 0x1b8);
+  positionDialog(d.get(), d->preferredWidth(), d->preferredWidth() > 440);
   dialogs_.push_back(std::move(d));
 }
 

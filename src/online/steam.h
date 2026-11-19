@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -18,6 +19,7 @@ void clearPresence();
 bool takeJoinRequest(std::string* inviteLink);
 void discardJoinRequest();
 uint64_t identity();
+bool padGlyphs(uint64_t handle, std::array<std::string, 4>* art);
 enum class RoomState { Failed, Pending, Active, Busy };
 RoomState roomState(const void* owner);
 bool hostRoom(const void* owner, const std::string& invite, int capacity);

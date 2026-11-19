@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@
 #include "online/invite.h"
 #include "online/online_ui.h"
 #include "render.h"
+#include "ui/screens.h"
 
 namespace pp::ui {
 
@@ -36,6 +38,7 @@ struct Live {
   App* app = nullptr;
   Gfx* gfx = nullptr;
   std::vector<SDL_Gamepad*> pads;
+  std::set<std::pair<SDL_JoystickID, Uint8>> consolePadButtons;
   bool hidden = false;
   GameWindow* window = nullptr;
   int leftTicks = 0;
@@ -73,10 +76,36 @@ static bool handleGamepad(Live& L, const SDL_Event& e) {
     app.input(in);
   };
   static bool stickL = false, stickR = false, trig = false;
+  if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) app.pad = readPad(SDL_GetGamepadFromID(e.gbutton.which));
   switch (e.type) {
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
     case SDL_EVENT_GAMEPAD_BUTTON_UP: {
       bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+      const auto press = std::pair{e.gbutton.which, e.gbutton.button};
+      if (!down && L.consolePadButtons.erase(press)) return true;
+      if (auto* title = dynamic_cast<LoadingScreen*>(app.screen()); title && title->canvasWidth() > 800 &&
+          !app.anyDialog() && (e.gbutton.button == SDL_GAMEPAD_BUTTON_START || e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH)) {
+        if (down) { L.consolePadButtons.insert(press); key(SDLK_RETURN, true); }
+        return true;
+      }
+      if (auto* menu = dynamic_cast<MainMenu*>(app.screen()); menu && menu->canvasWidth() > 800 &&
+          !app.anyDialog() && !app.helpOverlay() && !app.moving()) {
+        int direction = 0;
+        switch (e.gbutton.button) {
+          case SDL_GAMEPAD_BUTTON_DPAD_UP: direction = SDLK_UP; break;
+          case SDL_GAMEPAD_BUTTON_DPAD_DOWN: direction = SDLK_DOWN; break;
+          case SDL_GAMEPAD_BUTTON_DPAD_LEFT: direction = SDLK_LEFT; break;
+          case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: direction = SDLK_RIGHT; break;
+          case SDL_GAMEPAD_BUTTON_SOUTH: direction = SDLK_RETURN; break;
+          case SDL_GAMEPAD_BUTTON_EAST: direction = SDLK_ESCAPE; break;
+          default: break;
+        }
+        if (direction && down) {
+          L.consolePadButtons.insert(press);
+          key(direction, true);
+          return true;
+        }
+      }
       switch (e.gbutton.button) {
         case SDL_GAMEPAD_BUTTON_DPAD_LEFT: key(SDLK_UP, down); break;
         case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: key(SDLK_DOWN, down); break;
@@ -120,10 +149,12 @@ static void handleEvent(Live& L, SDL_Event& e) {
       break;
     case SDL_EVENT_MOUSE_MOTION: in.type = Input::MouseMove; in.wx = e.motion.x; in.wy = e.motion.y; have = true; break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
+      app.pad = {};
       in.type = Input::MouseDown; in.wx = e.button.x; in.wy = e.button.y; in.button = e.button.button; in.clicks = e.button.clicks; have = true; break;
     case SDL_EVENT_MOUSE_BUTTON_UP: in.type = Input::MouseUp; in.wx = e.button.x; in.wy = e.button.y; in.button = e.button.button; have = true; break;
     case SDL_EVENT_MOUSE_WHEEL: in.type = Input::Wheel; in.wheel = e.wheel.y; have = true; break;
     case SDL_EVENT_KEY_DOWN:
+      app.pad = {};
       in.type = Input::KeyDown; in.key = (int)e.key.key; in.mod = (int)e.key.mod;
       have = !e.key.repeat || e.key.key == SDLK_LEFT || e.key.key == SDLK_RIGHT || e.key.key == SDLK_BACKSPACE || e.key.key == SDLK_DELETE;
       break;

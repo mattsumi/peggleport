@@ -47,20 +47,90 @@ Editor::Editor() {
 }
 
 static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
-  std::ifstream f(p, std::ios::binary);
+  std::ifstream f(p, std::ios::binary | std::ios::ate);
   if (!f) return false;
-  out.assign(std::istreambuf_iterator<char>(f), {});
-  return true;
+  const auto size = f.tellg();
+  if (size < 0) return false;
+  out.resize((size_t)size);
+  f.seekg(0);
+  f.read((char*)out.data(), (std::streamsize)out.size());
+  return (bool)f && f.gcount() == (std::streamsize)out.size();
 }
 static bool spit(const fs::path& p, const void* data, size_t n) {
   std::error_code ec;
-  fs::create_directories(p.parent_path(), ec);
+  if (!p.parent_path().empty()) fs::create_directories(p.parent_path(), ec);
+  if (ec) return false;
   std::ofstream f(p, std::ios::binary);
   if (!f) return false;
   f.write((const char*)data, (std::streamsize)n);
+  f.flush();
+  f.close();
   return (bool)f;
 }
 static bool spit(const fs::path& p, const std::string& s) { return spit(p, s.data(), s.size()); }
+
+static bool saveLevelFiles(const fs::path& dat, const std::vector<uint8_t>& bytes, const fs::path& ini, const std::string& text, std::string* err, const std::string* index = nullptr, const std::string* metadata = nullptr) {
+  auto fail = [&](const std::string& message) { if (err) *err = message; return false; };
+  if (dat == ini) return fail("DAT and INI paths must differ");
+  struct Output {
+    fs::path path, staged, backup;
+    const void* data;
+    size_t size;
+    bool existed = false;
+    std::vector<uint8_t> old;
+  };
+  std::vector<Output> outputs = {{dat, "new.dat", "old.dat", bytes.data(), bytes.size()}, {ini, "new.ini", "old.ini", text.data(), text.size()}};
+  if (index) outputs.push_back({dat.parent_path() / "mod_levels.cfg", "new.cfg", "old.cfg", index->data(), index->size()});
+  if (metadata) outputs.push_back({dat.parent_path().parent_path() / "mod.ini", "new.mod.ini", "old.mod.ini", metadata->data(), metadata->size()});
+  std::error_code ec;
+  for (auto& output : outputs) {
+    output.existed = fs::exists(output.path, ec);
+    if (ec) return fail("cannot inspect " + pathToUtf8(output.path) + ": " + ec.message());
+    if (!output.existed) continue;
+    if (!fs::is_regular_file(output.path, ec) || ec) return fail("not a regular file: " + pathToUtf8(output.path));
+    std::fstream probe(output.path, std::ios::binary | std::ios::in | std::ios::out);
+    if (!probe) return fail("cannot write " + pathToUtf8(output.path));
+    probe.flush();
+    probe.close();
+    if (!probe) return fail("cannot close " + pathToUtf8(output.path));
+    if (!slurp(output.path, output.old)) return fail("cannot read " + pathToUtf8(output.path));
+  }
+  const fs::path parent = dat.parent_path().empty() ? fs::path(".") : dat.parent_path();
+  fs::create_directories(parent, ec);
+  if (ec) return fail("cannot create " + pathToUtf8(parent) + ": " + ec.message());
+  struct Staging {
+    fs::path path;
+    bool keep = false;
+    ~Staging() { std::error_code ec; if (!keep && !path.empty()) fs::remove_all(path, ec); }
+  } staging;
+  for (size_t i = 0;; ++i) {
+    const fs::path candidate = parent / (pathToUtf8(dat.filename()) + ".save-" + std::to_string(i));
+    if (fs::create_directory(candidate, ec)) { staging.path = candidate; break; }
+    if (ec) return fail("cannot stage " + pathToUtf8(dat) + ": " + ec.message());
+  }
+  for (auto& output : outputs) {
+    output.staged = staging.path / output.staged;
+    output.backup = staging.path / output.backup;
+    if (!spit(output.staged, output.data, output.size)) return fail("cannot stage " + pathToUtf8(output.path));
+    if (output.existed && !spit(output.backup, output.old.data(), output.old.size())) return fail("cannot back up " + pathToUtf8(output.path));
+  }
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    fs::rename(outputs[i].staged, outputs[i].path, ec);
+    if (!ec) continue;
+    std::string message = "cannot replace " + pathToUtf8(outputs[i].path) + ": " + ec.message();
+    for (size_t j = i; j > 0; --j) {
+      auto& output = outputs[j - 1];
+      if (output.existed) fs::rename(output.backup, output.path, ec);
+      else fs::remove(output.path, ec);
+      if (ec) {
+        staging.keep = true;
+        message += "; cannot restore " + pathToUtf8(output.path) + ": " + ec.message() + "; recovery files: " + pathToUtf8(staging.path);
+      }
+    }
+    return fail(message);
+  }
+  return true;
+}
 
 static std::vector<const Node*> builtNodes(const Level& L);
 
@@ -85,6 +155,51 @@ void Editor::setCustomType(const std::string& key) {
     status = k.empty() ? "custom type removed" : "custom type " + k + " on " + std::to_string(n) + " peg(s)";
     changed();
   }
+}
+
+std::string Editor::collisionRole(const NodeP& n) const {
+  if (!n || (n->type != 2 && n->type != 3 && n->type != 5 && n->type != 6) || n->str("id") == "flipper") return "";
+  if (!n->flag("collidable")) return "decoration";
+  if (pegTypeOf(*n) > 0) return "peg";
+  if (n->f("bouncy") > 1.0f || (n->type == 5 && !n->has("bouncy"))) return "bumper";
+  return "terrain";
+}
+
+bool Editor::setCollisionRole(const std::string& role) {
+  if (role != "peg" && role != "bumper" && role != "terrain" && role != "decoration") {
+    status = "unknown collision role";
+    return false;
+  }
+  if (sel.empty()) { status = "select an object first"; return false; }
+  const auto live = objects();
+  std::vector<NodeP> touch;
+  for (const auto& n : sel) {
+    const std::string old = collisionRole(n);
+    if (old.empty() || std::find(live.begin(), live.end(), n) == live.end() || (role == "peg" && n->type != 5 && n->type != 6)) {
+      status = "collision role is not supported by every selected object";
+      return false;
+    }
+    if (old != role || (role != "peg" && pegOf(*n)))
+      if (std::find(touch.begin(), touch.end(), n) == touch.end()) touch.push_back(n);
+  }
+  if (touch.empty()) return true;
+  cancelGesture();
+  begin("Collision role: " + role, touch);
+  for (auto& n : touch) {
+    n->flags["collidable"] = role != "decoration";
+    setPegType(*n, role == "peg" ? std::max(1, pegTypeOf(*n)) : 0);
+    if (role == "bumper") {
+      putNum(*n, "bouncy", Prim::F32, 1.2);
+      putNum(*n, "sound", Prim::U8, 4);
+    } else if (role == "terrain" || role == "peg") {
+      if (role == "terrain") putNum(*n, "bouncy", Prim::F32, 0.75);
+      else eraseField(*n, "bouncy");
+      if (n->i("sound") == 4) eraseField(*n, "sound");
+    }
+  }
+  commit();
+  status = "collision role: " + role;
+  return true;
 }
 
 void Editor::setVfs(const Vfs* v) {
@@ -244,7 +359,7 @@ void Editor::newLevel(const std::string& name, int boardWidth) {
   meta = LevelMeta();
   meta.name = name;
   meta.title = name;
-  meta.boardWidth = std::max(650, boardWidth);
+  meta.boardWidth = std::clamp(boardWidth, 650, 1400);
   savedPath.clear();
   resetHistory();
   status = "new level " + name;
@@ -341,9 +456,20 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   std::string e;
   auto lv = parseLevel(bytes, &e);
   if (!lv) { if (err) *err = e; return false; }
+  int boardWidth = 650;
+  fs::path side = p;
+  side.replace_extension(".ini");
+  std::error_code ec;
+  if (fs::exists(side, ec)) {
+    if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
+    auto ini = readIni(std::string(bytes.begin(), bytes.end()));
+    if (ini.count("board_width")) boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
+  }
+  if (ec) { if (err) *err = "cannot read " + pathToUtf8(side) + ": " + ec.message(); return false; }
   level = std::make_shared<Level>(std::move(*lv));
   meta.name = pathToUtf8(p.stem());
   meta.title = meta.name;
+  meta.boardWidth = boardWidth;
   savedPath = p;
   finishLoad();
   status = "opened " + pathToUtf8(p);
@@ -352,8 +478,18 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
 
 bool Editor::saveDat(const fs::path& p, std::string* err) {
   try {
+    if (lowerS(pathToUtf8(p.extension())) == ".ini") { if (err) *err = "DAT target must not use the INI extension"; return false; }
     auto bytes = writeLevel(*level);
-    if (!spit(p, bytes.data(), bytes.size())) { if (err) *err = "cannot write " + pathToUtf8(p); return false; }
+    fs::path side = p;
+    side.replace_extension(".ini");
+    std::vector<uint8_t> old;
+    if (fs::exists(side) && !slurp(side, old)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
+    std::istringstream in(std::string(old.begin(), old.end()));
+    std::string line, text;
+    while (std::getline(in, line))
+      if (!readIni(line).count("board_width")) text += line + "\n";
+    text += "board_width = " + std::to_string(meta.boardWidth) + "\n";
+    if (!saveLevelFiles(p, bytes, side, text, err)) return false;
   } catch (const std::exception& ex) {
     if (err) *err = ex.what();
     return false;
@@ -396,8 +532,7 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     return false;
   }
   fs::path lv = modDir / "levels";
-  std::string e;
-  if (!saveDat(lv / (meta.name + ".dat"), &e)) { if (err) *err = e; return false; }
+  const fs::path target = lv / (meta.name + ".dat");
   std::ostringstream ini;
   ini << "# written by the PegglePort level editor\n";
   ini << "title = " << meta.title << "\n";
@@ -419,12 +554,13 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     }
     for (auto& [type, list] : byType) ini << "peg = " << list << ": " << type << "\n";
   }
-  spit(lv / (meta.name + ".ini"), ini.str());
-  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + pathToUtf8(modDir));
   std::vector<std::pair<std::string, std::string>> levels;
   {
     std::vector<uint8_t> bytes;
-    if (slurp(lv / "mod_levels.cfg", bytes)) {
+    std::error_code ec;
+    const bool exists = fs::exists(lv / "mod_levels.cfg", ec);
+    if (ec || (exists && !slurp(lv / "mod_levels.cfg", bytes))) { if (err) *err = "cannot read mod level list"; return false; }
+    if (exists) {
       std::istringstream in(std::string(bytes.begin(), bytes.end()));
       std::string line;
       while (std::getline(in, line)) {
@@ -451,13 +587,27 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     for (size_t j = i; j < std::min(levels.size(), i + 5); j++) out += "\t" + levels[j].second + "\n";
     out += "}\n";
   }
-  spit(lv / "mod_levels.cfg", out);
-  if (!fs::exists(modDir / "mod.ini")) {
-    std::string id = pathToUtf8(modDir.filename());
-    for (auto& c : id) c = (char)std::tolower((unsigned char)c);
-    spit(modDir / "mod.ini", "id = " + id + "\nname = " + pathToUtf8(modDir.filename()) + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n");
+  try {
+    const fs::path modIni = modDir / "mod.ini";
+    const bool hasMetadata = fs::exists(modIni);
+    if (hasMetadata && !fs::is_regular_file(modIni)) { if (err) *err = "not a regular file: " + pathToUtf8(modIni); return false; }
+    std::string metadata;
+    if (!hasMetadata) {
+      std::string id = pathToUtf8(modDir.filename());
+      for (auto& c : id) c = (char)std::tolower((unsigned char)c);
+      metadata = "id = " + id + "\nname = " + pathToUtf8(modDir.filename()) + "\nversion = 1\ndescription = Levels made with the PegglePort level editor\npriority = 10\n";
+    }
+    const auto bytes = writeLevel(*level);
+    if (!saveLevelFiles(target, bytes, lv / (meta.name + ".ini"), ini.str(), err, &out, hasMetadata ? nullptr : &metadata)) return false;
+  } catch (const std::exception& ex) {
+    if (err) *err = ex.what();
+    return false;
   }
-  status = "saved " + pathToUtf8(lv / (meta.name + ".dat"));
+  if (int copied = copyArtToMod(modDir)) pp::log::info("editor", "copied " + std::to_string(copied) + " picture file(s) from other mods into " + pathToUtf8(modDir));
+  savedPath = target;
+  clean_ = (int)undo_.size();
+  metaDirty = false;
+  status = "saved " + pathToUtf8(target);
   return true;
 }
 
@@ -465,6 +615,7 @@ void Editor::begin(const std::string& label, const std::vector<NodeP>& touch) {
   if (open_) abort();
   cur_ = Step();
   cur_.label = label;
+  cur_.widthBefore = meta.boardWidth;
   cur_.eb = level->entries;
   cur_.touched = touch;
   for (auto& n : touch)
@@ -494,6 +645,7 @@ void Editor::commit() {
   if (!open_) return;
   keepFollowers();
   cur_.ea = level->entries;
+  cur_.widthAfter = meta.boardWidth;
   for (auto& n : cur_.touched) cur_.sa.push_back(snapNode(n));
   undo_.push_back(std::move(cur_));
   if (clean_ > (int)undo_.size() - 1 && !redo_.empty()) clean_ = -1;
@@ -505,6 +657,7 @@ void Editor::commit() {
 void Editor::abort() {
   if (!open_) return;
   level->entries = cur_.eb;
+  meta.boardWidth = cur_.widthBefore;
   for (auto& s : cur_.sb) restoreNode(s);
   cur_ = Step();
   open_ = false;
@@ -523,6 +676,7 @@ bool Editor::undo() {
   Step s = std::move(undo_.back());
   undo_.pop_back();
   level->entries = s.eb;
+  meta.boardWidth = s.widthBefore;
   for (auto it = s.sb.rbegin(); it != s.sb.rend(); ++it) restoreNode(*it);
   status = "undo: " + s.label;
   redo_.push_back(std::move(s));
@@ -536,6 +690,7 @@ bool Editor::redo() {
   Step s = std::move(redo_.back());
   redo_.pop_back();
   level->entries = s.ea;
+  meta.boardWidth = s.widthAfter;
   for (auto& x : s.sa) restoreNode(x);
   status = "redo: " + s.label;
   undo_.push_back(std::move(s));
@@ -1040,7 +1195,17 @@ void Editor::setMeta(const std::string& k, const std::string& v) {
   else if (k == "title") meta.title = v;
   else if (k == "background") meta.background = v;
   else if (k == "master") meta.master = v;
-  else if (k == "board_width") meta.boardWidth = std::clamp(std::atoi(v.c_str()), 650, 1400);
+  else if (k == "board_width") {
+    double width = 0;
+    if (!physicsParseNumber(v, width) || width != std::floor(width)) return;
+    const int next = (int)std::clamp(width, 650.0, 1400.0);
+    if (next == meta.boardWidth) return;
+    cancelGesture();
+    begin("Board width", {});
+    meta.boardWidth = next;
+    commit();
+    return;
+  }
   else if (k == "balls") meta.balls = std::clamp(std::atoi(v.c_str()), 0, 99);
   else if (k == "orange") meta.orange = std::clamp(std::atoi(v.c_str()), 0, 500);
   else if (int pk = 0; physicsKeyByName(k, pk)) {
@@ -1268,6 +1433,7 @@ void Editor::finishPoly() {
 BoardConfig Editor::boardConfig(uint32_t seed) const {
   BoardConfig c;
   c.boardWidth = std::max(650, meta.boardWidth);
+  c.authoredWidth = c.boardWidth;
   c.balls = meta.balls;
   c.orange = meta.orange;
   c.physics = meta.physics;

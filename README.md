@@ -71,6 +71,8 @@ On 16:9, 16:10 and 21:9 windows the picture fills the window instead of showing 
 
 Smooth motion between the game's 10 ms steps, smooth scaling, bloom glow, peg sparks and a frame that stretches over an ultrawide window. They change nothing about how the game plays, and they are all off by default so the game looks like the original.
 
+The console menus and centered 16:9 gameplay frame are built in. The [artwork guide](faq/hd-mod.md) covers importing original PS3 presentation art and the separate, optional iPad texture mod.
+
 ### Saves and profiles
 
 Leave a level in the middle and it waits for you exactly as it was, in Adventure, Quick Play, Duel and Challenge. **Import Player** brings over a player from the original games with adventure progress, trophies and scores. The original files are only read.
@@ -88,7 +90,7 @@ Mods replace art, sound and levels, or add behaviour with Lua scripts and native
 
 ### Online play
 
-Duels for two players and Peg Party for up to four. A public lobby is filled in when you open **Online**, so one player creates a room and the others join from the list, with a 5-character code or with an invite link. You can also run your own lobby with `pp_lobbyd`. See the [online guide](faq/online.md).
+Duels for two players and Peg Party for up to four. **Online** automatically lists LAN/local and global rooms together, without a server-address setup step. One player creates a room and the others select it, type a 5-character code or open an invite link. You can also run your own lobby with `pp_lobbyd`; custom servers remain available through settings or invites. See the [online guide](faq/online.md).
 
 ### Discord and Steam
 

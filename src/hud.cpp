@@ -49,24 +49,32 @@ void Renderer::drawFrame(int dw) {
   };
   struct R { int x, y, w, h; };
   const R regions[] = {{88, 0, 624 + dw, 74}, {345 + dw / 2, 74, 110, 70}, {0, 0, 88, 600}, {712 + dw, 0, 88, 600}, {88, 586, 624 + dw, 14}};
-  for (auto& rg : regions) {
-    SDL_Rect clip{(int)std::floor(px((float)rg.x)), (int)std::floor(py((float)rg.y)), (int)std::ceil(rg.w * s_), (int)std::ceil(rg.h * s_)};
-    SDL_SetRenderClipRect(r_, &clip);
-    for (auto& p : pieces) {
-      Tex* t = img(p.id);
-      if (!t) continue;
-      float x = (float)p.x + (p.anchor == 2 ? (float)dw : p.anchor == 1 ? dw / 2.0f : 0.0f);
-      if (p.whole && p.stretch > 0) {
-        const float cap = 18, w = t->lw(), h = t->lh(), ex = (float)p.stretch;
-        put(t, {0, 0, cap, h}, x, (float)p.y);
-        put(t, {cap, 0, w - 2 * cap, h}, x + cap, (float)p.y, {}, w - 2 * cap + ex, h);
-        put(t, {w - cap, 0, cap, h}, x + w - cap + ex, (float)p.y);
-      } else if (p.whole) {
-        put(t, {0, 0, t->lw(), t->lh()}, x, (float)p.y);
-      } else {
-        int cel = std::clamp(stageCel_, 0, std::max(t->rows, t->cols) - 1);
-        int col = t->cols > 1 ? cel : 0, row = t->cols > 1 ? 0 : cel;
-        put(t, {col * t->cw(), row * t->ch(), t->cw(), t->ch()}, x, (float)p.y, {}, t->cw() + p.stretch, t->ch());
+  for (int pass = 0; pass < 2; ++pass) {
+    if (pass == 1 && trimClip_) {
+      SDL_SetRenderClipRect(r_, &*trimClip_);
+      for (auto [path, u] : {std::pair{"console/trim/left", -143.0f}, std::pair{"console/trim/right", 707.0f + dw}})
+        if (Tex* t = tex(path)) quad(t, {0, 0, (float)t->w, (float)t->h}, u, -44, t->lw(), t->lh());
+    }
+    for (auto& rg : regions) {
+      SDL_Rect clip{(int)std::floor(px((float)rg.x)), (int)std::floor(py((float)rg.y)), (int)std::ceil(rg.w * s_), (int)std::ceil(rg.h * s_)};
+      SDL_SetRenderClipRect(r_, &clip);
+      for (auto& p : pieces) {
+        if (p.whole != (pass == 1)) continue;
+        Tex* t = img(p.id);
+        if (!t) continue;
+        float x = (float)p.x + (p.anchor == 2 ? (float)dw : p.anchor == 1 ? dw / 2.0f : 0.0f);
+        if (p.whole && p.stretch > 0) {
+          const float cap = 18, w = t->lw(), h = t->lh(), ex = (float)p.stretch;
+          put(t, {0, 0, cap, h}, x, (float)p.y);
+          put(t, {cap, 0, w - 2 * cap, h}, x + cap, (float)p.y, {}, w - 2 * cap + ex, h);
+          put(t, {w - cap, 0, cap, h}, x + w - cap + ex, (float)p.y);
+        } else if (p.whole) {
+          put(t, {0, 0, t->lw(), t->lh()}, x, (float)p.y);
+        } else {
+          int cel = std::clamp(stageCel_, 0, std::max(t->rows, t->cols) - 1);
+          int col = t->cols > 1 ? cel : 0, row = t->cols > 1 ? 0 : cel;
+          put(t, {col * t->cw(), row * t->ch(), t->cw(), t->ch()}, x, (float)p.y, {}, t->cw() + p.stretch, t->ch());
+        }
       }
     }
   }
@@ -437,7 +445,7 @@ void Renderer::drawHud(const Board& b, const Hud& hud) {
     if (hud.mode == Hud::ModeStage) {
       char buf[32];
       std::snprintf(buf, sizeof buf, "%d-%d", (hud.stageNo >= 0 ? hud.stageNo : stageNo_) + 1, (hud.levelNo >= 0 ? hud.levelNo : levelNo_) + 1);
-      mode("Stage", true);
+      mode(b.cfg.nights && trimClip_ ? "Nights Stage" : "Stage", true);
       detail(buf, true, 12);
       if (hud.totalScore > 0) detail("Total", false, 0);
     } else if (hud.mode == Hud::ModeDuel) {

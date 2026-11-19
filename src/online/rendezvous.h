@@ -10,7 +10,7 @@ namespace pp::online {
 
 namespace rdv {
 constexpr uint8_t kMagic0 = 'P', kMagic1 = 'R';
-enum : uint8_t { kHello = 1, kCookie = 2, kReg = 3, kRegOk = 4, kPeer = 5, kObs = 6, kObsr = 7 };
+enum : uint8_t { kHello = 1, kCookie = 2, kReg = 3, kRegOk = 4, kPeer = 5, kObs = 6, kObsr = 7, kDiscover = 8, kDiscovered = 9 };
 constexpr size_t kMinRequest = 64, kMaxRequest = 128;
 }
 

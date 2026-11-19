@@ -5,19 +5,21 @@
 
 namespace pp::ui {
 
-static const float kRowH = 46;
+static const float kRowH = 64;
 
 VisualsDialog::VisualsDialog(App& a) : Dialog(a, D_Visuals, true, "ENHANCED VISUALS", "", "Done", BUTTONS_FOOTER) {
+  insL = insR = 48;
+  if (auto* options = a.getDialog(D_Options); options && options->w > 440) styleConsoleAction(*yesBtn);
   auto mkCheck = [&](int id, const char* label, bool v, const char* hint) {
     auto c = std::make_unique<Checkbox>();
     c->id = id;
-    c->image = a.gfx.img("IMAGE_DLG_BUTTON2");
-    c->style = 1;
+    c->image = a.gfx.img("IMAGE_DLG_BUTTON1");
+    c->style = 0;
     c->label = label;
     c->checked = v;
-    c->labelX = 30;
-    c->w = a.gfx.textWidth("BUTTON", label) + 30;
-    c->h = c->image ? c->image->lh() / 3 : 24;
+    c->labelX = 40;
+    c->w = a.gfx.textWidth("BUTTON", label) + c->labelX + 4 + (c->image ? c->image->lw() / 3 : 34);
+    c->h = c->image ? c->image->lh() / 4 : 34;
     Checkbox* raw = add(std::move(c));
     rows.push_back({raw, hint});
     return raw;
@@ -30,36 +32,46 @@ VisualsDialog::VisualsDialog(App& a) : Dialog(a, D_Visuals, true, "ENHANCED VISU
   uwhud = mkCheck(4, "Ultra-Wide HUD", v.ultraWideHud, "Stretch the frame over the whole window, whatever its shape.");
   auto s = std::make_unique<Slider>();
   s->id = 6;
+  s->thumb = a.gfx.img("IMAGE_DLG_SLIDERORB");
   s->label = "Bloom Strength";
   s->value = std::clamp(v.bloomStrength / 2.0f, 0.0f, 1.0f);
-  s->w = 0xbe;
+  s->w = 0xa2;
   s->h = 0x24;
   bloomStr = add(std::move(s));
   bloomStr->enabled = v.bloom;
-  extraH = rows.size() * kRowH + 38 + 12;
+  extraH = rows.size() * kRowH + 44 + 24;
 }
 
 float VisualsDialog::preferredHeight(float width) { return Dialog::preferredHeight(width) + kOwnLayoutExtra + extraH; }
 
 void VisualsDialog::layout() {
-  float y = contentTop(app.gfx) - 8;
+  float y = contentTop(app.gfx);
   for (size_t i = 0; i < rows.size(); i++) {
     rows[i].box->x = insL;
     rows[i].box->y = y;
     y += kRowH;
     if (i == 2) {
-      bloomStr->x = insL + 170;
-      bloomStr->y = y - 4;
-      y += 38;
+      bloomStr->x = insL + bloom->labelX + 170;
+      bloomStr->y = y;
+      y += 44;
     }
   }
+  yesBtn->w = 470;
+  yesBtn->x = (w - yesBtn->w) / 2;
 }
 
 void VisualsDialog::drawLayer(Gfx& g) {
   layout();
   Dialog::drawLayer(g);
   for (auto& r : rows)
-    g.drawString("PLAIN", r.box->x + 30, r.box->y + r.box->h + 13, r.hint, r.box->enabled ? 0xbfd8ff : 0x808080, 1.0f);
+    g.drawString("PLAIN", r.box->x + r.box->labelX, r.box->y + r.box->h + 18, r.hint, r.box->enabled ? 0xbfd8ff : 0x808080, 1.0f);
+}
+
+void VisualsDialog::fitConsoleFooter() {
+  if (scrollingOff || !usesConsoleOptionsChrome()) return;
+  const float limit = std::max(10.0f, kOptionsFooterTop - 10 - h);
+  if (scrollActive) scrollTarget = std::min(scrollTarget, limit);
+  else y = std::min(y, limit);
 }
 
 void VisualsDialog::checkboxChanged(int id, bool on) {
@@ -87,7 +99,10 @@ void App::doVisualsDialog() {
   if (getDialog(D_Visuals)) return;
   auto d = std::make_unique<VisualsDialog>(*this);
   Dialog* raw = d.get();
-  positionDialog(raw, 540);
+  positionDialog(raw, 600);
+  const bool consoleParent = raw->usesConsoleOptionsChrome();
+  const float bottom = consoleParent ? Dialog::kOptionsFooterTop - 10 : 580;
+  raw->y = std::max(10.0f, std::min(raw->y, bottom - raw->h));
   raw->doScroll(true);
   dialogs_.push_back(std::move(d));
 }

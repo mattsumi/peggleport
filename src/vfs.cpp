@@ -113,7 +113,7 @@ bool loadPak(const fs::path& p, Pak& out, std::string* err) {
   return true;
 }
 
-void Vfs::indexDir(Layer& L) {
+void Vfs::indexDir(Layer& L, std::string_view prefix) {
   std::error_code ec;
   for (auto it = fs::recursive_directory_iterator(L.root, fs::directory_options::skip_permission_denied, ec);
        it != fs::recursive_directory_iterator(); it.increment(ec)) {
@@ -121,7 +121,7 @@ void Vfs::indexDir(Layer& L) {
     if (!it->is_regular_file()) continue;
     auto rel = genericUtf8(fs::relative(it->path(), L.root, ec));
     if (rel.empty() || rel[0] == '.') continue;
-    L.files.emplace(normKey(rel), it->path());
+    L.files.emplace(std::string(prefix) + normKey(rel), it->path());
   }
 }
 
@@ -168,6 +168,21 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   D.root = gameDir;
   indexDir(D);
   layers_.push_back(std::move(D));
+  return true;
+}
+
+bool Vfs::mountPresentation(const fs::path& dataDir) {
+  if (dataDir.empty()) return false;
+  Layer L;
+  L.root = dataDir / "console";
+  L.label = "console presentation";
+  L.meta.emplace("image_alpha", "baked");
+  indexDir(L, "CONSOLE\\");
+  std::erase_if(L.files, [](const auto& image) { return !image.first.ends_with(".PNG"); });
+  if (L.files.empty()) return false;
+  auto where = std::find_if(layers_.begin(), layers_.end(), [](const Layer& layer) { return !layer.isMod; });
+  pp::log::info("game", "console presentation: " + pathToUtf8(L.root) + " (" + std::to_string(L.files.size()) + " images)");
+  layers_.insert(where, std::move(L));
   return true;
 }
 

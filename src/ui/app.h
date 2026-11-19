@@ -14,6 +14,7 @@
 #include "profile.h"
 #include "ui/gfx.h"
 #include "ui/fireworks.h"
+#include "ui/pad.h"
 #include "ui/stages.h"
 #include "ui/start_target.h"
 #include "ui/widescreen.h"
@@ -120,6 +121,7 @@ class App : public WidgetHost {
   void clearDiscord();
   std::string takeDiscordInvite();
   WidescreenMode widescreenMode() const;
+  int consoleCanvasWidth() const;
   int boardWidthForNewBoard() const;
   int frameCanvasWidth(int boardCanvas) const;
   float pointerOnCanvas(int canvasW) const;
@@ -175,6 +177,8 @@ class App : public WidgetHost {
   std::filesystem::path userDir;
 
   GameMode gameMode = GameMode::None;
+  PadGlyphs pad;
+  int menuPage = 0, menuRow = 0;
   int curStage = 0, curLevel = 0;
   int curChallenge = 0;
   int maxStage = 0, maxLevel = 0;
@@ -191,7 +195,7 @@ class App : public WidgetHost {
   Screen* screen() const { return cur_.get(); }
   std::string screenName() const { return cur_ ? cur_->name() : "none"; }
   void showLoadingScreen();
-  void showMainMenu();
+  void showMainMenu(bool nightsHub = false);
   void showAdventureScreen();
   void showLevelScreen(bool fromTrophy = false);
   void showTrophyScreen();
@@ -211,10 +215,10 @@ class App : public WidgetHost {
   int modApplyCount() const { return modApplyCount_; }
   std::function<void()> modAssetsHook;
   void showBoard(bool fromAdventure, bool newLevel);
-  void startDemo();
+
   void startAdventureGame();
   void showIntroScreen();
-  void showProgressScreen(int mode);
+  void showProgressScreen(int mode, bool fromNightsHub = false);
   void showCreditsScreen();
   bool moving() const { return !movers_.empty(); }
 

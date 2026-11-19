@@ -27,7 +27,7 @@ namespace pp::ui {
 using mods::ModInfo;
 
 namespace {
-const char* const kText = "PLAIN2";
+const char* const kText = "PLAIN";
 const float kRowX = 28, kRowW = 744, kBoxH = 71, kInnerL = 36, kInnerR = 766;
 const float kPillLabelX = 30, kPillPad = 14, kVersionGap = 8, kVersionMax = 140, kNameGap = 10;
 const float kButtonPad = 44, kButtonGap = 2;
@@ -125,19 +125,18 @@ void ModsScreen::rebuild() {
     return b;
   };
   auto labelled = [&](const std::string& label) { return g.textWidth("BUTTON", label) + kButtonPad; };
-  patchButton(0, "Done", "IMAGE_DLG_BROWNBUTTON1", 340, 541);
+  patchButton(0, "Done", "IMAGE_DLG_BUTTON3", 296, 545)->w = 208;
   sized(patchButton(6000, "Open Folder", "IMAGE_DLG_BUTTON3", 24, 10), labelled("Open Folder"));
   Button* logBtn = sized(patchButton(6001, "Log", "IMAGE_DLG_BUTTON3", 0, 10), labelled("Log"));
   logBtn->x = 776 - logBtn->w;
-  auto* done = addButton(0, Button::Kind::Simple, "IMAGE_HELP_BUTTONOVERLAY");
-  done->x = 738; done->y = 536; done->w = 62; done->h = 62; done->image = nullptr;
+
   auto* mm = mods::g_mods;
   if (!mm) return;
   int n = (int)mm->mods().size(), pages = std::max(1, (n + kPage - 1) / kPage);
   page_ = std::clamp(page_, 0, pages - 1);
   if (pages > 1) {
-    patchButton(1, "Previous", "IMAGE_DLG_BROWNBUTTON1", 150, 541)->visible = page_ > 0;
-    patchButton(2, "Next", "IMAGE_DLG_BROWNBUTTON1", 530, 541)->visible = page_ + 1 < pages;
+    patchButton(1, "Previous", "IMAGE_DLG_BUTTON3", 112, 545)->visible = page_ > 0;
+    patchButton(2, "Next", "IMAGE_DLG_BUTTON3", 568, 545)->visible = page_ + 1 < pages;
   }
   const float moveW = std::max(minW, std::max(labelled("Up"), labelled("Down")));
   const float scanW = std::max(minW, std::max(labelled("Scan report"), labelled("Allow...")));
@@ -294,15 +293,15 @@ void ModsScreen::keyDown(int key, int) {
 
 void ModsScreen::drawLayer(Gfx& g) {
   g.fill(0, 0, 800, 600, 0x0a1428);
-  if (Tex* bg = g.img("IMAGE_HELP_SCREEN")) g.draw(bg, 0, 0);
-  g.fill(20, 56, 760, 470, 0x000018, 0.88f);
+  if (Tex* bg = g.img("IMAGE_DLG_DIALOGBOX")) g.drawBox(bg, 0, 0, 800, 600);
   g.drawString("OVERLOAD24GRAD1", 400, 42, "Mods", 0xb6ffff, 1, Align::Center);
   g.drawString(kText, 400, 74, "F10 shows the log anywhere", 0xa0b8d8, 1, Align::Center);
   auto* mm = mods::g_mods;
   if (!mm || mm->mods().empty()) {
     const std::string text = mm ? "No mods found. Put a mod folder or .zip into:\n" + mods::gameText(pathToUtf8(mm->modsDir())) + "\n\nIt shows up here when you come back to the game." : "No mod manager.";
-    float y = 160 + g.fontAscent(kText);
-    for (auto& l : wrapPlain(g, kText, 680, text)) {
+    const auto lines = wrapPlain(g, kText, 680, text);
+    float y = 280 - (float)lines.size() * g.fontLineSpacing(kText) / 2 + g.fontAscent(kText);
+    for (const auto& l : lines) {
       drawPlain(g, kText, 400, y, l, 0xffffff, 1, Align::Center);
       y += g.fontLineSpacing(kText);
     }

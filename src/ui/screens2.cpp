@@ -17,6 +17,7 @@
 #include "ui/game_screen.h"
 #include "ui/other_game.h"
 #include "ui/screens.h"
+#include "ui/secondary_art.h"
 
 namespace pp::ui {
 
@@ -29,9 +30,9 @@ static std::string commas(long long v) {
   return v < 0 ? "-" + r : r;
 }
 
-static uint32_t rankColor(int rank, bool nights) {
+static uint32_t rankColor(int rank, bool nights, bool wide) {
   uint32_t hue = ((nights ? 0xdc : 0x46) + rank * 0xf5) & 0xff;
-  return hslToRgb((int)hue, 0xff, 0x80);
+  return hslToRgb((int)hue, 0xff, wide ? 0xbe : 0x80);
 }
 
 
@@ -40,7 +41,7 @@ AdventureScreen::AdventureScreen(App& a) : Screen(a) {
   if (nights) {
     a.playMusic("music/progress.ogg");
     bContinue = patchButton(0, "Trophies", "IMAGE_DLG_BROWNBUTTON1", 0x1fc, 0x227);
-    bRestart = nullptr;
+    bRestart = patchButton(1, "Replays", "IMAGE_DLG_BROWNBUTTON1", 0x162, 0x227);
     bMenu = patchButton(2, "Main Menu", "IMAGE_DLG_BROWNBUTTON1", 199, 0x227);
     return;
   }
@@ -57,7 +58,20 @@ AdventureScreen::AdventureScreen(App& a) : Screen(a) {
   }
 }
 
+int AdventureScreen::canvasWidth() const { return nights ? app.consoleCanvasWidth() : 800; }
+
+static float statsExtraWidth(const Gfx& g) { return g.canvasW() > 800 ? g.canvasW() * 0.12f - 168.0f : 0; }
+
 void AdventureScreen::drawFrame(Gfx& g, float x, float y, float w, float h, const std::string& title) {
+  if (nights && g.canvasW() > 800) {
+    w += statsExtraWidth(g);
+    g.fill(x - 8, y - 12, w + 16, h + 20, 0x030306, 0.82f);
+    g.frame(x - 8, y - 12, w + 16, h + 20, 0x090718);
+    g.frame(x - 7, y - 11, w + 14, h + 18, 0x5592a4);
+    const char* font = g.textWidth("OVERLOAD16OUTLINE", title) <= w + 2 ? "OVERLOAD16OUTLINE" : "OVERLOAD12OUTLINE";
+    g.drawString(font, x + w / 2, y + 13, title, 0xffd325, 1, Align::Center);
+    return;
+  }
   g.fill(x, y, w, h, 0x000000, 128 / 255.0f);
   g.fill(x, y - 20, w, 20, 0x000000, 128 / 255.0f);
   const float tw = g.textWidth("OVERLOAD16OUTLINE", title);
@@ -72,12 +86,12 @@ void AdventureScreen::drawHighScores(Gfx& g, float x, float y) {
   float ax = x + 10, nameX = ax + 0x28, scoreR = nameX + 0xdc;
   for (int r = 1; r <= 10; r++) {
     uint32_t col = 0xffffff;
-    if (r <= (int)hs.size()) col = rankColor(r, nights);
+    if (r <= (int)hs.size()) col = rankColor(r, nights, nights && g.canvasW() > 800);
     g.drawString("OVERLOAD12OUTLINE", ax, ay, std::to_string(r) + ".", col);
     if (r <= (int)hs.size()) {
       g.drawString("OVERLOAD12OUTLINE", nameX, ay, hs[r - 1].name, col);
       std::string sc = commas(hs[r - 1].score);
-      g.drawString("OVERLOADMONO12", scoreR - g.textWidth("OVERLOADMONO12", sc), ay, sc, col);
+      g.drawString("OVERLOADMONO12", scoreR + (nights ? statsExtraWidth(g) : 0) - g.textWidth("OVERLOADMONO12", sc), ay, sc, col);
     }
     ay += rowH;
   }
@@ -91,12 +105,12 @@ void AdventureScreen::drawPersonalHighScores(Gfx& g, float x, float y) {
   std::vector<int> sc;
   if (p) for (auto it = p->advScores.rbegin(); it != p->advScores.rend(); ++it) sc.push_back(*it);
   for (int r = 1; r <= 10; r++) {
-    uint32_t col = r <= (int)sc.size() ? rankColor(r, nights) : 0xffffff;
+    uint32_t col = r <= (int)sc.size() ? rankColor(r, nights, nights && g.canvasW() > 800) : 0xffffff;
     g.drawString("OVERLOAD12OUTLINE", ax, ay, std::to_string(r) + ".", col);
     if (r <= (int)sc.size()) {
       g.drawString("OVERLOAD12OUTLINE", nameX, ay, p->name, col);
       std::string s = commas(sc[r - 1]);
-      g.drawString("OVERLOADMONO12", scoreR - g.textWidth("OVERLOADMONO12", s), ay, s, col);
+      g.drawString("OVERLOADMONO12", scoreR + (nights ? statsExtraWidth(g) : 0) - g.textWidth("OVERLOADMONO12", s), ay, s, col);
     }
     ay += rowH;
   }
@@ -105,6 +119,7 @@ void AdventureScreen::drawPersonalHighScores(Gfx& g, float x, float y) {
 void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
   const bool nights = app.game == Game::Nights;
   const float w = 280, h = nights ? 150.0f : 140.0f;
+  const float rowW = w + (nights ? statsExtraWidth(g) : 0);
   drawFrame(g, x, y, w, h, !current ? "Your All-Time Stats" : nights ? "Current Adventure Stats" : "Your Current Stats");
   PlayerInfo* p = app.curProfile;
   if (!p) return;
@@ -115,8 +130,8 @@ void AdventureScreen::drawStats(Gfx& g, float x, float y, bool current) {
   auto row = [&](const char* label, long long value, long long total = 0) {
     std::string v = commas(value);
     if (total > 0) v += " / " + std::to_string(total);
-    g.drawString(font, x + 10, ay, label, nights ? 0x00ffffu : 0xffff00u);
-    g.drawString(font, x + w - 10 - g.textWidth(font, v), ay, v, 0x88ff88);
+    g.drawString(font, x + 10, ay, label, nights && g.canvasW() > 800 ? 0xffdb39u : nights ? 0x00ffffu : 0xffff00u);
+    g.drawString(font, x + rowW - 10 - g.textWidth(font, v), ay, v, 0x88ff88);
     ay += step;
   };
   row("Shots:", s.shots);
@@ -140,8 +155,33 @@ void AdventureScreen::drawLayer(Gfx& g) {
   PlayerInfo* p = app.curProfile;
   std::string title;
   if (nights) {
-    drawTrophyRoom(g, app, -1, 0);
     title = (p ? p->name : std::string()) + "'s Stats";
+    const float width = static_cast<float>(g.canvasW());
+    const bool wide = width > 800;
+    Tex* stock = g.img("IMAGE_DLG_BROWNBUTTON1");
+    Tex* action = wide ? secondaryArt(g, "action_button") : nullptr;
+    for (Button* b : {bMenu, bRestart, bContinue}) {
+      b->image = action ? action : stock;
+      b->w = wide ? 168.0f : stock ? stock->lw() : 100.0f;
+      b->h = wide ? 44.0f : stock ? stock->lh() / 3 : 30.0f;
+      b->font = wide ? "OVERLOAD16OUTLINE" : "BUTTON";
+      b->textOffY = wide ? 7.0f : 5.0f;
+      b->y = wide ? 511.0f : 551.0f;
+    }
+    bMenu->x = wide ? (width - bMenu->w) / 2 - 188 : 199;
+    bRestart->x = wide ? (width - bRestart->w) / 2 : 0x162;
+    bContinue->x = wide ? (width - bContinue->w) / 2 + 188 : 0x1fc;
+    if (wide) {
+      const float left = width * 0.44f + 8, right = left + 304 + statsExtraWidth(g);
+      drawInstituteScene(g, width, updateCount);
+      g.drawString("OVERLOAD24OUTLINE", width / 2, 66, title, 0xffffff, 1, Align::Center);
+      drawHighScores(g, left, 110);
+      drawPersonalHighScores(g, right, 110);
+      drawStats(g, left, 332, false);
+      drawStats(g, right, 332, true);
+      return;
+    }
+    drawTrophyRoom(g, app, -1, 0);
   } else {
     int st = p ? std::clamp(p->advStage, 0, std::max(0, app.numStages() - 1)) : 0, lv = p ? std::clamp(p->advLevel, 0, 5) : 0;
     const StageInfo* si = app.stages.stage(st);
@@ -174,6 +214,7 @@ void AdventureScreen::startGame() {
 void AdventureScreen::onButton(int id) {
   if (id == 0 && nights) app.showProgressScreen(0);
   else if (id == 0) startGame();
+  else if (id == 1 && nights) app.doReplaysDialog();
   else if (id == 1) app.doConfirmRestartAdventureDialog();
   else if (id == 2) app.showMainMenu();
 }
@@ -515,6 +556,28 @@ StoryScreen::StoryScreen(App& a, bool rev, bool eg) : Screen(a), reveal(rev), ea
   else initText();
 }
 
+int StoryScreen::canvasWidth() const { return win ? 800 : app.consoleCanvasWidth(); }
+
+void StoryScreen::layoutContinue(float width) {
+  if (width > 800) {
+    bContinue->image = nullptr;
+    bContinue->visible = true;
+    bContinue->w = 228;
+    bContinue->h = 50;
+    bContinue->x = width * 0.5f + 12 - bContinue->w * 0.5f;
+    bContinue->y = app.game == Game::Nights ? 482.0f : 455.0f;
+  } else if (!bContinue->image) {
+    Tex* pb = app.gfx.img("IMAGE_DLG_PLAYBUTTON1");
+    Tex* patch = pb ? nullptr : app.gfx.img("IMAGE_DLG_BUTTON3");
+    bContinue->image = pb ? pb : patch;
+    bContinue->w = pb ? pb->lw() : patch ? patch->lw() : 100.0f;
+    bContinue->h = pb ? pb->lh() / 2 : patch ? patch->lh() / 3 : 30.0f;
+    bContinue->x = static_cast<float>(400 - static_cast<int>(bContinue->w) / 2);
+    bContinue->y = 0x21e;
+    bContinue->visible = done;
+  }
+}
+
 void StoryScreen::initText() {
   const StageInfo* s = app.stages.stage(stage);
   page = 1;
@@ -556,7 +619,7 @@ void StoryScreen::update() {
     updateWin();
     return;
   }
-  if (bContinue->visible) {
+  if (bContinue->image && bContinue->visible) {
     float tx = (float)(400 - (int)bContinue->w / 2);
     if (bContinue->x < tx) bContinue->x = std::min(tx, bContinue->x + 30);
     if (bContinue->y > 0x21e) bContinue->y = std::max(0x21e * 1.0f, bContinue->y - 15);
@@ -594,8 +657,10 @@ void StoryScreen::update() {
   }
   done = true;
   bContinue->visible = true;
-  bContinue->x = -(100 + bContinue->w);
-  bContinue->y = 0x21e + 60;
+  if (bContinue->image) {
+    bContinue->x = -(100 + bContinue->w);
+    bContinue->y = 0x21e + 60;
+  }
   app.playSample("DIALOG_MOVE");
 }
 void StoryScreen::finish() {
@@ -692,9 +757,121 @@ void StoryScreen::drawNights(Gfx& g) {
   if (!head.empty()) g.drawWrapped("OVERLOAD24OUTLINE", {80, 53, 640, 0}, head, rgb, 1, Align::Center, 30);
 }
 
+void StoryScreen::drawConsole(Gfx& g, const std::string& title) {
+  const float width = static_cast<float>(g.canvasW()), center = width * 0.5f + 12;
+  const bool nights = app.game == Game::Nights;
+  const bool progress = !nights && stage != 0 && app.curProfile && app.curProfile->advCompletions == 0;
+  const char* mural = nights ? "console/menu/nights.png" : "console/menu/single.png";
+  Tex* backing = secondaryArt(g, nights ? "story_nights" : "story_deluxe");
+  if (!backing && g.vfs().exists(mural)) backing = g.img(mural);
+  if (!backing) backing = g.img("IMAGE_MM_BACKGROUND");
+  Rect scene{0, 0, width, 600};
+  g.fill(0, 0, width, 600, nights ? 0x091e43 : 0x644697);
+  if (backing) {
+    scene = secondaryCover(*backing, width);
+    g.drawStretch(backing, scene.x, scene.y, scene.w, scene.h);
+  }
+  if (!nights) {
+    const float sunX = width * 0.5f - 200;
+    if (Tex* glow = g.img(g.vfs().exists("console/menu/sun_glow.png") ? "console/menu/sun_glow.png" : "IMAGE_SUNGLOW")) {
+      const float s = 610 / glow->lw();
+      g.drawRot(glow, sunX, 72, updateCount * 0.0008f, s, s);
+    }
+    const char* sunPath = "console/menu/sun.png";
+    if (Tex* sun = g.vfs().exists(sunPath) ? g.img(sunPath) : g.man().image("IMAGE_MM_BLANKSUN") ? g.img("IMAGE_MM_BLANKSUN") : nullptr)
+      g.drawStretch(sun, sunX - 67, 5, 134, 134);
+  }
+  if (Tex* foreground = secondaryArt(g, nights ? "story_nights_front" : "story_deluxe_front"))
+    g.drawStretch(foreground, scene.x, scene.y, scene.w, scene.h);
+
+  const float panelW = nights ? 716.0f : 696.0f, panelH = nights ? 520.0f : 500.0f;
+  const float left = center - panelW * 0.5f;
+  Tex* panel = secondaryArt(g, "story_panel");
+  if (!panel) panel = g.img("IMAGE_DLG_DIALOGBOX");
+  if (panel) g.drawBox(panel, left, 30, panelW, panelH);
+  else secondaryPanel(g, left, 30, panelW, panelH, 40);
+  g.drawString("OVERLOAD24OUTLINE", center, 73, title, 0xddddff, 1, Align::Center);
+  const auto rgb = charColor(stage);
+  g.drawWrapped("OVERLOAD24OUTLINE", {left + 18, nights ? 75.0f : 86.0f, panelW - 36, 0}, head, rgb, 1, Align::Center, 27);
+
+  if (boxes > 0) {
+    const float picX = nights ? left + 61 : left + 37;
+    const float picY = nights ? 138.0f : progress ? 150.0f : 192.0f;
+    const float side = progress ? 151.0f : 164.0f;
+    const int ci = nights ? std::clamp(CharacterDialog::masterMetAt(app.game, stage), 0, 11) : stage % 10;
+    auto fade = [&](int box) { return boxFade > 0 && box == boxes ? boxFade / 20.0f : 1.0f; };
+    auto portrait = [&](const char* stem, float alpha) {
+      if (Tex* pic = g.img(std::string(stem) + std::to_string(ci + 1))) {
+        g.drawStretch(pic, picX, picY, side, side, Mode(alpha));
+        if (Tex* border = g.img("IMAGE_DLG_BLUEFRAME")) g.drawBox(border, picX - 5, picY - 5, side + 10, side + 10, Mode(alpha));
+      }
+    };
+    portrait(nights ? "IMAGE_CHR_CHARACTER_ADV" : "IMAGE_CHR_CHARACTER", fade(1));
+    if (nights && boxes > 1) portrait("IMAGE_CHR_CHARACTER_NEW", fade(2));
+    auto block = [&](Rect r, const std::string& words, int shown, int index) {
+      const char* font = "STAGE";
+      const float contentW = r.w - 24;
+      auto lines = g.wrap(font, contentW, words);
+      while (!lines.empty() && lines.back().empty()) lines.pop_back();
+      const float lineH = g.fontLineSpacing(font);
+      float spacing = progress ? std::min(lineH, 20.0f) : lineH;
+      float textH = spacing * static_cast<float>(lines.size()), pad = 12.0f, blank = 1.0f;
+      size_t firstLine = 0;
+      if (!nights && !progress) r.h = std::min(bContinue->y - r.y - 10, std::max(r.h, textH + 24));
+      if (textH + 24 > r.h && !lines.empty()) {
+        while (firstLine < lines.size() && stripColorCodes(lines[firstLine]).empty()) ++firstLine;
+        pad = 8;
+        blank = 0.45f;
+        float intervals = 0;
+        for (size_t i = firstLine; i + 1 < lines.size(); ++i)
+          intervals += stripColorCodes(lines[i]).empty() ? blank : 1.0f;
+        const float glyphH = g.fontHeight(font);
+        if (intervals > 0) spacing = std::min(spacing, (r.h - 2 * pad - glyphH) / intervals);
+        textH = glyphH + spacing * intervals;
+      }
+      if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) g.drawBox(tr, r.x, r.y, r.w, r.h, Mode(0.5f * fade(index), 0x000000));
+      else g.fill(r.x, r.y, r.w, r.h, 0, 0.5f * fade(index));
+      float y = r.y + (nights ? std::max(pad, (r.h - textH) * 0.5f) : pad) + g.fontAscent(font);
+      size_t offset = 0;
+      for (size_t i = firstLine; i < lines.size(); ++i) {
+        const auto& line = lines[i];
+        size_t pos = line.empty() ? offset : words.find(line, offset);
+        if (pos == std::string::npos) pos = offset;
+        const int count = shown - static_cast<int>(stripColorCodes(words.substr(0, pos)).size());
+        if (count > 0) g.drawString(font, r.x + 12, y, firstVisible(line, count), rgb);
+        offset = pos + line.size();
+        y += stripColorCodes(line).empty() ? spacing * blank : spacing;
+      }
+    };
+    const float tx = picX + side + 12;
+    block({tx, picY, left + panelW - (nights ? 59 : 24) - tx, progress ? 162.0f : side + 7}, text, typed, 1);
+    if (nights && boxes > 1)
+      block({left + 61, 322, panelW - 120, 154}, text2, typed - static_cast<int>(stripColorCodes(text).size()), 2);
+  }
+  if (progress && done) drawDeluxeProgress(g, center, true);
+
+  auto& b = *bContinue;
+  Tex* plate = secondaryArt(g, "story_continue");
+  if (!plate) plate = g.img("IMAGE_DLG_PLAYBUTTON1");
+  if (plate) {
+    const float cell = plate->lh() * 0.5f;
+    g.drawStretchSrc(plate, 0, b.down && b.over ? cell : 0, plate->lw(), cell, b.x, b.y, b.w, b.h);
+    if (b.over && !b.down) g.drawStretchSrc(plate, 0, 0, plate->lw(), cell, b.x, b.y, b.w, b.h, Mode(0.22f, 0xffffff, true));
+  } else secondaryPanel(g, b.x, b.y, b.w, b.h, b.over ? b.h - 4 : 0);
+  g.drawString("OVERLOAD24OUTLINE", center, b.y + 44, "Continue", 0xffffff, 1, Align::Center);
+}
+
 void StoryScreen::drawLayer(Gfx& g) {
   if (win) {
     drawWin(g);
+    return;
+  }
+  static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
+  std::string head = stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1);
+  const float width = static_cast<float>(canvasWidth());
+  layoutContinue(width);
+  if (width > 800) {
+    drawConsole(g, app.game == Game::Nights ? "Nights " + head : head);
     return;
   }
   g.fill(0, 0, 800, 600, 0x000000);
@@ -706,9 +883,7 @@ void StoryScreen::drawLayer(Gfx& g) {
   if (bContinue->visible)
     if (Tex* plate = g.img("IMAGE_DLG_PLAYWIDGET1")) g.draw(plate, bContinue->x - 32, bContinue->y - 20);
   const bool first = !app.curProfile || stage == 0 || app.curProfile->advCompletions != 0;
-  static const char* kWord[12] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"};
   g.fill(0, 0, 0, 0, 0);
-  std::string head = stage >= 0 && stage <= 11 ? std::string("Stage ") + kWord[stage] : "Stage " + std::to_string(stage + 1);
   g.drawString("OVERLOAD24OUTLINE", 400 - g.textWidth("OVERLOAD24OUTLINE", head) / 2, 45.0f, head, 0xddddff);
   if (app.game == Game::Nights) {
     drawNights(g);
@@ -730,11 +905,16 @@ void StoryScreen::drawLayer(Gfx& g) {
     g.drawWrapped("STAGE", {tx, ty, tw, 180}, shown, charColor(ci), 1, Align::Left);
     g.drawWrapped("OVERLOAD24OUTLINE", {80, page != 1 ? 105.0f : 65.0f, 640, 0}, this->head, charColor(ci), fade, Align::Center, 30);
   }
-  if (stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) {
-    const float bx = 45, bw = 64 * 11 + 14;
+  if (stage != 0 && app.curProfile && app.curProfile->advCompletions == 0 && done) drawDeluxeProgress(g, 400, false);
+}
+
+void StoryScreen::drawDeluxeProgress(Gfx& g, float center, bool wide) {
+    const float bw = wide ? 660.0f : 64 * 11 + 14;
+    const float bx = wide ? center - bw * 0.5f : 45.0f;
+    const float dy = wide ? -24.0f : 0.0f;
     if (Tex* tr = g.img("IMAGE_DLG_TEXTRECT")) {
-      g.drawBox(tr, bx, 342, bw, 95, Mode(50 / 255.0f, 0x000000));
-      g.drawBox(tr, bx, 440, bw, 75, Mode(50 / 255.0f, 0x000000));
+      g.drawBox(tr, bx, 342 + dy, bw, wide ? 88.0f : 95.0f, Mode(50 / 255.0f, 0x000000));
+      g.drawBox(tr, bx, wide ? 410.0f : 440.0f, bw, wide ? 36.0f : 75.0f, Mode(50 / 255.0f, 0x000000));
     }
     std::string adv = "Adventure: ^00FF00^" + std::to_string(app.curProfile->maxLevelIndex()) + " of 55^oldclr^ Complete";
     std::string chl = "Challenge: ^00FF00^" + std::to_string((int)app.trophies.numHeld(app.curProfile->trophies)) + " of " + std::to_string(app.trophies.numTrophies()) + "^oldclr^ Complete";
@@ -746,21 +926,21 @@ void StoryScreen::drawLayer(Gfx& g) {
         else bare += c;
       }
       const int raw = (int)(g.textWidth("OVERLOAD16OUTLINE", bare) + (float)carets * g.textWidth("OVERLOAD16OUTLINE", "^"));
-      float x = (float)(80 + (800 - raw) / 2);
+      float x = wide ? center - g.textWidth("OVERLOAD16OUTLINE", s) * 0.5f : (float)(80 + (800 - raw) / 2);
       for (auto& run : parseColorCodes(s)) {
         g.drawString("OVERLOAD16OUTLINE", x, base, run.text, run.rgb < 0 ? 0xffffff : (uint32_t)run.rgb);
         x += g.textWidth("OVERLOAD16OUTLINE", run.text);
       }
     };
-    line(adv, 342 + 25);
-    line(chl, 440 + 25);
+    line(adv, 342 + 25 + dy - (wide ? 8.0f : 0.0f));
+    line(chl, wide ? 434.0f : 440.0f + 25);
     Tex* chars = g.img("IMAGE_CHR_CHARACTERS");
     Tex* shadows = g.img("IMAGE_CHR_CHARACTERSHADOWS");
     Tex* frame = g.img("IMAGE_DLG_BLUEFRAME");
     Tex* sel = g.img("IMAGE_DLG_SELECTORFRAME");
     const int unlocked = app.curProfile->maxStage;
     for (int i = 0; i < 11; i++) {
-      float cx = (float)(53 + 64 * i), cy = 342 + 25;
+      float cx = wide ? bx + 9 + 59 * i : (float)(53 + 64 * i), cy = 342 + 25 + dy;
       bool open = i <= unlocked && i < 10;
       if (i < 10) {
         if (Tex* t = open ? chars : shadows) g.drawCel(t, cx, cy, i, 0);
@@ -774,7 +954,6 @@ void StoryScreen::drawLayer(Gfx& g) {
       float cw = chars ? chars->cw() : 52, chh = chars ? chars->ch() : 52;
       if (Tex* fr = i == stage % 10 ? sel : frame) g.drawBox(fr, cx - 5, cy - 8, cw + 10 + 1, chh + 10 + 5);
     }
-  }
 }
 
 
@@ -861,7 +1040,7 @@ static const HelpPage kHelpNights[13] = {
      {{"Click the Instant Replay button on the bottom right of the game to", "see a replay of the last shot.", ""},
       {"Right click the Instant Replay button to enable an advanced mode in which", "you can replay all shots for a game.", ""},
       {"Hold down the left mouse button in the play area to activate slow motion.", "Hold down the right button to activate fast forward.", ""},
-      {"You can save replays and view them later!", "Click the Replays button on the main menu to view saved replays.", ""}}},
+      {"You can save replays and view them later!", "Click Stats on the main menu, then Replays to view saved replays.", ""}}},
     {"Extra Tidbits", {"What else, what else, what else?", ""},
      {{"After beating Adventure Mode, you can replay it again using any Peggle", "Master on any level!  Can you top your high score?", ""},
       {"Clearing all of the pegs on a level gives you a bonus blue ribbon!", "", ""},
@@ -919,7 +1098,101 @@ void HelpScreen::keyDown(int key, int) {
   else if (key == SDLK_LEFT) onButton(1);
   else if (key == SDLK_RIGHT) onButton(2);
 }
+
+void HelpScreen::layoutFooter(bool wide) {
+  auto& prev = *static_cast<Button*>(findWidget(1));
+  auto& next = *static_cast<Button*>(findWidget(2));
+  auto& back = *static_cast<Button*>(findWidget(0));
+  if (wide) {
+    back.x = -68; back.y = 540; back.w = 112; back.h = 46;
+    prev.x = 56; prev.y = 540; prev.w = 136; prev.h = 46;
+    next.x = 203; next.y = 540; next.w = 136; next.h = 46;
+    prev.image = next.image = nullptr;
+  } else {
+    back.x = 738; back.y = 536; back.w = back.h = 62;
+    prev.image = next.image = app.gfx.img("IMAGE_DLG_BROWNBUTTON2");
+    prev.w = next.w = prev.image ? prev.image->lw() : 100.0f;
+    prev.h = next.h = prev.image ? prev.image->lh() / 3 : 30.0f;
+    prev.x = 266; next.x = prev.x + prev.w + 22;
+    prev.y = next.y = 553;
+  }
+}
+
+void HelpScreen::drawConsole(Gfx& g) {
+  const float width = static_cast<float>(g.canvasW());
+  const float edge = (800 - width) * 0.5f;
+  const bool nights = app.game == Game::Nights;
+  const HelpPage& hp = nights ? kHelpNights[page] : kHelp[page];
+  constexpr float panelX = 79, panelW = 666, center = panelX + panelW / 2, iconX = panelX + 60;
+  constexpr float textL = panelX + 150, textR = panelX + panelW - 36, textW = textR - textL;
+  g.fill(edge, 0, width, 600, 0x12102b, 0.40f);
+  Tex* panel = secondaryArt(g, "story_panel");
+  if (!panel) panel = g.img("IMAGE_DLG_DIALOGBOX");
+  if (panel) g.drawBox(panel, panelX, 36, panelW, 486);
+  else secondaryPanel(g, panelX, 36, panelW, 486, 38);
+  const std::string count = "Page " + std::to_string(page + 1) + " of " + std::to_string(numPages());
+  g.drawString("OVERLOAD24GRAD1", panelX + 53, 81, "How to Play", 0xb6ffff);
+  g.drawString("OVERLOAD24GRAD1", panelX + panelW - 53, 81, count, 0xb6ffff, 1, Align::Right);
+  g.drawString("OVERLOAD24OUTLINE", center, 135, hp.name, 0xffffff, 1, Align::Center);
+  const char* font = "PLAINOUTLINE";
+  std::string heading = hp.head[0];
+  if (hp.head[1][0]) { heading += '\n'; heading += hp.head[1]; }
+  g.drawWrapped(font, {panelX + 22, 136, panelW - 44, 0}, heading, 0xffffaa, 1, Align::Center, 16);
+
+  Tex* icons = g.img("IMAGE_HELP_ICONS");
+  Tex* border = g.img("IMAGE_DLG_BLUEFRAME");
+  const int col = page < 4 ? page : page == 4 ? -1 : page - 1;
+  if (page == 4) if (Tex* modes = g.img("IMAGE_HELP_MODES")) {
+    const float scale = std::min(74 / modes->lw(), 306 / modes->lh());
+    g.drawStretch(modes, iconX, 184, modes->lw() * scale, modes->lh() * scale);
+    if (border) g.drawBox(border, iconX - 5, 179, modes->lw() * scale + 10, modes->lh() * scale + 10);
+  }
+  for (int r = 0; r < 4; r++) {
+    if (!hp.row[r][0][0]) continue;
+    const float y = 185.0f + 81 * r;
+    if (icons && col >= 0 && col < icons->cols && r < icons->rows) {
+      const float cw = icons->cw(), ch = icons->ch();
+      g.drawStretchSrc(icons, col * cw, r * ch, cw, ch, iconX, y + 3, 58, 58);
+      if (border) g.drawBox(border, iconX - 4, y - 1, 66, 66);
+    }
+    if (hp.style) {
+      g.drawString(font, textL, y + 19, hp.row[r][0], 0xffffaa);
+      g.drawString(font, textR, y + 19, hp.row[r][1], 0xffffaa, 1, Align::Right);
+      std::string detail = hp.row[r][2];
+      std::replace(detail.begin(), detail.end(), '\n', ' ');
+      g.drawWrapped(font, {textL, y + 25, textW, 0}, detail, 0xffffff, 1, Align::Left, 16);
+    } else {
+      std::string words = hp.row[r][0];
+      for (int i = 1; i < 3; i++) if (hp.row[r][i][0]) { words += ' '; words += hp.row[r][i]; }
+      const float h = g.wrappedHeight(font, textW, words);
+      g.drawWrapped(font, {textL, y + 26 - h * 0.5f, textW, 0}, words, 0xffffff);
+    }
+  }
+
+  Tex* bar = secondaryArt(g, "help_bar");
+  if (!bar && g.vfs().exists("console/menu/footer.png")) bar = g.img("console/menu/footer.png");
+  if (bar) g.drawStretch(bar, edge, 536, width, 64);
+  else {
+    g.pushOrigin(edge, 0);
+    secondaryFooter(g, width);
+    g.popOrigin();
+  }
+  for (int id : {0, 1, 2}) {
+    const auto& b = *findWidget(id);
+    secondaryPanel(g, b.x, b.y, b.w, b.h, b.down ? 18.0f : b.over ? 34.0f : 0.0f);
+    const float labelX = b.x + b.w * 0.5f;
+    g.drawString("OVERLOAD16OUTLINE", labelX, b.y + 26, id == 0 ? "Back" : id == 1 ? "Previous" : "Next", 0xffffff, 1, Align::Center);
+    g.drawString("PLAINOUTLINE", labelX, b.y + 43, id == 0 ? "Esc" : id == 1 ? "Left arrow" : "Right arrow", 0xaef3ff, 1, Align::Center);
+  }
+}
+
 void HelpScreen::drawLayer(Gfx& g) {
+  const bool wide = g.canvasW() >= 960 && app.widescreenMode() != WidescreenMode::Classic4x3;
+  layoutFooter(wide);
+  if (wide) {
+    drawConsole(g);
+    return;
+  }
   g.fill(0, 0, 800, 600, 0x000020);
   if (Tex* bg = g.img("IMAGE_HELP_SCREEN")) g.draw(bg, 0, 0);
   if (Tex* ov = g.img("IMAGE_HELP_BUTTONOVERLAY")) g.draw(ov, 224, 541);

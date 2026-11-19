@@ -241,6 +241,20 @@ void Handler::sessionFailed(SteamNetworkingMessagesSessionFailed_t* event) {
 bool compiledIn() { return true; }
 uint64_t identity() { return self.load(std::memory_order_relaxed); }
 
+bool padGlyphs(uint64_t handle, std::array<std::string, 4>* art) {
+  ISteamInput* input = ok && handle ? SteamInput() : nullptr;
+  if (!input) return false;
+  const EXboxOrigin faces[] = {k_EXboxOrigin_A, k_EXboxOrigin_B, k_EXboxOrigin_Y, k_EXboxOrigin_X};
+  std::array<std::string, 4> found;
+  for (int i = 0; i < 4; ++i) {
+    const char* png = input->GetGlyphPNGForActionOrigin(input->GetActionOriginFromXboxOrigin(handle, faces[i]), k_ESteamInputGlyphSize_Medium, ESteamInputGlyphStyle_Dark);
+    if (!png || !*png) return false;
+    found[i] = png;
+  }
+  *art = found;
+  return true;
+}
+
 bool ensureInit() {
   if (ok) return true;
   if (nowMs() < retryAt) return false;
@@ -252,6 +266,7 @@ bool ensureInit() {
   }
   self = SteamUser()->GetSteamID().ConvertToUint64();
   ok = true;
+  if (SteamInput()) SteamInput()->Init(false);
   handler = std::make_unique<Handler>();
   pp::log::info("net", "Steam is connected");
   return true;
@@ -271,6 +286,7 @@ void shutdown() {
   handler.reset();
   ok = false;
   self = 0;
+  if (SteamInput()) SteamInput()->Shutdown();
   SteamAPI_Shutdown();
 }
 
@@ -486,6 +502,7 @@ bool takeJoinRequest(std::string*) { return false; }
 void discardJoinRequest() {}
 RoomState roomState(const void*) { return RoomState::Failed; }
 uint64_t identity() { return 0; }
+bool padGlyphs(uint64_t, std::array<std::string, 4>*) { return false; }
 bool hostRoom(const void*, const std::string&, int) { return false; }
 bool joinRoom(const void*, uint64_t, uint64_t, const std::string&, int) { return false; }
 void updateRoom(const void*, int, bool) {}

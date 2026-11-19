@@ -1,0 +1,361 @@
+#include <SDL3/SDL.h>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+#include "editor/model.h"
+#include "physball.h"
+#include "ui/game_screen.h"
+#include "ui/screens.h"
+#include "ui/session.h"
+
+using namespace pp;
+using namespace pp::ui;
+namespace fs = std::filesystem;
+
+static int checks = 0, failures = 0;
+static std::string testCase;
+
+static bool check(bool pass, const std::string& name) {
+  ++checks;
+  if (!pass) { ++failures; std::cerr << "FAIL " << testCase << ": " << name << '\n'; }
+  return pass;
+}
+
+static bool fixture(const fs::path& path, int width) {
+  Level level;
+  level.version = 0x42;
+  level.mode = 1;
+  for (float x : {-70.0f, 720.0f, 325.0f}) {
+    Val entry;
+    entry.k = VK::Ptr;
+    entry.n = ed::newCircle(x, 250, 10, x == 325 ? 2 : 0, false);
+    entry.n->setF("bouncy", 0.8f);
+    level.entries.push_back(entry);
+  }
+  auto data = writeLevel(level);
+  fs::create_directories(path.parent_path());
+  std::ofstream dat(path, std::ios::binary);
+  dat.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+  auto side = path;
+  side.replace_extension(".ini");
+  std::ofstream ini(side);
+  ini << "board_width = " << width << "\norange = 1\n";
+  return static_cast<bool>(dat) && static_cast<bool>(ini);
+}
+
+static int terrain(const Board& b, float x) {
+  for (int i = 0; i < static_cast<int>(b.objs.size()); ++i) {
+    const auto& o = b.objs[i];
+    if (!o.fromBase && o.shape == Shape::Circle && o.pegType == 0 && std::fabs(o.pos.x - x - (b.W - 650) * 0.5f) < 0.001f) return i;
+  }
+  return -1;
+}
+
+static void geometry(const Board& b, int authored, int display) {
+  check(b.W == display && b.cfg.boardWidth == display, "display width preserved");
+  check(b.cfg.authoredWidth == authored, "authored width comes from level, not display");
+  for (float x : {-70.0f, 720.0f}) {
+    int i = terrain(b, x);
+    if (!check(i >= 0, "extension terrain retains translated position")) continue;
+    const auto& o = b.objs[i];
+    check(o.radius == 10 && o.y0 == 240 && o.y1 == 260, "extension geometry is not stretched");
+    check(o.collidable == (authored > 650) && o.visible == (authored > 650), "authored terrain retained; classic off-field scenery culled");
+  }
+}
+
+static void contacts(const Board& source, const Board& restored, int authored) {
+  for (float x : {-70.0f, 720.0f}) {
+    int index = terrain(source, x);
+    if (!check(index >= 0 && terrain(restored, x) == index, "contact object identity preserved")) continue;
+    Board a = source, b = restored;
+    for (Board* p : {&a, &b}) {
+      if (p->phase == Phase::Aim) p->fire(4.712389f);
+      Ball ball;
+      phys::ballSetPos(ball, p->objs[index].pos.x, p->objs[index].y0 - 18);
+      ball.vel = {0, 15 - p->physics.gravityY};
+      p->balls.assign(1, ball);
+      p->events.clear();
+    }
+    bool hit = false, bounce = false, same = true;
+    for (int tick = 0; tick < 8; ++tick) {
+      a.step();
+      b.step();
+      same &= a.hash() == b.hash() && a.contactNotes() == b.contactNotes();
+      for (auto [ball, object] : b.contactNotes()) hit |= object == index;
+      bounce |= !b.balls.empty() && b.balls[0].vel.y < 0;
+      a.events.clear();
+      b.events.clear();
+    }
+    check(same, "restored contact trace and per-frame hashes match original");
+    check(hit == (authored > 650) && bounce == (authored > 650), "real extension contact and rebound follow authored provenance");
+  }
+}
+
+static void aiSnapshot(const SavedSession& session, const LevelBundle& bundle, int authored, int display) {
+  SavedSession saved = session;
+  saved.mode = static_cast<int>(GameMode::Duel);
+  saved.cfg.duel = true;
+  saved.cfg.players = 2;
+  Board original;
+  std::string err;
+  if (!check(original.load(bundle.base, bundle.level, saved.cfg, &err), "AI snapshot source loads")) return;
+  saved.log = {{0, 4, 0, 1, 0}};
+  saved.frames = saved.tick = saved.shots = saved.score = 0;
+  saved.ballsLeft = original.ballsLeft[0];
+  saved.hash = original.hash();
+  saved.duel.state = 1;
+  ReadySession ready;
+  if (!check(SavedSession::parse(saved.bytes(), ready.saved), "AI session serializer round-trip")) return;
+  if (!check(ready.saved.rebuild(bundle, ready.board, ready.snap, ready.haveSnap, ready.aiSnap), "AI session rebuild succeeds")) return;
+  geometry(ready.aiSnap, authored, display);
+  check(ready.aiSnap.hash() == original.hash(), "AI snapshot retains exact starting hash");
+  contacts(original, ready.aiSnap, authored);
+}
+
+static void rejectedSessions(Gfx& gfx, Vfs& vfs, Game game, const fs::path& dir) {
+  App::Config cfg;
+  cfg.game = game;
+  cfg.noSave = true;
+  cfg.noAudio = true;
+  cfg.seed = 4357;
+  cfg.userDir = dir / "userdata";
+  PlayerInfo profile;
+  profile.reset();
+  profile.name = "Session Preservation Test";
+  App app(gfx, vfs, nullptr, nullptr, cfg);
+  app.curProfile = &profile;
+  app.gameMode = GameMode::Adventure;
+  app.curStage = app.curLevel = 0;
+  GameScreen original(app, true, true);
+  if (!check(original.ok(), "preservation source GameScreen loads")) return;
+  original.keyDown(SDLK_RETURN, 0);
+  Input release;
+  release.type = Input::KeyUp;
+  release.key = SDLK_RETURN;
+  original.input(release);
+  for (int i = 0; i < 12; ++i) { original.board().step(); original.board().events.clear(); }
+  SavedSession usable;
+  if (!check(original.fillSession(usable), "capture preservation source session")) return;
+  usable.mode = static_cast<int>(GameMode::QuickPlay);
+  app.showMainMenu();
+  for (int i = 0; i < 100; ++i) app.tick();
+  const auto profileBytes = profile.serialize();
+  const fs::path path = app.profiles.savedGamePath(profile, GameMode::QuickPlay);
+  if (!check(path.parent_path() == cfg.userDir && path.parent_path().parent_path() == dir, "rejected-session path is isolated scratch userdata")) return;
+  if (!check(app.stages.levelByName(usable.level) != nullptr, "preservation level is in the real stage index")) return;
+  SessionKeeper& keeper = sessionsOf(app);
+  for (const std::string fault : {"board hash", "content hash", "invalid format"}) {
+    SavedSession bad = usable;
+    if (fault == "board hash") bad.hash ^= 1;
+    if (fault == "content hash") bad.content ^= 1;
+    auto bytes = bad.bytes();
+    if (fault == "invalid format") bytes[0] ^= 1;
+    SavedSession parsed;
+    const bool parses = SavedSession::parse(bytes, parsed);
+    check(parses == (fault != "invalid format"), fault + " fixture parser result");
+    if (parses) {
+      ReadySession rejected;
+      check(!parsed.rebuild(original.bundle(), rejected.board, rejected.snap, rejected.haveSnap, rejected.aiSnap), fault + " fixture fails reconstruction");
+    }
+    for (bool menu : {false, true}) {
+      if (!check(usable.save(path), "write usable lookup control")) return;
+      app.cfg.noSave = false;
+      const bool found = keeper.find(GameMode::QuickPlay);
+      app.cfg.noSave = true;
+      if (!check(found && keeper.found(), "usable lookup succeeds before rejection")) return;
+      std::ofstream file(path, std::ios::binary);
+      file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+      file.close();
+      if (!check(static_cast<bool>(file), "write rejected-session fixture")) return;
+      bool accepted = false;
+      if (menu) {
+        app.showMainMenu();
+        for (int i = 0; i < 100; ++i) app.tick();
+        auto* mainMenu = dynamic_cast<MainMenu*>(app.screen());
+        if (!check(mainMenu != nullptr, "real main menu opens")) return;
+        app.cfg.noSave = false;
+        mainMenu->onButton(1);
+        app.cfg.noSave = true;
+      } else {
+        app.cfg.noSave = false;
+        accepted = keeper.find(GameMode::QuickPlay);
+        app.cfg.noSave = true;
+      }
+      check(!accepted && !keeper.found() && !keeper.resume(), fault + " cannot resume or retain a stale ready session");
+      std::ifstream preserved(path, std::ios::binary);
+      std::vector<uint8_t> after(bytes.size());
+      preserved.read(reinterpret_cast<char*>(after.data()), static_cast<std::streamsize>(after.size()));
+      check(preserved && after == bytes && preserved.peek() == std::char_traits<char>::eof(), fault + (menu ? " menu preserves original bytes" : " lookup preserves original bytes"));
+      if (menu) {
+        for (int i = 0; i < 100; ++i) app.tick();
+        check(app.screen() && std::string(app.screen()->name()) == "levelscreen" && !app.getDialog(D_ContinueGame) && !dynamic_cast<GameScreen*>(app.screen()), "rejected Quick Play opens selection without continuing");
+      }
+      check(profile.serialize() == profileBytes, "rejected lookup/menu leaves player progress unchanged");
+    }
+  }
+  if (!check(usable.save(path), "write explicit-discard control")) return;
+  app.cfg.noSave = false;
+  keeper.drop(GameMode::QuickPlay);
+  app.cfg.noSave = true;
+  check(!fs::exists(path) && !keeper.found(), "explicit discard still removes the session");
+  check(!fs::exists(cfg.userDir / "users.dat") && !fs::exists(app.profiles.detailsPath(profile)), "rejection checks write no profile files");
+}
+
+int main(int argc, char** argv) {
+  if (argc < 2 || argc > 3) return 2;
+  const char* tmp = std::getenv("TMPDIR");
+  if (!tmp || !*tmp) { std::cerr << "TMPDIR must name a scratch directory\n"; return 2; }
+  const fs::path root = fs::path(tmp) / ("peggle-authored-session-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  if (!SDL_Init(0)) { std::cerr << SDL_GetError() << '\n'; return 2; }
+  for (int arg = 1; arg < argc; ++arg) {
+    const Game game = arg == 1 ? Game::Deluxe : Game::Nights;
+    Vfs vfs;
+    std::string err;
+    if (!vfs.mountGame(argv[arg], &err)) { std::cerr << err << '\n'; return 2; }
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(SDL_CreateSurface(1550, 600, SDL_PIXELFORMAT_RGBA32), SDL_DestroySurface);
+    std::unique_ptr<SDL_Renderer, decltype(&SDL_DestroyRenderer)> renderer(surface ? SDL_CreateSoftwareRenderer(surface.get()) : nullptr, SDL_DestroyRenderer);
+    if (!renderer) { std::cerr << SDL_GetError() << '\n'; return 2; }
+    Gfx gfx(renderer.get(), vfs);
+    for (int authored : {650, 917}) for (int display : {917, 1400}) {
+      testCase = std::string(arg == 1 ? "Deluxe" : "Nights") + " A" + std::to_string(authored) + " D" + std::to_string(display);
+      const fs::path dir = root / (std::to_string(arg) + "-" + std::to_string(authored) + "-" + std::to_string(display));
+      const fs::path level = dir / "Authored.dat";
+      if (!check(fixture(level, authored), "write scratch DAT and sidecar")) continue;
+      App::Config cfg;
+      cfg.game = game;
+      cfg.noSave = true;
+      cfg.noAudio = true;
+      cfg.seed = 4357;
+      cfg.boardWidth = display;
+      cfg.userDir = dir / "userdata";
+      PlayerInfo profile;
+      profile.reset();
+      profile.name = "Authored Session Test";
+      App app(gfx, vfs, nullptr, nullptr, cfg);
+      app.curProfile = &profile;
+      app.gameMode = GameMode::Adventure;
+      app.curStage = app.curLevel = 0;
+      auto* stage = app.stages.stage(0);
+      if (!check(stage && !stage->levels.empty(), "real game stages loaded")) continue;
+      stage->levels[0].file = level.generic_string();
+      app.mouseX = static_cast<float>(75 + display / 2);
+      app.mouseY = 400;
+      GameScreen original(app, true, true);
+      if (!check(original.ok(), "original GameScreen loads: " + original.loadError)) continue;
+      geometry(original.board(), authored, display);
+      const Board initial = original.board();
+      original.keyDown(SDLK_RETURN, 0);
+      Input release;
+      release.type = Input::KeyUp;
+      release.key = SDLK_RETURN;
+      original.input(release);
+      for (int i = 0; i < 12; ++i) { original.board().step(); original.board().events.clear(); }
+      SavedSession saved;
+      if (!check(original.fillSession(saved), "capture actual in-flight GameScreen session")) continue;
+      check(saved.frames == 12 && saved.shots > 0, "nonempty frame and shot history captured");
+      const auto bytes = saved.bytes();
+      check(bytes.size() > 8 && bytes[4] == 2 && bytes[5] == 0, "session format remains version 2");
+      ReadySession ready;
+      ready.bundle = original.bundle();
+      if (!check(SavedSession::parse(bytes, ready.saved), "real session serializer round-trip")) continue;
+      check(ready.saved.cfg.authoredWidth == 650, "legacy session has no serialized authored width");
+      check(ready.saved.bytes() == bytes, "session reserialization is byte-identical");
+      auto altered = ready.bundle;
+      altered.contentHash ^= 1;
+      check(!ready.saved.rebuild(altered, ready.board, ready.snap, ready.haveSnap, ready.aiSnap), "content validation is not bypassed");
+      auto badHash = ready.saved;
+      badHash.hash ^= 1;
+      check(!badHash.rebuild(ready.bundle, ready.board, ready.snap, ready.haveSnap, ready.aiSnap), "board hash validation is not bypassed");
+      bool rebuilt = ready.saved.rebuild(ready.bundle, ready.board, ready.snap, ready.haveSnap, ready.aiSnap);
+      check(rebuilt, "saved session rebuild preserves validated hash");
+      const fs::path path = app.profiles.savedGamePath(profile, GameMode::Adventure);
+      if (!check(path.parent_path() == cfg.userDir && path.parent_path().parent_path() == dir, "keeper path is isolated scratch userdata")) return 2;
+      if (!check(saved.save(path), "persist scratch session")) continue;
+      SessionKeeper keeper(app);
+      app.cfg.noSave = false;
+      bool found = keeper.find(GameMode::Adventure);
+      app.cfg.noSave = true;
+      check(found && keeper.found(), "SessionKeeper accepts persisted authored session");
+      check(fs::exists(path), "SessionKeeper does not delete usable session");
+      aiSnapshot(saved, ready.bundle, authored, display);
+      if (rebuilt) {
+        geometry(ready.board, authored, display);
+        check(ready.board.hash() == original.board().hash(), "restored board hash matches saved live board");
+        check(ready.haveSnap && ready.snap.hash() == initial.hash(), "pre-shot snapshot restored exactly");
+        geometry(ready.snap, authored, display);
+        contacts(original.board(), ready.board, authored);
+        contacts(initial, ready.snap, authored);
+        GameScreen resumed(app, ready);
+        check(resumed.ok(), "resumed GameScreen is usable");
+        SavedSession again;
+        if (check(resumed.fillSession(again), "resumed GameScreen re-saves")) {
+          check(again.cfg.authoredWidth == authored, "resumed config retains provenance for replay and re-save consumers");
+          ReadySession twice;
+          twice.bundle = ready.bundle;
+          check(again.save(path) && SavedSession::load(path, twice.saved) && twice.saved.rebuild(twice.bundle, twice.board, twice.snap, twice.haveSnap, twice.aiSnap), "re-saved session loads and rebuilds again");
+          check(twice.board.hash() == resumed.board().hash(), "second restore preserves board hash");
+        }
+        fs::path resumedReplay;
+        if (check(resumed.saveReplay(true, &resumedReplay, "resumed"), "resumed screen exports actual replay")) {
+          ReplayData d;
+          if (check(ReplayData::load(resumedReplay, d), "resumed replay loads")) {
+            GameScreen viewer(app, d);
+            check(viewer.ok(), "resumed replay viewer opens");
+            geometry(viewer.board(), authored, display);
+            contacts(initial, viewer.board(), authored);
+          }
+        }
+        resumed.restartLevel(false);
+        check(resumed.ok(), "resumed screen restarts successfully");
+        geometry(resumed.board(), authored, display);
+      }
+      fs::path replayPath;
+      if (check(original.saveReplay(true, &replayPath, "original"), "write actual replay file")) {
+        for (int version : {1, 2}) {
+          ReplayData replay;
+          if (check(ReplayData::load(replayPath, replay), "real replay serializer round-trip")) {
+            check(replay.cfg.authoredWidth == 650 && replay.cfg.boardWidth == display, "legacy replay preserves display only");
+            check(replayPath.extension() == replayExt(arg - 1), "game-specific replay extension preserved");
+            std::ifstream file(replayPath, std::ios::binary);
+            file.seekg(4);
+            check(file.get() == version, "replay format version remains unchanged");
+            GameScreen viewer(app, replay);
+            if (check(viewer.ok(), "replay GameScreen loads")) {
+              geometry(viewer.board(), authored, display);
+              contacts(initial, viewer.board(), authored);
+              for (int i = 0; i < 12; ++i) viewer.update();
+              check(viewer.board().hash() == original.board().hash(), "replayed input history matches saved live hash");
+            }
+            if (version == 1) {
+              replay.cfg.physics.set(PhysicsParams::GravityY, initial.physics.gravityY);
+              replayPath = dir / ("physics" + replayExt(arg - 1));
+              check(replay.save(replayPath), "write physics-version replay");
+            }
+          }
+        }
+      }
+      if (found && check(keeper.resume(), "persisted session resumes through SessionKeeper")) {
+        auto* resumed = dynamic_cast<GameScreen*>(app.screen());
+        if (check(resumed && resumed->ok(), "keeper installs usable resumed GameScreen")) {
+          geometry(resumed->board(), authored, display);
+          check(resumed->board().hash() == saved.hash, "keeper resume retains persisted hash");
+          SavedSession again;
+          check(resumed->fillSession(again) && again.cfg.authoredWidth == authored, "keeper resume preserves re-save provenance");
+        }
+      }
+      check(!fs::exists(cfg.userDir / "users.dat") && !fs::exists(app.profiles.detailsPath(profile)), "no profile data written");
+      std::cout << "CASE " << testCase << " frames=" << saved.frames << " hash=" << saved.hash << " rebuild=" << rebuilt << " keeper=" << found << '\n';
+    }
+    testCase = std::string(arg == 1 ? "Deluxe" : "Nights") + " rejected sessions";
+    rejectedSessions(gfx, vfs, game, root / ("rejected-" + std::to_string(arg)));
+  }
+  std::cout << "AUTHORED_SESSION checks=" << checks << " failures=" << failures << " scratch=" << root.generic_string() << '\n';
+  SDL_Quit();
+  return failures ? 1 : 0;
+}

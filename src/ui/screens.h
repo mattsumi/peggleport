@@ -13,6 +13,7 @@ class LoadingScreen : public Screen {
  public:
   explicit LoadingScreen(App& a);
   const char* name() const override { return "loading"; }
+  int canvasWidth() const override { return app.consoleCanvasWidth(); }
   void update() override;
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
@@ -34,6 +35,8 @@ class LoadingScreen : public Screen {
   void updateNights();
   void updateDeluxe(int cnt, float loadTime);
   void renderNights(Gfx& g);
+  void drawConsoleTitle(Gfx& g);
+  Rect classicPlayRect{};
   void doBallBounce();
   void updateBall();
   void spawnParticles(float x, float y, int n);
@@ -41,15 +44,18 @@ class LoadingScreen : public Screen {
 
 class MainMenu : public Screen {
  public:
-  explicit MainMenu(App& a);
+  explicit MainMenu(App& a, bool nightsHub = false);
   const char* name() const override { return "mainmenu"; }
+  int canvasWidth() const override;
   void update() override;
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
   bool input(const Input& in) override;
   void onButton(int id) override;
+  void onButtonPress(int id, int clicks) override;
   void onButtonEnter(int id) override;
   void keyDown(int key, int mod) override;
+  void lostFocus() override;
   void syncPlayerInfo();
   void startGame();
   void startAdventure();
@@ -79,12 +85,32 @@ class MainMenu : public Screen {
   bool mouseMoved = false, randomPick = false, cry = false, secretDone = false;
   int trophyAnim = 0, trophyAnimMax = 0;
   bool isNights = false;
+ private:
+  enum class Page { Home, Single, Nights, Lounge, Multiplayer, Party, Duel };
+  Page page_ = Page::Home;
+  static constexpr int kMenuRows = 5;
+  static constexpr int kFooterButtons = 3;
+  std::array<Button*, kMenuRows> consoleRows_{};
+  std::array<Button*, kFooterButtons> consoleFooter_{};
+  Button* loungeBack_ = nullptr;
+  int consoleFocus_ = 0;
+  int consoleLayoutWidth_ = 800;
+  int slideTicks_ = 0;
+  float slideDirection_ = 1;
+  int consoleWidth() const;
+
+  bool consoleButton(int id) const;
+  void placeConsole(int width);
+  void drawConsole(Gfx& g);
+  void setConsolePage(Page page, int focus);
+  void consoleAction(int id);
 };
 
 class AdventureScreen : public Screen {
  public:
   explicit AdventureScreen(App& a);
   const char* name() const override { return "adventure"; }
+  int canvasWidth() const override;
   void drawLayer(Gfx& g) override;
   void drawOverlay(Gfx& g) override;
   void onButton(int id) override;
@@ -125,6 +151,7 @@ class StoryScreen : public Screen {
  public:
   StoryScreen(App& a, bool trophyReveal, bool easter);
   const char* name() const override { return "story"; }
+  int canvasWidth() const override;
   void update() override;
   void drawLayer(Gfx& g) override;
   bool input(const Input& in) override;
@@ -135,6 +162,9 @@ class StoryScreen : public Screen {
   void dreamIn();
   void skipTyping();
   void drawNights(Gfx& g);
+  void drawConsole(Gfx& g, const std::string& title);
+  void drawDeluxeProgress(Gfx& g, float center, bool wide);
+  void layoutContinue(float width);
   bool reveal, easter;
   int stage = 0;
   Button* bContinue = nullptr;
@@ -163,6 +193,9 @@ class HelpScreen : public Screen {
   int page = 0;
   bool fromBoard;
   int numPages() const;
+ private:
+  void layoutFooter(bool wide);
+  void drawConsole(Gfx& g);
 };
 
 class TrophyScreen : public Screen {
@@ -188,8 +221,9 @@ class TrophyScreen : public Screen {
 
 class ProgressScreen : public Screen {
  public:
-  ProgressScreen(App& a, int mode);
+  ProgressScreen(App& a, int mode, bool fromNightsHub);
   const char* name() const override { return "progress"; }
+  int canvasWidth() const override;
   void update() override;
   void drawLayer(Gfx& g) override;
   void onButton(int id) override;
@@ -198,6 +232,8 @@ class ProgressScreen : public Screen {
   void finish();
   int mode, t = 0, newest = -1, hovered = -1, prevHovered = -1, drumEnd = 0, closing = 0;
   Button* bContinue;
+ private:
+  bool fromNightsHub_;
 };
 
 class CreditsScreen : public Screen {
@@ -220,6 +256,7 @@ class IntroScreen : public Screen {
  public:
   explicit IntroScreen(App& a);
   const char* name() const override { return "intro"; }
+  int canvasWidth() const override;
   void update() override;
   void drawLayer(Gfx& g) override;
   void onButton(int id) override;
@@ -230,7 +267,7 @@ class IntroScreen : public Screen {
   Button* bContinue;
 };
 
-void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha = 1.0f, int pointer = 0);
+void drawSpeechBox(Gfx& g, float x, float y, float w, float h, float alpha = 1.0f, int pointer = 0, float pointerX = 30);
 void drawTrophyRoom(Gfx& g, App& app, int newest, int t);
 
 }

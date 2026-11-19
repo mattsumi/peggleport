@@ -39,6 +39,7 @@ class ImageManifest {
   explicit ImageManifest(const Vfs& v);
   const ImageRes* find(const std::string& id) const;
   size_t size() const { return res_.size(); }
+  const std::map<std::string, ImageRes>& images() const { return res_; }
  private:
   std::map<std::string, ImageRes> res_;
 };

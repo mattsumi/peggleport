@@ -15,6 +15,7 @@ class VisualsDialog : public Dialog {
   struct Row { Checkbox* box; const char* hint; };
   std::vector<Row> rows;
   void layout();
+  void fitConsoleFooter();
   float preferredHeight(float width) override;
   void drawLayer(Gfx& g) override;
   void onButton(int id) override;

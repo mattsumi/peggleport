@@ -16,6 +16,7 @@
 #include "ui/dialog.h"
 #include "ui/dialogs.h"
 #include "ui/game_screen.h"
+#include "ui/secondary_art.h"
 
 namespace pp::ui {
 
@@ -38,6 +39,7 @@ LoadingScreen::LoadingScreen(App& a) : Screen(a) {
     playBtn->h = playBtn->image->ch();
   }
   playBtn->idleImage = true;
+  classicPlayRect = {playBtn->x, playBtn->y, playBtn->w, playBtn->h};
   for (const char* g : {"Init", "Common", "MainMenu", "LevelSelect", "Dialog", "Interface", "Loading"})
     for (auto& id : a.gfx.man().groupImages(g)) resList.push_back(id);
   if (resList.size() > 400) resList.resize(400);
@@ -164,6 +166,15 @@ void LoadingScreen::updateDeluxe(int cnt, float loadTime) {
 }
 
 void LoadingScreen::drawLayer(Gfx& g) {
+  const int width = canvasWidth();
+  w = static_cast<float>(width);
+  const bool wide = width > 800;
+  playBtn->x = wide ? width * (!nights && g.vfs().exists("console/menu/title_plate.png") ? .5125f : .5f) - 178 : classicPlayRect.x;
+  playBtn->y = wide ? 408 : classicPlayRect.y;
+  playBtn->w = wide ? 356 : classicPlayRect.w;
+  playBtn->h = wide ? 84 : classicPlayRect.h;
+  playBtn->alpha = wide ? 0.0f : 1.0f;
+  if (wide) { drawConsoleTitle(g); return; }
   if (nights) {
     nights->drawScene(cmds, (int)g.textWidth(kNightsFont, NightsLoading::kLoadingText));
     renderNights(g);
@@ -229,6 +240,7 @@ void LoadingScreen::drawLayer(Gfx& g) {
 }
 
 void LoadingScreen::drawOverlay(Gfx& g) {
+  if (canvasWidth() > 800) return;
   if (nights) {
     Tex* fly = g.img("IMAGE_LOAD_FLY0");
     nights->drawOverlay(cmds, fly && fly->valid() ? (int)fly->lw() : 33);
@@ -312,7 +324,7 @@ bool LoadingScreen::input(const Input& in) {
     mouseY = (int)in.y;
   }
   bool used = Panel::input(in);
-  if (nights && !used && in.type == Input::MouseDown && mouseVisible) {
+  if (nights && canvasWidth() == 800 && !used && in.type == Input::MouseDown && mouseVisible) {
     int popped = nights->click(mouseX, mouseY);
     for (int i = 0; i < popped; i++) app.playSample("FAIRY_POP");
     app.faeriesCaught += popped;
@@ -332,7 +344,225 @@ void LoadingScreen::onButton(int id) {
 
 static const int kSecret[15] = {2, 2, 3, 4, 4, 3, 2, 1, 0, 0, 1, 2, 2, 1, 1};
 
-MainMenu::MainMenu(App& a) : Screen(a) {
+namespace {
+
+constexpr int kConsoleRow = 100;
+constexpr int kConsoleFooter = 110;
+constexpr int kLoungeBack = 120;
+constexpr int kMenuSlide = 14;
+
+Tex* menuArt(Gfx& g, const char* name) {
+  const auto path = std::string("console/menu/") + name + ".png";
+  return g.vfs().exists(path) ? g.img(path) : nullptr;
+}
+
+void menuFit(Gfx& g, Tex* t, float x, float y, float w, float h) {
+  if (!t) return;
+  const float s = std::min(w / t->lw(), h / t->lh());
+  g.drawStretch(t, x + (w - t->lw() * s) / 2, y + (h - t->lh() * s) / 2, t->lw() * s, t->lh() * s);
+}
+
+constexpr std::array<uint32_t, 6> kPipe{0x376b95, 0xb9f3ff, 0x66b6f4, 0x28488d, 0x47317d, 0x260c4f};
+constexpr std::array<uint32_t, 6> kIdle{0xb9c9db, 0x6c90ca, 0x335096, 0x121d58, 0x242d73, 0x12193e};
+constexpr std::array<uint32_t, 6> kFocus{0xe3fdff, 0xa0ebff, 0x528db7, 0x225474, 0x4e8eaf, 0xa1e6ee};
+constexpr std::array<uint32_t, 6> kDown{0xd2ffed, 0x97edbb, 0x4a9d76, 0x245d45, 0x328964, 0xafe4bb};
+constexpr std::array<uint32_t, 6> kLocked{0xeae7df, 0xb8b5b6, 0xa19ca6, 0x5e596b, 0x81798b, 0x4c495c};
+constexpr std::array<uint32_t, 6> kGold{0x7b4b2c, 0xffe3a4, 0xaf773e, 0x805333, 0xc39860, 0x5b3221};
+constexpr std::array<uint32_t, 6> kSign{0x174735, 0x196244, 0x146247, 0x0b583a, 0x0b382b, 0x061c17};
+
+void menuBand(Gfx& g, Rect r, float radius, const std::array<uint32_t, 6>& colors, float alpha = 1) {
+  for (int y = 0; y < static_cast<int>(r.h); ++y) {
+    const float d = std::max({0.0f, radius - y - 0.5f, y + 0.5f - r.h + radius});
+    const float edge = radius - std::sqrt(std::max(0.0f, radius * radius - d * d));
+    const float p = 5 * y / (r.h - 1);
+    const int i = std::min(4, static_cast<int>(p));
+    uint32_t rgb = 0;
+    for (int shift : {0, 8, 16}) {
+      const int a = (colors[i] >> shift) & 255, b = (colors[i + 1] >> shift) & 255;
+      rgb |= static_cast<uint32_t>(a + (b - a) * (p - i)) << shift;
+    }
+    g.fill(r.x + edge, r.y + y, r.w - 2 * edge, 1, rgb, alpha);
+  }
+}
+
+void menuText(Gfx& g, const char* font, float cx, float cy, const std::string& label, uint32_t color) {
+  g.drawString(font, cx, cy + g.fontAscent(font) - g.fontHeight(font) * 0.5f, label, color, 1, Align::Center);
+}
+
+void menuTextFit(Gfx& g, const char* font, float cx, float cy, const std::string& label, uint32_t color, float room) {
+  const float k = std::min(1.0f, room / std::max(1.0f, g.textWidth(font, label)));
+  const float s = g.scale(), ox = g.offX(), oy = g.offY();
+  if (k < 1) g.setTransform(s * k, ox + (g.originX() + cx) * s * (1 - k), oy + (g.originY() + cy) * s * (1 - k));
+  menuText(g, font, cx, cy, label, color);
+  g.setTransform(s, ox, oy);
+}
+
+}
+
+float drawPromptSleeve(Gfx& g, float x, float y, int glyph, const char* key, const char* label, const PadGlyphs& pad, float alpha) {
+  Tex* sleeve = menuArt(g, "footer_sleeve");
+  if (!sleeve || sleeve->lw() <= 80 || sleeve->lh() <= 0) return 0;
+  constexpr const char* font = "OVERLOAD16OUTLINE";
+  const float sw = sleeve->lw(), sh = sleeve->lh();
+  const float tagW = std::max(112.0f, 82 + g.textWidth(font, label));
+  g.drawStretchSrc(sleeve, 0, 0, 61, sh, x, y, 54, 64, Mode(alpha));
+  g.drawStretchSrc(sleeve, 61, 0, sw - 78, sh, x + 54, y, tagW - 69, 64, Mode(alpha));
+  g.drawStretchSrc(sleeve, sw - 17, 0, 17, sh, x + tagW - 15, y, 15, 64, Mode(alpha));
+  const float cx = x + 29.7f, cy = y + 25.3f;
+  const bool face = pad.pad != Pad::Keys && glyph >= 0 && glyph < 4;
+  Tex* art = face && !pad.art[glyph].empty() ? g.imgFile(pad.art[glyph]) : nullptr;
+  Tex* glyphs = !art && face && pad.pad == Pad::PlayStation ? menuArt(g, "pad_glyphs") : nullptr;
+  const std::string text = face && pad.pad != Pad::PlayStation ? std::string(1, (pad.pad == Pad::Nintendo ? "BAXY" : "ABYX")[glyph]) : key;
+  if (art) {
+    g.drawStretch(art, cx - 15.5f, cy - 15.5f, 31, 31, Mode(alpha));
+  } else if (glyphs) {
+    const float gw = glyphs->lw() / 4;
+    g.drawStretchSrc(glyphs, glyph * gw, 0, gw, glyphs->lh(), cx - 14, cy - 14, 28, 28, Mode(alpha));
+  } else if (text == "ENTER") {
+    g.fill(cx + 4, cy - 8, 2.5f, 10.5f, 0xffffff, alpha);
+    g.fill(cx - 5, cy, 11.5f, 2.5f, 0xffffff, alpha);
+    for (int i = 0; i < 5; ++i) g.fill(cx - 8 + i * 1.2f, cy + 1.25f - (5 - i) * 1.1f, 1.2f, (5 - i) * 2.2f, 0xffffff, alpha);
+  } else {
+    const char* keyFont = g.textWidth("OVERLOAD10OUTLINE", text) <= 25 ? "OVERLOAD10OUTLINE" : "OVERLOAD10";
+    g.drawString(keyFont, cx, cy + g.fontAscent(keyFont) - g.fontHeight(keyFont) * 0.5f, text, 0xffffff, alpha, Align::Center);
+  }
+  g.drawString(font, x + 58, cy + g.fontAscent(font) - g.fontHeight(font) * 0.5f, label, 0xffffff, alpha);
+  return tagW;
+}
+
+bool drawConsoleTitle(Gfx& g, float cx, float width, const char* title) {
+  auto* header = menuArt(g, "header");
+  if (!header) return false;
+  if (auto* rail = menuArt(g, "header_rail")) {
+    g.drawStretch(rail, 0, 0, cx - 198, 54);
+    g.drawStretch(rail, cx + 198, 0, width - cx - 198, 54);
+  }
+  g.drawStretch(header, cx - 233, -5, 466, 158);
+  menuText(g, "OVERLOAD24", cx, 68, title, 0x153d27);
+  menuText(g, "OVERLOAD24", cx, 66, title, 0xd6fc5b);
+  return true;
+}
+
+void drawConsoleRail(Gfx& g, float width) {
+  if (auto* rail = menuArt(g, "footer_rail")) g.drawStretch(rail, 0, 535, width, 72);
+  else if (auto* footer = menuArt(g, "footer")) g.drawStretch(footer, 0, 535, width, 65);
+  else {
+    menuBand(g, {0, 536, width, 64}, 0, kPipe);
+    for (float seam : {width * 0.48f, width * 0.82f}) {
+      g.line(seam, 538, seam + 5, 598, 0x1a255d, 0.75f);
+      for (int y : {544, 566, 589}) g.fill(seam + 5, static_cast<float>(y), 3, 3, 0x142952);
+    }
+  }
+}
+
+float drawConsolePrompt(Gfx& g, float x, int glyph, const char* key, const char* label, const PadGlyphs& pad) {
+  if (const float w = drawPromptSleeve(g, x, 529, glyph, key, label, pad)) return x + w;
+  const float keyW = std::max(36.0f, g.textWidth("OVERLOAD16", key) + 13);
+  const float tagW = keyW + g.textWidth("OVERLOAD16OUTLINE", label) + 20;
+  menuBand(g, {x, 541, tagW, 47}, 14, kGold);
+  menuBand(g, {x + 4, 544, tagW - 8, 41}, 11, kIdle);
+  menuBand(g, {x + 7, 551, keyW - 6, 28}, 6, kPipe);
+  menuText(g, "OVERLOAD16", x + 4 + keyW / 2, 565, key, 0xffffff);
+  menuText(g, "OVERLOAD16OUTLINE", x + (tagW + keyW) / 2 + 2, 565, label, 0xffffff);
+  return x + tagW + 8;
+}
+
+namespace {
+
+void menuButtonArt(Gfx& g, Tex* art, int row, int rows, float w, float h) {
+  const float srcW = art->lw(), srcH = art->lh() / rows;
+  const float sx = srcW / 3, cap = sx * h / srcH;
+  for (int i = 0; i < 3; ++i) {
+    const float x = i == 0 ? 0 : i == 1 ? cap : w - cap;
+    g.drawStretchSrc(art, i * sx, row * srcH, sx, srcH, x, 0, i == 1 ? w - 2 * cap : cap, h);
+  }
+}
+
+class ConsoleMenuButton : public Button {
+ public:
+  bool locked = false;
+  bool nightsLogo = false;
+  void draw(Gfx& g) override {
+    const bool small = id >= kConsoleFooter;
+    const bool hot = focused || over;
+    auto* art = menuArt(g, locked ? "button_locked" : "buttons");
+    if (hot) {
+      if (auto* glow = menuArt(g, "button_glow"))
+        g.drawStretch(glow, -22, -20, w + 44, h + 40, Mode(0.85f, locked ? 0xffe9ad : 0x9be6ff, true));
+      else menuBand(g, {-3, -3, w + 6, h + 6}, h * 0.5f + 3, kFocus, 0.63f);
+    }
+    if (art) menuButtonArt(g, art, locked ? 0 : down ? 2 : hot ? 1 : 0, locked ? 1 : 3, w, h);
+    else
+      menuBand(g, {0, 0, w, h}, h * 0.5f, locked ? kLocked : down ? kDown : hot ? kFocus : kIdle);
+    if (locked) {
+      if (auto* lock = menuArt(g, "lock")) menuFit(g, lock, 1, -9, h + 36, h + 18);
+      else {
+        menuBand(g, {15, 5, 26, 34}, 12, kGold);
+        menuBand(g, {20, 10, 16, 24}, 7, kLocked);
+        g.fill(26, 19, 5, 10, 0x181128);
+      }
+    }
+    if (auto* logo = nightsLogo ? menuArt(g, "nights_logo") : nullptr) menuFit(g, logo, 0, -13, w, h + 24);
+    else {
+      const char* font = small ? "OVERLOAD16OUTLINE" : "OVERLOAD24";
+      const float cx = w / 2 + (locked ? 12 : 0);
+      const float room = w - (locked ? 92 : 44);
+      if (!small) menuTextFit(g, font, cx, h / 2 + 1, label, locked ? 0x585364 : 0x202958, room);
+      menuTextFit(g, font, cx, h / 2, label, locked ? 0xf3edf4 : hot ? 0xffffff : 0xe0eafa, room);
+    }
+  }
+};
+
+}
+
+void LoadingScreen::drawConsoleTitle(Gfx& g) {
+  const float width = w, cx = width / 2;
+  auto* bg = menuArt(g, nights ? "nights" : "home");
+  auto* front = menuArt(g, nights ? "nights_front" : "home_front");
+  if (!bg) bg = g.img("IMAGE_LOAD_BACK");
+  g.fill(0, 0, width, 600, nights ? 0x151a40 : 0x6347ab);
+  const float scale = bg ? std::max(width / bg->lw(), 600 / bg->lh()) : 1;
+  if (bg) g.drawStretch(bg, cx - bg->lw() * scale / 2, 0, bg->lw() * scale, bg->lh() * scale);
+  if (nights) menuFit(g, menuArt(g, "moon"), cx - 94, 58, 188, 188);
+  else {
+    menuFit(g, menuArt(g, "sun_glow"), cx - 290, -112, 580, 580);
+    auto* sun = menuArt(g, "title_sun");
+    if (!sun) sun = g.img("IMAGE_LOAD_SUNHEAD");
+    menuFit(g, sun, cx - 92, 112, 138, 138);
+  }
+  if (front && bg) g.drawStretch(front, cx - bg->lw() * scale / 2, 0, bg->lw() * scale, bg->lh() * scale);
+  else if (!nights) menuFit(g, g.img("IMAGE_LOAD_HILL"), 0, 287, width, 313);
+  const auto* const logoName = nights ? "nights_logo" : "logo";
+  auto* logo = menuArt(g, logoName);
+  if (!logo) logo = g.img("IMAGE_LOAD_LOGO");
+  menuFit(g, logo, cx - (nights ? 207 : 193), 149, nights ? 414.0f : 386.0f, 199);
+  if (nights && !menuArt(g, logoName)) menuFit(g, g.img("IMAGE_LOAD_NIGHTS"), cx - 140, 280, 280, 94);
+  const Rect r{playBtn->x, playBtn->y, playBtn->w, playBtn->h};
+  const float buttonCenter = r.x + r.w / 2;
+  auto* plate = nights ? nullptr : menuArt(g, "title_plate");
+  auto* faces = plate ? menuArt(g, "title_buttons") : nullptr;
+  if (plate) g.drawStretch(plate, r.x, r.y, r.w, r.h);
+  if (loaded && plate && faces) {
+    const float row = faces->lh() / 2;
+    g.drawStretchSrc(faces, 0, playBtn->down ? 0 : row, faces->lw(), row, r.x + 21, r.y + 22, r.w - 42, r.h - 40);
+    menuText(g, "OVERLOAD24OUTLINE", buttonCenter, r.y + r.h / 2, "PRESS START", 0xffffec);
+  } else if (loaded) {
+    menuBand(g, r, 26, kPipe);
+    menuBand(g, {r.x + 4, r.y + 4, r.w - 8, r.h - 8}, 23, kGold);
+    constexpr std::array<uint32_t, 6> green{0xc7ff4e, 0x88eb27, 0x4ab500, 0x66e300, 0x76f300, 0x367e00};
+    menuBand(g, {r.x + 20, r.y + 20, r.w - 40, r.h - 40}, 17, playBtn->over ? kDown : green);
+    menuText(g, "OVERLOAD16OUTLINE", buttonCenter, r.y + r.h / 2, "PRESS START", 0xffffec);
+  } else {
+    const float progress = resList.empty() ? 1 : static_cast<float>(nextRes) / resList.size();
+    g.fill(cx - 147, 465, 294, 9, 0x19224b);
+    g.fill(cx - 145, 467, 290 * progress, 5, 0xa5ebff);
+    menuText(g, "OVERLOAD16OUTLINE", cx, 443, "LOADING...", 0xffefb7);
+  }
+  menuText(g, "OVERLOAD16OUTLINE", buttonCenter, 513,
+           plate ? "©2007, 2009 POPCAP GAMES, INC. ALL RIGHTS RESERVED." : "POPCAP GAMES", 0xffe0a0);
+}
+
+MainMenu::MainMenu(App& a, bool nightsHub) : Screen(a) {
   isNights = a.game == Game::Nights;
   auto emb = [&](int id, const char* img, float pitch) {
     Button* b = embeddedButton(id, img, 0, 0);
@@ -351,13 +581,12 @@ MainMenu::MainMenu(App& a) : Screen(a) {
     b->hoverPitch = pitch;
     return b;
   };
-  bReplay = brown(4, "Replays", 7);
+  bReplay = isNights ? brown(online::kMenuButtonId, "Online", 7) : brown(4, "Replays", 7);
   bOptions = brown(5, "Options", 9);
-  bDemo = isNights ? brown(9, "Stats", 11) : brown(6, "Demo", 11);
+  bDemo = isNights ? brown(9, "Stats", 11) : brown(online::kMenuButtonId, "Online", 11);
   bQuit = patchButton(7, "Quit", "IMAGE_DLG_PURPLEBUTTON", 7, 0x215);
   bQuit->hoverSound = "MOUSEOVER";
   bQuit->hoverPitch = 12;
-  online::addMainMenuButton(*this);
   auto lk = std::make_unique<Button>();
   lk->id = 8;
   lk->kind = Button::Kind::Link;
@@ -375,10 +604,98 @@ MainMenu::MainMenu(App& a) : Screen(a) {
   bLink = add(std::move(lk));
   bLink->visible = false;
   bUpsell = nullptr;
+  auto console = [&](int id) {
+    auto b = std::make_unique<ConsoleMenuButton>();
+    b->id = id;
+    b->visible = false;
+    b->hoverSound = "MOUSEOVER";
+    b->tickRef = &updateCount;
+    return add(std::move(b));
+  };
+  for (int i = 0; i < kMenuRows; i++) consoleRows_[i] = console(kConsoleRow + i);
+  for (int i = 0; i < kFooterButtons; i++) consoleFooter_[i] = console(kConsoleFooter + i);
+  if (isNights) {
+    loungeBack_ = patchButton(kLoungeBack, "Back", "IMAGE_DLG_PURPLEBUTTON", 7, 494);
+    loungeBack_->visible = false;
+  }
   app.playMusic("menu");
   placeButtons();
   syncPlayerInfo();
+  if (nightsHub) { page_ = Page::Nights; consoleFocus_ = 2; }
+  if (app.menuPage) {
+    page_ = static_cast<Page>(app.menuPage);
+    consoleFocus_ = app.menuRow;
+    app.menuPage = 0;
+  }
+  placeConsole(canvasWidth());
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) b->clickSound = "BUTTON1";
+}
+
+int MainMenu::consoleWidth() const {
+  return app.consoleCanvasWidth();
+}
+
+int MainMenu::canvasWidth() const { return page_ == Page::Lounge ? 800 : consoleWidth(); }
+
+bool MainMenu::consoleButton(int id) const { return id >= kConsoleRow && id < kConsoleFooter + kFooterButtons; }
+
+void MainMenu::placeConsole(int width) {
+  const bool wide = width >= 960;
+  if (width != consoleLayoutWidth_) lostFocus();
+  if (!wide && consoleLayoutWidth_ >= 960 && page_ != Page::Lounge) {
+    page_ = Page::Home;
+    consoleFocus_ = 0;
+    slideTicks_ = 0;
+  }
+  consoleLayoutWidth_ = width;
+  w = static_cast<float>(width);
+  for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) b->visible = !wide;
+  if (auto* online = findWidget(online::kMenuButtonId)) online->visible = !wide;
+  bLink->visible = !wide && app.curProfile && bubble == 0 && !bubbleDimmed;
+  if (loungeBack_) loungeBack_->visible = page_ == Page::Lounge;
+
+  static const char* const home[] = {"SINGLE PLAYER", "MULTIPLAYER", "REPLAYS", "TROPHIES", "HELP & OPTIONS"};
+  static const char* const single[] = {"PEGGLE NIGHTS", "ADVENTURE", "QUICK PLAY", "MASTER DUEL", "CHALLENGE"};
+  static const char* const single169[] = {"ADVENTURE", "QUICK PLAY", "CUSTOM LEVELS", "MASTER DUEL", "CHALLENGE"};
+  static const char* const nights[] = {"ADVENTURE", "CHALLENGE", "TROPHY ROOM", "STATS", "LOUNGE"};
+  static const char* const multi[] = {"ONLINE PEG PARTY", "ONLINE DUEL", "SAME CONSOLE DUEL", "JOIN WITH CODE", ""};
+  static const char* const party[] = {"QUICK MATCH", "CUSTOM MATCH", "HOST PEG PARTY", "", ""};
+  static const char* const duel[] = {"QUICK MATCH", "CUSTOM MATCH", "HOST DUEL", "", ""};
+  const bool wide169 = width == 1067;
+  const bool online = page_ >= Page::Multiplayer;
+  const auto& labels = page_ == Page::Home ? home : page_ == Page::Nights ? nights : page_ == Page::Multiplayer ? multi
+                     : page_ == Page::Party ? party : page_ == Page::Duel ? duel : wide169 ? single169 : single;
+  const bool homePage = page_ == Page::Home;
+  const float phase = static_cast<float>(slideTicks_) / kMenuSlide;
+  const float slide = 78 * phase * phase * slideDirection_;
+  const bool duelLocked = wide && !app.modeOpen(GameMode::Duel) && !app.otherOpen(GameMode::Duel);
+  const bool challengeLocked = wide && !homePage && !app.modeOpen(GameMode::Challenge) && !app.otherOpen(GameMode::Challenge);
+  for (int i = 0; i < kMenuRows; ++i) {
+    auto* b = static_cast<ConsoleMenuButton*>(consoleRows_[i]);
+    b->label = labels[i];
+    b->x = (online ? width * 0.5f - 112.5f : static_cast<float>(width - (homePage ? 392 : 356))) + slide;
+    b->y = online ? 139.0f + i * 59.0f : (homePage ? 81.0f : 194.0f) + i * 63.0f;
+    b->w = 285;
+    b->h = 50;
+    b->visible = wide && *labels[i];
+    b->mouseVisible = !slideTicks_;
+    b->focused = consoleFocus_ == i;
+    b->nightsLogo = !wide169 && page_ == Page::Single && i == 0;
+    b->locked = (page_ == Page::Single && ((b->nightsLogo && !isNights && !app.bothGames) || (i == 3 && duelLocked) || (i == 4 && challengeLocked))) ||
+                (page_ == Page::Nights && i == 1 && challengeLocked) || (page_ == Page::Multiplayer && i == 2 && duelLocked);
+  }
+  const char* center = homePage ? (isNights ? (wide169 ? "NIGHTS" : "STATS") : "") : "BACK";
+  const char* const footer[] = {"PROFILE", center, "QUIT"};
+  for (int i = 0; i < kFooterButtons; ++i) {
+    auto* b = consoleFooter_[i];
+    b->label = footer[i];
+    b->x = static_cast<float>(width - 316 + i * 98);
+    b->y = 548;
+    b->w = 90;
+    b->h = 36;
+    b->visible = wide && *footer[i] && !app.helpOverlay();
+    b->focused = b->visible && consoleFocus_ == kMenuRows + i;
+  }
 }
 
 void MainMenu::syncPlayerInfo() {
@@ -402,7 +719,7 @@ void MainMenu::syncPlayerInfo() {
       app.saveProfile();
     }
   }
-  bLink->visible = p != nullptr && bubble == 0;
+  bLink->visible = consoleLayoutWidth_ == 800 && p != nullptr && bubble == 0 && !bubbleDimmed;
   bAdv->blink = 0;
   buildSparkles();
 }
@@ -434,12 +751,16 @@ void MainMenu::update() {
   }
   updateSparkles();
   placeButtons();
+  if (slideTicks_ > 0) --slideTicks_;
+  placeConsole(canvasWidth());
   bool any = false;
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) any = any || b->over || b->down;
   if (false) {} 
   bool unused_ = any; (void)unused_;
-  updateBubbles();
-  bLink->visible = app.curProfile != nullptr && bubble == 0;
+  if (consoleLayoutWidth_ == 800) {
+    updateBubbles();
+    bLink->visible = app.curProfile != nullptr && bubble == 0 && !bubbleDimmed;
+  }
   if (app.bothGames && app.homeGame != app.game && !app.anyDialog() && !app.helpOverlay() && !app.moving()) app.goHome();
 }
 
@@ -457,6 +778,8 @@ void MainMenu::placeButtons() {
 }
 
 void MainMenu::updateBubbles() {
+  const DecalInfo* decal = isNights ? decalAt(app, app.mouseX - x, app.mouseY - y, nullptr) : nullptr;
+  bubbleDimmed = isNights && !app.hasModal() && (decal ? !decal->hover.empty() : mantelAt(app, app.mouseX - x, app.mouseY - y) >= 0);
   bool any = false;
   for (Button* b : {bAdv, bSolo, bDuel, bChal, bReplay, bOptions, bDemo, bQuit}) any = any || b->over || b->down;
   if (app.getDialog(D_Locked) || app.hasModal()) {
@@ -466,7 +789,7 @@ void MainMenu::updateBubbles() {
   } else {
     if (bQuit->over) setBubble(8, 15);
     else if (bOptions->over) setBubble(7, 15);
-    else if (bReplay->over) setBubble(6, 15);
+    else if (bReplay->over) setBubble(isNights ? 5 : 6, 15);
     else if (bDemo->over) setBubble(isNights ? 9 : 5, 15);
     else if (bDuel->over) setBubble(3, 15);
     else if (bChal->over) setBubble(4, 15);
@@ -476,6 +799,10 @@ void MainMenu::updateBubbles() {
 }
 
 void MainMenu::onButtonEnter(int id) {
+  if (consoleButton(id)) {
+    onButtonPress(id, 1);
+    return;
+  }
   if (isNights && secretDone) return;
   if (id == kSecret[hoverSeq]) hoverSeq++;
   else if (!isNights || (id >= 0 && id <= 4)) hoverSeq = 0;
@@ -491,6 +818,7 @@ void MainMenu::onButtonEnter(int id) {
 }
 
 void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
+  if (bubbleDimmed) return;
   const PlayerInfo* p = app.curProfile;
   std::string name;
   int adv = -1, lvl = 0;
@@ -520,7 +848,7 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
       case 2: s = "Play individual levels that you have unlocked in Adventure!"; break;
       case 3: s = "Play against a friend or the computer in this two player mode!"; break;
       case 4: s = isNights ? "Complete all of these extra\ndifficult challenges to boost\nyour Peggle Master rank!" : "Complete all of these extra\ndifficult challenges to become a\nPeggle Grand Master!"; break;
-      case 5: s = "Watch the Peggle Masters play and see if you can learn their tricks!"; break;
+      case 5: s = "Play Online against other players!"; break;
       case 6: s = "View instant replays\nthat you've saved!"; break;
       case 7: s = "Set options like sound volume\nand colorblind mode.\nHelp is also available here."; break;
       case 8: s = "See you again soon!"; break;
@@ -546,7 +874,209 @@ void MainMenu::drawSpeechBubble(Gfx& g, int which, float alpha, bool fading) {
   }
 }
 
+void MainMenu::onButtonPress(int id, int) {
+  if (!consoleButton(id)) return;
+  consoleFocus_ = id < kConsoleFooter ? id - kConsoleRow : kMenuRows + id - kConsoleFooter;
+  placeConsole(consoleLayoutWidth_);
+}
+
+void MainMenu::lostFocus() {
+  releaseHover();
+  if (capture) { capture->mouseLeave(); capture = nullptr; }
+  for (Button* b : consoleRows_) if (b) { b->over = false; b->down = false; }
+  for (Button* b : consoleFooter_) if (b) { b->over = false; b->down = false; }
+}
+
+void MainMenu::setConsolePage(Page page, int focus) {
+  slideDirection_ = static_cast<int>(page) < static_cast<int>(page_) ? -1.0f : 1.0f;
+  lostFocus();
+  page_ = page;
+  consoleFocus_ = focus;
+  slideTicks_ = page == Page::Lounge ? 0 : kMenuSlide;
+  placeConsole(canvasWidth());
+}
+
+void MainMenu::consoleAction(int id) {
+  const bool wide169 = consoleLayoutWidth_ == 1067;
+  if (id == kConsoleFooter) { onButton(8); return; }
+  if (id == kConsoleFooter + 2) { onButton(7); return; }
+  if (id == kConsoleFooter + 1) {
+    if (page_ == Page::Party || page_ == Page::Duel) setConsolePage(Page::Multiplayer, page_ == Page::Party ? 0 : 1);
+    else if (page_ == Page::Multiplayer) setConsolePage(Page::Home, 1);
+    else if (page_ == Page::Home && isNights && wide169) setConsolePage(Page::Nights, 0);
+    else if (page_ == Page::Home) { if (isNights) onButton(9); }
+    else if (page_ == Page::Single) setConsolePage(Page::Home, 0);
+    else if (page_ == Page::Nights && wide169) setConsolePage(Page::Home, kMenuRows + 1);
+    else setConsolePage(Page::Single, 0);
+    return;
+  }
+  const int row = id - kConsoleRow;
+  if (row < 0 || row >= kMenuRows || slideTicks_) return;
+  auto trophies = [&]() {
+    if (!app.modeOpen(GameMode::Challenge) && !app.otherOpen(GameMode::Challenge)) onButton(3);
+    else {
+      app.gameMode = GameMode::Challenge;
+      app.showTrophyScreen();
+    }
+  };
+  if (page_ == Page::Home) {
+    if (row == 0) setConsolePage(Page::Single, wide169 || isNights || app.bothGames ? 0 : 1);
+    else if (row == 1) setConsolePage(Page::Multiplayer, 0);
+    else if (row == 3) trophies();
+    else onButton(row == 2 ? 4 : 5);
+  } else if (page_ == Page::Multiplayer) {
+    if (row == 0) setConsolePage(Page::Party, 0);
+    else if (row == 1) setConsolePage(Page::Duel, 0);
+    else if (row == 2) onButton(2);
+    else {
+      app.menuPage = static_cast<int>(page_);
+      app.menuRow = row;
+      online::showOnline(app, online::Flow::Join, false);
+    }
+  } else if (page_ == Page::Party || page_ == Page::Duel) {
+    app.menuPage = static_cast<int>(page_);
+    app.menuRow = row;
+    online::showOnline(app, row == 0 ? online::Flow::Quick : row == 1 ? online::Flow::Custom : online::Flow::Host, page_ == Page::Party);
+  } else if (page_ == Page::Single) {
+    if (wide169) {
+      if (row == 2) {
+        if (app.stages.numAllStages() <= app.stages.numStages()) {
+          app.doNotYet("No custom levels are installed. Add a level pack in Mods or make a level in the Level Editor.");
+          return;
+        }
+        app.gameMode = GameMode::QuickPlay;
+        app.packStage = app.stages.numStages();
+        app.showLevelScreen(false);
+      } else onButton(row < 2 ? row : row - 1);
+    } else if (row != 0) onButton(row - 1);
+    else if (isNights) setConsolePage(Page::Nights, 0);
+    else if (app.bothGames) {
+      StartTarget target;
+      target.place = StartPlace::Adventure;
+      app.requestGameSwitch(Game::Nights, target);
+    } else app.doNotYet("Peggle Nights is not installed. Add it through Game Folders in Help & Options.");
+  } else if (page_ == Page::Nights) {
+    if (row == 0) startAdventure();
+    else if (row == 1) onButton(3);
+    else if (row == 2) app.showProgressScreen(2, true);
+    else if (row == 3) onButton(9);
+    else setConsolePage(Page::Lounge, 0);
+  }
+}
+
+void MainMenu::drawConsole(Gfx& g) {
+  const float width = static_cast<float>(consoleLayoutWidth_);
+  const float crop = (width - 1067) * 0.5f;
+  const bool home = page_ == Page::Home, online = page_ >= Page::Multiplayer, night = !online && (isNights || page_ == Page::Nights);
+  const char* backing = online ? "multiplayer" : night ? "nights" : home ? "home" : "single";
+  const char* front = online ? "multiplayer_front" : night ? "nights_front" : home ? "home_front" : "single_front";
+  auto* base = menuArt(g, backing);
+  const bool original = base != nullptr;
+  if (!base) base = g.img("IMAGE_MM_BACKGROUND");
+  const float scale = base ? std::max(width / base->lw(), 600 / base->lh()) : 1.0f;
+  const float muralW = base ? base->lw() * scale : width, muralH = base ? base->lh() * scale : 600;
+  const float muralX = (width - muralW) * 0.5f, muralY = original ? (600 - muralH) * 0.5f : 0;
+  g.pushClip(0, 0, width, 600);
+  if (base) g.drawStretch(base, muralX, muralY, muralW, muralH);
+  else g.fill(0, 0, width, 600, 0x141b3c);
+  if (night) menuFit(g, menuArt(g, "moon"), 217 + crop, 84, 181, 181);
+  else if (!online || !original) {
+    const float sunX = (home ? 513.0f : 303.0f) + crop;
+    const float sunY = home ? 168.0f : 196.0f;
+    auto* glow = menuArt(g, "sun_glow");
+    if (!glow) glow = g.img("IMAGE_SUNGLOW");
+    if (glow) {
+      const float scale = (home ? 650.0f : 610.0f) / glow->lw();
+      g.drawRot(glow, sunX, sunY, sunTick * 0.0008f, scale, scale);
+    }
+    auto* sun = menuArt(g, "sun");
+    if (!sun && g.man().image("IMAGE_MM_BLANKSUN")) sun = g.img("IMAGE_MM_BLANKSUN");
+    menuFit(g, sun, sunX - 67, sunY - 67, 134, 134);
+  }
+  if (auto* foreground = menuArt(g, front); original && foreground) g.drawStretch(foreground, muralX, muralY, muralW, muralH);
+  else if (!original && !isNights) {
+    if (auto* hill = g.img("IMAGE_MM_FOREGROUND")) {
+      const float s = width / hill->lw();
+      g.drawStretch(hill, 0, 600 - hill->lh() * s, width, hill->lh() * s);
+    }
+    if (!home) menuFit(g, g.img("IMAGE_MM_BJORN"), 48 + crop, 100, 442, 436);
+  }
+  if (home) {
+    auto* logo = menuArt(g, night ? "nights_logo" : "logo");
+    if (!logo) logo = g.img("IMAGE_LOAD_LOGO");
+    if (night && original && logo) {
+      const float left = 412 + crop;
+      menuFit(g, logo, left, 65, width - 406 - left, 142);
+    } else {
+      menuFit(g, logo, 185 + crop, 73, 385, 196);
+      if (isNights) menuFit(g, g.img("IMAGE_LOAD_NIGHTS"), 235 + crop, 195, 290, 112);
+    }
+  } else {
+    static const char* const singleTips[] = {"PLAY PEGGLE NIGHTS ADVENTURE AND CHALLENGES!", "EMBARK ON A PEGGLE ADVENTURE!",
+      "PLAY LEVELS UNLOCKED IN ADVENTURE!", "PLAY AGAINST A FRIEND OR THE COMPUTER!", "TAKE ON EXTRA DIFFICULT CHALLENGES!"};
+    static const char* const single169Tips[] = {"EMBARK ON A PEGGLE ADVENTURE!", "PLAY LEVELS UNLOCKED IN ADVENTURE!",
+      "PLAY INSTALLED LEVEL PACKS.", "PLAY AGAINST A FRIEND OR THE COMPUTER!", "TAKE ON EXTRA DIFFICULT CHALLENGES!"};
+    static const char* const nightsTips[] = {"EMBARK ON A PEGGLE NIGHTS ADVENTURE!", "TRY THE PEGGLE NIGHTS CHALLENGES!",
+      "VISIT THE TROPHY ROOM.", "CHECK YOUR PEGGLE NIGHTS PROGRESS.", "EXPLORE THE ORIGINAL NIGHTS LOUNGE."};
+    static const char* const multiTips[] = {"PARTY WITH UP TO 4 PLAYERS!", "A REMOTE TWO-PLAYER BATTLE!", "A LOCAL TWO-PLAYER FUNFEST!",
+      "JOIN A FRIEND'S ROOM WITH A CODE OR INVITE LINK.", ""};
+    static const char* const partyTips[] = {"HOP RIGHT INTO A PEG PARTY!", "SEE A LIST OF AVAILABLE GAMES!", "HOST YOUR OWN MATCH.", "", ""};
+    static const char* const duelTips[] = {"HOP RIGHT INTO A DUEL!", "SEE A LIST OF AVAILABLE GAMES!", "HOST YOUR OWN DUEL!", "", ""};
+    const int index = consoleFocus_ < kMenuRows ? consoleFocus_ : 0;
+    const bool hub = page_ == Page::Nights;
+    const bool wide169 = consoleLayoutWidth_ == 1067;
+    const char* tip = hub ? nightsTips[index] : page_ == Page::Multiplayer ? multiTips[index] : page_ == Page::Party ? partyTips[index]
+                    : page_ == Page::Duel ? duelTips[index] : wide169 ? single169Tips[index] : singleTips[index];
+    if (!hub && !wide169 && index == 0 && !isNights && !app.bothGames) tip = "ADD PEGGLE NIGHTS IN GAME FOLDERS.";
+    int rows = 0;
+    for (Button* b : consoleRows_) rows += b->visible;
+    const float bx = (online ? 444 : 405) + crop, by = online ? 140.0f + rows * 59 : 102.0f;
+    if (auto* bubbleArt = menuArt(g, "speech")) g.drawStretch(bubbleArt, bx, by, 231, 116);
+    else if (!isNights && g.man().image("IMAGE_MM_SPEECHBUBBLE")) g.drawStretch(g.img("IMAGE_MM_SPEECHBUBBLE"), bx, by, 231, 116);
+    else {
+      constexpr std::array<uint32_t, 6> cream{0xfff7e4, 0xfffbe9, 0xfffbe9, 0xfffbe9, 0xfff5da, 0xe5bbd0};
+      menuBand(g, {bx, by, 231, 100}, 22, cream);
+    }
+    const char* font = "OVERLOAD16";
+    const float textH = g.wrappedHeight(font, 199, tip, 21);
+    g.drawWrapped(font, {bx + 18, by + 49 - textH * 0.5f, 199, 82}, tip, 0x251c23, 1, Align::Left, 21);
+
+    const float cx = online ? 566 + crop : width - (wide169 ? 220 : 215);
+    const char* title = hub ? "PEGGLE NIGHTS" : page_ == Page::Multiplayer ? "MULTIPLAYER" : page_ == Page::Party ? "ONLINE PEG PARTY"
+                      : page_ == Page::Duel ? "ONLINE DUEL" : "SINGLE PLAYER";
+    if (!online || !drawConsoleTitle(g, cx, width, title)) {
+      if (auto* header = menuArt(g, "header")) {
+        auto* rail = menuArt(g, "header_rail");
+        if (hub && rail) {
+          g.drawStretch(rail, 0, 0, cx - (wide169 ? 198 : 146), 54);
+        } else if (auto* cap = menuArt(g, "header_cap")) {
+          if (wide169 && rail) g.drawStretchSrc(rail, 300, 0, 100, rail->lh(), cx - 275, 0, 77, 54);
+          g.drawStretch(cap, cx - (wide169 ? 402 : 333), wide169 ? -7.0f : -18.0f, 153, 89);
+        }
+        const float headerW = wide169 ? 466.0f : 396.0f;
+        g.drawStretch(header, cx - headerW / 2, wide169 ? -5.0f : 0.0f, headerW, wide169 ? 158.0f : 143.0f);
+      } else {
+        menuBand(g, {cx - 333, -3, 578, 54}, 24, kPipe);
+        menuBand(g, {cx - 159, 1, 318, 118}, 33, kPipe);
+        menuBand(g, {cx - 137, 18, 274, 91}, 24, kGold);
+        menuBand(g, {cx - 131, 23, 262, 80}, 21, kSign);
+      }
+      menuText(g, "OVERLOAD24", cx, 68, title, 0x153d27);
+      menuText(g, "OVERLOAD24", cx, 66, title, 0xd6fc5b);
+    }
+  }
+
+  drawConsoleRail(g, width);
+  if (!app.helpOverlay()) {
+    const float nextPrompt = drawConsolePrompt(g, 66, 0, "ENTER", "Select", app.pad);
+    if (!home) drawConsolePrompt(g, nextPrompt, 1, "ESC", "Back", app.pad);
+  }
+  g.popClip();
+}
+
 void MainMenu::drawLayer(Gfx& g) {
+  placeConsole(canvasWidth());
+  if (consoleLayoutWidth_ >= 960) { drawConsole(g); return; }
   if (isNights) { drawNights(g); return; }
   float dim = bubbleFade > 0 && false ? 0.5f : 1.0f;
   (void)dim;
@@ -580,6 +1110,17 @@ void MainMenu::drawLayer(Gfx& g) {
 }
 
 void MainMenu::drawOverlay(Gfx& g) {
+  if (consoleLayoutWidth_ >= 960) {
+    if (isNights && page_ == Page::Single && (app.menuNewLevels || app.menuUnlocked)) {
+      for (int i : {consoleLayoutWidth_ == 1067 ? 1 : 2, 3, 4}) {
+        if (i != 4 && !app.menuNewLevels) continue;
+        if (i == 4 && !app.menuUnlocked && !app.menuNewLevels) continue;
+        const auto* b = consoleRows_[i];
+        menuText(g, "OVERLOAD16OUTLINE", b->x + b->w - 39, b->y + b->h, i == 4 && app.menuUnlocked ? "UNLOCKED" : "NEW LEVELS", 0xffe370);
+      }
+    }
+    return;
+  }
   if (!isNights || !(app.menuNewLevels || app.menuUnlocked)) return;
   const char* font = "OVERLOAD16OUTLINE";
   if (app.menuNewLevels) {
@@ -593,7 +1134,7 @@ void MainMenu::drawOverlay(Gfx& g) {
 }
 
 bool MainMenu::input(const Input& in) {
-  if (isNights && in.type == Input::MouseDown && in.button == 1 && !app.hasModal() && !app.moving()) {
+  if (consoleLayoutWidth_ == 800 && isNights && in.type == Input::MouseDown && in.button == 1 && !app.hasModal() && !app.moving()) {
     int st = -1;
     if (decalAt(app, in.x - x, in.y - y, &st)) {
       app.gameMode = GameMode::QuickPlay;
@@ -606,13 +1147,40 @@ bool MainMenu::input(const Input& in) {
   return Panel::input(in);
 }
 
-void MainMenu::keyDown(int key, int) {
+void MainMenu::keyDown(int key, int mod) {
   if (app.hasModal()) return;
+  if (page_ == Page::Lounge && key == SDLK_ESCAPE) { onButton(kLoungeBack); return; }
+  if (consoleLayoutWidth_ >= 960 && mouseVisible && !app.moving()) {
+    const int total = kMenuRows + kFooterButtons;
+    const int old = consoleFocus_;
+    auto shown = [&](int i) { return (i < kMenuRows ? consoleRows_[i] : consoleFooter_[i - kMenuRows])->visible; };
+    auto next = [&](int from, int start, int count, int step) {
+      int i = from - start;
+      do {
+        i = (i + count + step) % count;
+      } while (!shown(start + i));
+      return start + i;
+    };
+    if (key == SDLK_UP) consoleFocus_ = next(old < kMenuRows ? old : 0, 0, kMenuRows, -1);
+    else if (key == SDLK_DOWN) consoleFocus_ = old < kMenuRows ? next(old, 0, kMenuRows, 1) : 0;
+    else if (key == SDLK_TAB) consoleFocus_ = next(old, 0, total, mod & SDL_KMOD_SHIFT ? -1 : 1);
+    else if (key == SDLK_LEFT || key == SDLK_RIGHT)
+      consoleFocus_ = old < kMenuRows ? kMenuRows : next(old, kMenuRows, kFooterButtons, key == SDLK_LEFT ? -1 : 1);
+    else if (key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_SPACE) {
+      if (slideTicks_) return;
+      app.playSample("BUTTON1");
+      consoleAction(old < kMenuRows ? kConsoleRow + old : kConsoleFooter + old - kMenuRows);
+      return;
+    } else if (key == SDLK_ESCAPE && page_ != Page::Home) { consoleAction(kConsoleFooter + 1); return; }
+    if (old != consoleFocus_) { lostFocus(); placeConsole(consoleLayoutWidth_); app.playSample("MOUSEOVER"); return; }
+  }
   if (key == SDLK_ESCAPE) app.doConfirmQuitDialog();
   else if (key == SDLK_F9) app.showEditor();
 }
 
 void MainMenu::onButton(int id) {
+  if (consoleButton(id)) { consoleAction(id); return; }
+  if (id == kLoungeBack) { setConsolePage(Page::Nights, 4); return; }
   if (online::handleMenuButton(app, id)) return;
   if (id >= 1 && id <= 3) app.menuNewLevels = false;
   if (id == 3) app.menuUnlocked = false;
@@ -638,7 +1206,7 @@ void MainMenu::onButton(int id) {
       break;
     case 4: app.doReplaysDialog(); break;
     case 5: app.doOptionsDialog(); break;
-    case 6: app.startDemo(); break;
+
     case 7: app.doConfirmQuitDialog(); break;
     case 8:
       app.playSample("BUTTON1");

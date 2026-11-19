@@ -76,6 +76,7 @@ Each mod gets a content hash (a fingerprint over all its files). The folder and 
 Files in a mod folder are looked up before the game's own files, using the same relative path they have in the game. Put a file at the same path and yours is used instead of the original. A mod can also add new files, such as extra levels.
 
 * `image_scale = 2` in `mod.ini` tells the game that your art is twice the size of the original and should be drawn at the original size.
+* `image_alpha = baked` in `mod.ini` tells the game to use the replacement image's own alpha instead of loading separate masks. See the [HD mod guide](hd-mod.md) for the local pack generator and widescreen artwork.
 * Levels go in `levels/` as `.dat` files. Add a `mod_levels.cfg` there to list them as extra Quick Play stages, or let the level editor write all of this for you.
 * A level can have an `.ini` next to it with `title`, `board_width` (650 is the classic width, a larger number makes that level's board wider), `balls`, `orange`, `background` and `master`. The same file can also change how the ball moves with `gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed` and `ball_radius`, see [Physics](#physics), and give pegs a mod peg type with `peg` lines, see [Peg types](#peg-types).
 
