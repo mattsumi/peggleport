@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "brick.h"
+#include "content.h"
 #include "level.h"
 #include "sim.h"
 #include "vec2.h"
@@ -132,6 +133,7 @@ struct J {
 bool parseJson(const std::string& text, J& out, std::string* err);
 
 struct LevelMeta {
+  BaseLink baseLink;
   std::string name = "NewLevel", title = "New Level", background, master;
   int boardWidth = 650, balls = 0, orange = 25;
   PhysicsEdit physics;

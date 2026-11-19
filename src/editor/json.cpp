@@ -362,6 +362,10 @@ J levelToJson(const Level& L, const LevelMeta& m) {
   meta.set("name", J::str(m.name));
   meta.set("title", J::str(m.title));
   meta.set("background", J::str(m.background));
+  if (!m.baseLink.name.empty()) {
+    meta.set("base", J::str(m.baseLink.name));
+    meta.set("base_hash", J::str(m.baseLink.hash));
+  }
   meta.set("master", J::str(m.master));
   meta.set("board_width", J::num(m.boardWidth));
   meta.set("balls", J::num(m.balls));
@@ -471,6 +475,8 @@ bool levelFromJson(const J& j, Level& out, LevelMeta& meta, std::string* err) {
   if (auto m = j.get("meta")) {
     auto s = [&](const char* k, std::string& dst) { if (auto v = m->get(k)) dst = v->s; };
     s("name", meta.name); s("title", meta.title); s("background", meta.background); s("master", meta.master);
+    s("base", meta.baseLink.name); s("base_hash", meta.baseLink.hash);
+    if (m->get("base") && meta.baseLink.name.empty()) return fail("invalid base level name");
     if (auto v = m->get("board_width")) meta.boardWidth = v->n >= 650.0 ? (int)std::min(v->n, 1400.0) : 650;
     if (auto v = m->get("balls")) meta.balls = v->n >= 0.0 ? (int)std::min(v->n, 99.0) : 0;
     if (auto v = m->get("orange")) meta.orange = v->n >= 0.0 ? (int)std::min(v->n, 500.0) : 0;

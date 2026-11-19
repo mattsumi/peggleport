@@ -14,7 +14,14 @@ namespace pp {
 
 uint64_t fnv1a(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
+struct BaseLink {
+  std::string name, hash;
+};
+
+bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>& level, uint64_t& hash, std::string* err);
+
 struct LevelBundle {
+  BaseLink baseLink;
   std::shared_ptr<const Level> base, level;
   std::string name, title, background, source, master;
   BoardConfig cfg;

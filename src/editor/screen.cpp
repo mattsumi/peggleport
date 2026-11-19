@@ -1536,7 +1536,7 @@ void EditorScreen::saveMod() {
   if (ed.saveToMod(dir, &err)) {
     int errors = 0;
     for (auto& i : ed.issues) errors += i.sev == Issue::Error;
-    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + "  enable it in Mods on the main menu to play it");
+    say("saved to mod '" + modName_ + "'" + (errors ? " (" + std::to_string(errors) + " check error(s), see Checks)" : "") + (ed.meta.baseLink.name.empty() ? "  enable it in Mods on the main menu to play it" : "  keep the pack providing " + ed.meta.baseLink.name + " enabled"));
     thumbDir_ = dir;
     indexMod(dir);
   } else {

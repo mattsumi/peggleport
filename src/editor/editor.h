@@ -190,6 +190,9 @@ class Editor {
   void prune();
   void resetHistory();
   void finishLoad();
+  bool resolveBase(BaseLink& link, std::string* err);
+  std::string sourceStage_;
+  void readSourceStage(const std::filesystem::path& index);
 
   struct G {
     enum Kind { None, Move, Box, Rotate, Line, Stamp, Corner } kind = None;

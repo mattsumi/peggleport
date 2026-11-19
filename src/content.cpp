@@ -112,9 +112,27 @@ static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int
   }
 }
 
+bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>& level, uint64_t& hash, std::string* err) {
+  auto fail = [&](const std::string& message) { if (err) *err = message; return false; };
+  if (link.name.empty() || link.name[0] != '_' || link.name.find_first_not_of("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-") != std::string::npos)
+    return fail("invalid base level name");
+  const auto path = "levels/" + link.name + ".dat";
+  auto hit = vfs.read(path);
+  if (!hit) return fail(path + " missing");
+  hash = fnv1a(hit->bytes.data(), hit->bytes.size());
+  if (!link.hash.empty() && link.hash != std::to_string(hash)) return fail(path + " differs from the linked base");
+  std::string e;
+  auto parsed = parseLevel(hit->bytes, &e);
+  if (!parsed) return fail(path + ": " + e);
+  level = std::make_shared<Level>(std::move(*parsed));
+  if (normKey(link.name) == "_BASE") link = {};
+  else link.hash = std::to_string(hash);
+  return true;
+}
+
 static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
   out = LevelBundle();
-  std::vector<uint8_t> lvBytes, sideBytes, baseBytes;
+  std::vector<uint8_t> lvBytes, sideBytes;
   fs::path p = pathFromUtf8(nameOrPath);
   std::error_code ec;
   if (p.extension() == ".dat" && fs::is_regular_file(p, ec)) {
@@ -146,26 +164,10 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     return false;
   }
   out.level = std::make_shared<Level>(std::move(*lv));
+  uint64_t h = fnv1a(nullptr, 0);
   if (out.name.empty() || out.name[0] != '_') {
-    const auto selected = ini.find("base");
-    const std::string base = selected == ini.end() ? "_base" : selected->second;
-    if (base.empty() || base[0] != '_' || base.find_first_not_of("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-") != std::string::npos) {
-      if (err) *err = out.name + ": invalid base level name";
-      return false;
-    }
-    const std::string basePath = "levels/" + base + ".dat";
-    auto b = vfs.read(basePath);
-    if (!b) {
-      if (err) *err = basePath + " missing";
-      return false;
-    }
-    baseBytes = std::move(b->bytes);
-    auto bl = parseLevel(baseBytes, &e2);
-    if (!bl) {
-      if (err) *err = basePath + ": " + e2;
-      return false;
-    }
-    out.base = std::make_shared<Level>(std::move(*bl));
+    out.baseLink = {ini.count("base") ? ini.at("base") : "_base", ini.count("base_hash") ? ini.at("base_hash") : ""};
+    if (!readBaseLevel(vfs, out.baseLink, out.base, h, err)) return false;
   }
   if (ini.count("board_width")) out.cfg.boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
   out.cfg.authoredWidth = out.cfg.boardWidth;
@@ -200,7 +202,6 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
   if (!ini.count("title"))
     for (auto& s : listStageLevels(vfs))
       if (s.name == out.name && !s.title.empty()) out.title = s.title;
-  uint64_t h = fnv1a(baseBytes.data(), baseBytes.size());
   h = fnv1a(lvBytes.data(), lvBytes.size(), h);
   h = fnv1a(sideBytes.data(), sideBytes.size(), h);
   h = fnv1a(&out.cfg.boardWidth, sizeof out.cfg.boardWidth, h);
