@@ -147,6 +147,15 @@ int main(int argc, char** argv) {
     Vfs v;
     open(e, v, pack);
     e.place(Tool::PegBlue, {310, 210});
+    if (shape == "duplicate") {
+      const auto dest = setup("OtherPack", index, false);
+      const auto sourceBytes = snapshot(pack), destBytes = snapshot(dest);
+      err.clear();
+      check(!e.saveToMod(dest, &err) && err.find("ambiguous") != err.npos && e.savedPath == pack / dat && e.dirty() &&
+            snapshot(dest) == destBytes && snapshot(pack) == sourceBytes, "a matching destination row does not resolve ambiguous source rows");
+      check(e.saveCurrent(&err) && !e.dirty() && get(pack / idx) == input && get(pack / dat) != board,
+            "a geometry-only Save to the original needs no choice of stage row");
+    }
     e.setMeta("title", "New, title");
     const auto depth = e.undoDepth();
     const auto before = snapshot(pack);
@@ -154,8 +163,35 @@ int main(int argc, char** argv) {
     auto expected = input;
     expected.replace(expected.rfind("\"Old\""), 5, "\"New, title\"");
     const bool saved = e.saveToMod(pack, &err);
-    const bool refused = !saved && !err.empty() && e.dirty() && e.metaDirty && e.undoDepth() == depth && e.savedPath.empty() && snapshot(pack) == before;
+    const bool refused = !saved && !err.empty() && e.dirty() && e.metaDirty && e.undoDepth() == depth && e.savedPath == pack / dat && snapshot(pack) == before;
     check((shape != "duplicate" && saved && get(pack / idx) == expected) || (shape != "simple" && refused), shape + " title edit touches only verified live span or refuses ambiguity");
+  }
+  for (const std::string route : {"name", "disk", "direct"}) {
+    const auto pack = setup(route, index, true);
+    const auto file = pack / (route == "name" ? fs::path("levels/Board.DAT") : dat);
+    if (route == "name") {
+      fs::rename(pack / dat, pack / "temp.dat");
+      fs::rename(pack / "temp.dat", file);
+    }
+    put(pack / ini, "title = Sidecar\nbase = _donor\nballs = 13\npeg = 0: ice\n");
+    Editor e;
+    Vfs v;
+    if (!v.mountMod(pack, &err)) throw std::runtime_error(err);
+    e.setVfs(&v);
+    if (!(route == "direct" ? e.loadDatFile(pack / dat, &err) : e.loadFromVfs(v, route == "disk" ? genericUtf8(pack / dat) : "BOARD", &err))) throw std::runtime_error(err);
+    e.setMeta("title", "Reopened");
+    e.place(Tool::PegOrange, {360, 240});
+    auto expected = index;
+    expected.replace(expected.find("Old"), 3, "Reopened");
+    const auto bytes = writeLevel(*e.level);
+    fs::rename(pack / idx, pack / "backup.cfg");
+    const auto blocked = snapshot(pack);
+    check(!e.saveCurrent(&err) && e.dirty() && e.savedPath == file && snapshot(pack) == blocked,
+          route + " missing original registration refuses the first Save without touching files");
+    fs::rename(pack / "backup.cfg", pack / idx);
+    check(e.saveCurrent(&err) && !e.dirty() && e.savedPath == file && get(file) == std::string(bytes.begin(), bytes.end()) &&
+          get(pack / idx) == expected && readIni(get(pack / ini))["title"] == "Reopened" && readIni(get(pack / ini))["balls"] == "13" &&
+          get(pack / ini).find("0: ice") != std::string::npos, route + " Save after Open updates the original registration and retains sidecar settings");
   }
   const std::string generated = "Stage\n{\nName: \"Tuned\"\nDesc: \"Levels made with the PegglePort level editor\"\n\t" + old + "\n}\n";
   const auto tuned = setup("Tuned", generated, true);

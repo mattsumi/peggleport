@@ -538,11 +538,6 @@ std::shared_ptr<Level> Editor::bake() const {
   }
 }
 
-void Editor::finishLoad() {
-  linkRefs(*level);
-  resetHistory();
-}
-
 struct StageSelection {
   ui::CfgItem level;
   int matches = 0;
@@ -600,6 +595,44 @@ void Editor::collectSourceStage(const std::string& text) {
   else meta.stageRows = std::move(selection.rows);
 }
 
+void Editor::finishLoad(const LevelBundle& lb, const Layer* owner, fs::path file) {
+  linkRefs(*level);
+  resetHistory();
+  meta = LevelMeta();
+  meta.baseLink = lb.baseLink;
+  meta.name = lb.name;
+  meta.title = lb.title;
+  meta.background = lb.background;
+  meta.master = lb.master;
+  meta.boardWidth = lb.cfg.boardWidth;
+  meta.balls = lb.cfg.balls;
+  meta.orange = lb.cfg.orange;
+  meta.physics = lb.cfg.physics;
+  stageError_.clear();
+  savedPath.clear();
+  if (owner && owner->isMod) {
+    file = owner->files.at(normKey("levels/" + lb.name + ".dat"));
+    meta.name = pathToUtf8(file.stem());
+  }
+  backgroundDir_ = file.parent_path();
+  if (!file.empty()) {
+    if (backgroundDir_.empty()) backgroundDir_ = ".";
+    auto index = file.parent_path() / "mod_levels.cfg";
+    if (owner && owner->isMod) {
+      auto it = owner->files.find("LEVELS\\MOD_LEVELS.CFG");
+      if (it != owner->files.end()) index = it->second;
+    }
+    readSourceStage(index);
+    if (!owner || owner->isMod) {
+      savedPath = file;
+      savedMod_ = owner || (normKey(pathToUtf8(file.parent_path().filename())) == "LEVELS" && (!meta.stageRows.empty() || !stageError_.empty()));
+    }
+  }
+  auto nodes = builtNodes(*level);
+  for (auto& [idx, key] : lb.cfg.pegTypes)
+    if (idx >= 0 && (size_t)idx < nodes.size() && pegOf(*nodes[(size_t)idx])) customTypes[nodes[(size_t)idx]] = key;
+}
+
 bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::string* err) {
   LevelBundle lb;
   std::string e;
@@ -619,42 +652,19 @@ bool Editor::loadFromVfs(const Vfs& vfs, const std::string& nameOrPath, std::str
   }
   level = copy;
   base = lb.base;
-  meta = LevelMeta();
-  meta.name = lb.name;
-  meta.title = lb.title;
-  meta.background = lb.background;
-  const fs::path source = pathFromUtf8(nameOrPath);
-  backgroundDir_ = source.extension() == ".dat" && !source.has_parent_path() ? fs::path(".") : source.parent_path();
-  meta.baseLink = lb.baseLink;
-  stageError_.clear();
-  if (lb.source == nameOrPath && source.extension() == ".dat") {
-    readSourceStage(source.parent_path() / "mod_levels.cfg");
-  } else if (auto hit = vfs.read("levels/" + lb.name + ".dat"); hit && hit->layer) {
-    const auto& layer = *hit->layer;
-    if (layer.isMod) {
-      const auto it = layer.files.find(normKey("levels/mod_levels.cfg"));
-      if (it != layer.files.end()) readSourceStage(it->second);
-    } else if (layer.isLevelPack) {
-      for (const auto& [key, i] : layer.pakIndex) {
+  const fs::path file = lb.source == nameOrPath && pathFromUtf8(nameOrPath).extension() == ".dat" ? pathFromUtf8(nameOrPath) : fs::path();
+  const auto* owner = vfs.owner("levels/" + lb.name + ".dat", file);
+  finishLoad(lb, owner, file);
+  if (file.empty() && owner && !owner->isMod) {
+    if (owner->isLevelPack) {
+      for (const auto& [key, i] : owner->pakIndex) {
         if (!key.ends_with(".CFG") || key.find('\\') != key.npos) continue;
-        const auto& e = layer.pak->entries[i];
-        collectSourceStage(std::string(layer.pak->data.begin() + e.offset, layer.pak->data.begin() + e.offset + e.size));
+        const auto& e = owner->pak->entries[i];
+        collectSourceStage(std::string(owner->pak->data.begin() + e.offset, owner->pak->data.begin() + e.offset + e.size));
       }
     } else if (auto stages = vfs.read("levels/stages.cfg")) {
       collectSourceStage(std::string(stages->bytes.begin(), stages->bytes.end()));
     }
-  }
-  meta.master = lb.master;
-  meta.boardWidth = lb.cfg.boardWidth;
-  meta.balls = lb.cfg.balls;
-  meta.orange = lb.cfg.orange;
-  meta.physics = lb.cfg.physics;
-  savedPath.clear();
-  finishLoad();
-  {
-    auto nodes = builtNodes(*level);
-    for (auto& [idx, key] : lb.cfg.pegTypes)
-      if (idx >= 0 && (size_t)idx < nodes.size() && pegOf(*nodes[(size_t)idx])) customTypes[nodes[(size_t)idx]] = key;
   }
   status = "opened " + lb.name + " (" + std::to_string(objects().size()) + " objects)";
   return true;
@@ -666,32 +676,23 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   std::string e;
   auto lv = parseLevel(bytes, &e);
   if (!lv) { if (err) *err = e; return false; }
-  int boardWidth = 650;
-  std::string background;
-  BaseLink link;
+  LevelBundle lb;
+  lb.name = lb.title = pathToUtf8(p.stem());
+  const auto* owner = vfs ? vfs->owner("levels/" + lb.name + ".dat", p) : nullptr;
   fs::path side = p;
   side.replace_extension(".ini");
   std::error_code ec;
   if (fs::exists(side, ec)) {
     if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
-    auto ini = readIni(std::string(bytes.begin(), bytes.end()));
-    const auto* owner = vfs ? vfs->owner("levels/" + pathToUtf8(p.stem()) + ".dat", p) : nullptr;
-    if (!baseLinkFromIni(ini, vfs, owner, link, err)) return false;
-    if (ini.count("background")) background = ini["background"];
-    if (ini.count("board_width")) boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
+    const std::string sidecar(bytes.begin(), bytes.end());
+    auto ini = readIni(sidecar);
+    if (!baseLinkFromIni(ini, vfs, owner, lb.baseLink, err)) return false;
+    readLevelSettings(lb, ini, sidecar);
   }
   if (ec) { if (err) *err = "cannot read " + pathToUtf8(side) + ": " + ec.message(); return false; }
-  if (!resolveBase(link, err)) return false;
-  meta.baseLink = link;
+  if (!resolveBase(lb.baseLink, err)) return false;
   level = std::make_shared<Level>(std::move(*lv));
-  meta.name = pathToUtf8(p.stem());
-  meta.title = meta.name;
-  readSourceStage(p.parent_path() / "mod_levels.cfg");
-  meta.boardWidth = boardWidth;
-  meta.background = background;
-  backgroundDir_ = p.has_parent_path() ? p.parent_path() : fs::path(".");
-  savedPath = p;
-  finishLoad();
+  finishLoad(lb, owner, p);
   status = "opened " + pathToUtf8(p);
   return true;
 }
@@ -881,8 +882,9 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
     if (err) *err = "level names may only use letters, digits, '_' and '-': '" + meta.name + "'";
     return false;
   }
-  fs::path lv = modDir / "levels";
-  const fs::path target = lv / (meta.name + ".dat");
+  const bool original = savedMod_ && modDir == savedPath.parent_path().parent_path() && meta.name == pathToUtf8(savedPath.stem());
+  const fs::path lv = original ? savedPath.parent_path() : modDir / "levels";
+  const fs::path target = original ? savedPath : lv / (meta.name + ".dat");
   auto refuse = [&](const std::string& message) { if (err) *err = message; return false; };
   if (meta.title.find_first_of("\r\n") != std::string::npos || readIni("title=" + meta.title)["title"] != meta.title)
     return refuse("title cannot be represented in the level sidecar");
@@ -894,14 +896,14 @@ bool Editor::saveToMod(const fs::path& modDir, std::string* err) {
   if (ec || (exists && !slurp(path, index))) return refuse("cannot read " + pathToUtf8(path));
   out.assign(index.begin(), index.end());
   const auto selected = selectStage(out, meta.name);
+  if (!stageError_.empty() && (!original || !selected.matches || meta.stageTitleEdited)) return refuse(stageError_);
   if (selected.matches) {
     if (!meta.stageRows.empty() && selected.rows != meta.stageRows)
       return refuse("stage settings conflict with the destination entry for " + meta.name + "; choose a new mod folder");
     if (meta.stageTitleEdited && (selected.matches != 1 || !replaceStageTitle(out, selected.level, meta)))
       return refuse("cannot safely update the selected stage title for " + meta.name);
   } else {
-    if (!stageError_.empty()) return refuse(stageError_);
-    if (savedMod_ && target == savedPath) return refuse("saved stage entry is missing: " + pathToUtf8(path));
+    if (original && !meta.stageRows.empty()) return refuse("saved stage entry is missing: " + pathToUtf8(path));
     if (!meta.stageRows.empty()) {
       if (exists) return refuse("cannot add the selected stage to an existing index; choose a new mod folder");
       out = singleBoardStage(meta);

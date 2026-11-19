@@ -30,6 +30,8 @@ struct LevelBundle {
   uint64_t contentHash = 0;
 };
 
+void readLevelSettings(LevelBundle& out, const std::map<std::string, std::string>& ini, const std::string& sidecar);
+
 struct StageLevel {
   std::string name, title, pack;
   int stage = 0;

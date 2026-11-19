@@ -216,7 +216,8 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
       linkOwner = sideOwner;
     }
   }
-  auto ini = readIni(std::string(sideBytes.begin(), sideBytes.end()));
+  const std::string sidecar(sideBytes.begin(), sideBytes.end());
+  auto ini = readIni(sidecar);
   std::string e2;
   auto lv = parseLevel(lvBytes, &e2);
   if (!lv) {
@@ -230,10 +231,23 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     if (out.baseLink.name.empty()) out.baseLink.name = "_base";
     if (!readBaseLevel(vfs, out.baseLink, out.base, h, err)) return false;
   }
-  if (ini.count("board_width")) out.cfg.boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
+  readLevelSettings(out, ini, sidecar);
+  if (!ini.count("title"))
+    for (auto& s : listStageLevels(vfs))
+      if (s.name == out.name && !s.title.empty()) out.title = s.title;
+  h = fnv1a(lvBytes.data(), lvBytes.size(), h);
+  h = fnv1a(sideBytes.data(), sideBytes.size(), h);
+  h = fnv1a(&out.cfg.boardWidth, sizeof out.cfg.boardWidth, h);
+  if (g_modSetHash) h = fnv1a(&g_modSetHash, sizeof g_modSetHash, h);
+  out.contentHash = h;
+  return true;
+}
+
+void readLevelSettings(LevelBundle& out, const std::map<std::string, std::string>& ini, const std::string& sidecar) {
+  if (ini.count("board_width")) out.cfg.boardWidth = std::clamp(std::atoi(ini.at("board_width").c_str()), 650, 1400);
   out.cfg.authoredWidth = out.cfg.boardWidth;
-  if (ini.count("balls")) out.cfg.balls = std::max(1, std::atoi(ini["balls"].c_str()));
-  if (ini.count("orange")) out.cfg.orange = std::max(0, std::atoi(ini["orange"].c_str()));
+  if (ini.count("balls")) out.cfg.balls = std::max(1, std::atoi(ini.at("balls").c_str()));
+  if (ini.count("orange")) out.cfg.orange = std::max(0, std::atoi(ini.at("orange").c_str()));
   {
     std::string pre;
     for (char c : out.name)
@@ -241,8 +255,8 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
       else break;
     int m = pre == "Master" ? 0 : Board::masterByName(pre, false);
     if (ini.count("master")) {
-      m = Board::masterByName(ini["master"]);
-      out.master = ini["master"];
+      m = Board::masterByName(ini.at("master"));
+      out.master = ini.at("master");
     }
     for (int i = 0; i < 4; i++) out.cfg.master[i] = m;
   }
@@ -257,18 +271,9 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     if (physicsClamp(pk, d) != (float)d) pp::log::warn("game", out.name + ": " + key + " = " + text + " is outside " + std::to_string(physicsKey(pk).lo) + " to " + std::to_string(physicsKey(pk).hi) + " and is limited");
     out.cfg.physics.set(pk, d);
   }
-  parsePegTypeLines(std::string(sideBytes.begin(), sideBytes.end()), out.cfg.pegTypes);
-  out.background = ini.count("background") ? ini["background"] : out.name;
-  out.title = ini.count("title") ? ini["title"] : out.name;
-  if (!ini.count("title"))
-    for (auto& s : listStageLevels(vfs))
-      if (s.name == out.name && !s.title.empty()) out.title = s.title;
-  h = fnv1a(lvBytes.data(), lvBytes.size(), h);
-  h = fnv1a(sideBytes.data(), sideBytes.size(), h);
-  h = fnv1a(&out.cfg.boardWidth, sizeof out.cfg.boardWidth, h);
-  if (g_modSetHash) h = fnv1a(&g_modSetHash, sizeof g_modSetHash, h);
-  out.contentHash = h;
-  return true;
+  parsePegTypeLines(sidecar, out.cfg.pegTypes);
+  out.background = ini.count("background") ? ini.at("background") : out.name;
+  out.title = ini.count("title") ? ini.at("title") : out.name;
 }
 
 bool loadLevelBundle(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {

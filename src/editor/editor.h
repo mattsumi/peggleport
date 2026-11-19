@@ -190,7 +190,7 @@ class Editor {
   void changed() { revision++; }
   void prune();
   void resetHistory();
-  void finishLoad();
+  void finishLoad(const LevelBundle& lb, const Layer* owner, std::filesystem::path file);
   bool resolveBase(BaseLink& link, std::string* err);
   bool savedMod_ = false;
   std::string stageError_;
