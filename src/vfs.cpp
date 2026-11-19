@@ -2,6 +2,7 @@
 
 #include "gamepaths.h"
 #include "log.h"
+#include "mods/manifest.h"
 
 #include <cctype>
 #include <limits>
@@ -64,7 +65,7 @@ std::map<std::string, std::string> readIni(const std::string& text) {
   return out;
 }
 
-static bool slurp(const fs::path& p, std::vector<uint8_t>& out, size_t maxBytes = std::numeric_limits<size_t>::max()) {
+bool readFileBytes(const fs::path& p, std::vector<uint8_t>& out, size_t maxBytes) {
   std::ifstream f(p, std::ios::binary);
   if (!f) return false;
   f.seekg(0, std::ios::end);
@@ -73,7 +74,7 @@ static bool slurp(const fs::path& p, std::vector<uint8_t>& out, size_t maxBytes 
   out.resize((size_t)size);
   f.seekg(0);
   f.read((char*)out.data(), (std::streamsize)out.size());
-  return (bool)f;
+  return (bool)f && f.gcount() == (std::streamsize)out.size();
 }
 
 bool loadPak(const fs::path& p, Pak& out, std::string* err) {
@@ -81,7 +82,7 @@ bool loadPak(const fs::path& p, Pak& out, std::string* err) {
     if (err) *err = pathToUtf8(p) + ": " + m;
     return false;
   };
-  if (!slurp(p, out.data)) return fail("cannot read");
+  if (!readFileBytes(p, out.data)) return fail("cannot read");
   for (auto& b : out.data) b ^= 0xF7;
   const auto& d = out.data;
   auto u32 = [&](size_t o) { return (uint32_t)d[o] | (uint32_t)d[o + 1] << 8 | (uint32_t)d[o + 2] << 16 | (uint32_t)d[o + 3] << 24; };
@@ -135,7 +136,7 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
   pp::log::info("game", "game data: " + pathToUtf8(gameDir) + " (" + std::to_string(pak->entries.size()) + " files in main.pak)");
   Layer L;
   L.kind = Layer::PakFile;
-  L.label = "main.pak";
+  L.provider = L.label = "main.pak";
   L.pak = pak;
   for (uint32_t i = 0; i < pak->entries.size(); i++) L.pakIndex.emplace(normKey(pak->entries[i].name), i);
   layers_.push_back(std::move(L));
@@ -157,14 +158,14 @@ bool Vfs::mountGame(const fs::path& gameDir, std::string* err) {
     Layer P;
     P.kind = Layer::PakFile;
     P.isLevelPack = true;
-    P.label = "levelpacks/" + pathToUtf8(p.filename());
+    P.provider = P.label = "levelpacks/" + pathToUtf8(p.filename());
     P.pak = lp;
     for (uint32_t i = 0; i < lp->entries.size(); i++) P.pakIndex.emplace(normKey(lp->entries[i].name), i);
     layers_.push_back(std::move(P));
   }
   Layer D;
   D.kind = Layer::Dir;
-  D.label = "game dir";
+  D.provider = D.label = "game dir";
   D.root = gameDir;
   indexDir(D);
   layers_.push_back(std::move(D));
@@ -186,7 +187,7 @@ bool Vfs::mountPresentation(const fs::path& dataDir) {
   return true;
 }
 
-bool Vfs::mountMod(const fs::path& modDir, std::string* err) {
+bool Vfs::mountMod(const fs::path& modDir, std::string* err, const std::string& modId) {
   std::error_code ec;
   if (!fs::is_directory(modDir, ec)) {
     if (err) *err = "mod directory not found: " + pathToUtf8(modDir);
@@ -199,13 +200,20 @@ bool Vfs::mountMod(const fs::path& modDir, std::string* err) {
   L.root = modDir;
   L.label = "mod:" + pathToUtf8(modDir.filename());
   std::vector<uint8_t> ini;
-  if (slurp(modDir / "mod.ini", ini)) {
+  const bool readManifest = readFileBytes(modDir / "mod.ini", ini);
+  if (readManifest) {
     L.meta = readIni(std::string(ini.begin(), ini.end()));
     if (L.meta.count("name")) L.label = "mod:" + L.meta["name"];
     if (L.meta.count("priority")) L.priority = std::atoi(L.meta["priority"].c_str());
     if (L.meta.count("image_scale")) L.imageScale = std::max(0.25f, (float)std::atof(L.meta["image_scale"].c_str()));
   }
   indexDir(L);
+  if (!modId.empty()) L.provider = "mod:" + modId;
+  else if (!L.files.count("MOD.JSON") && (!L.files.count("MOD.INI") || readManifest)) {
+    std::string id = pathToUtf8(modDir.has_filename() ? modDir.filename() : modDir.parent_path().filename());
+    for (const auto& [k, val] : L.meta) if (normKey(k) == "ID") id = val;
+    L.provider = "mod:" + mods::sanitizeId(id);
+  }
   L.files.erase("MOD.INI");
   pp::log::info("game", "mounted " + L.label + " (" + std::to_string(L.files.size()) + " files, priority " + std::to_string(L.priority) + ")");
   auto it = layers_.begin();
@@ -287,9 +295,16 @@ void vfsLogMiss(const char* kind, std::string_view path) {
 
 std::optional<VfsHit> Vfs::read(std::string_view path) const { return read(path, std::numeric_limits<size_t>::max()); }
 
-std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
+std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const { return readImpl(path, maxBytes, nullptr); }
+
+std::optional<VfsHit> Vfs::readFrom(const Layer& layer, std::string_view path) const {
+  return readImpl(path, std::numeric_limits<size_t>::max(), &layer);
+}
+
+std::optional<VfsHit> Vfs::readImpl(std::string_view path, size_t maxBytes, const Layer* only) const {
   std::string k = normKey(path);
   for (auto& L : layers_) {
+    if (only && only != &L) continue;
     if (L.kind == Layer::PakFile) {
       auto it = L.pakIndex.find(k);
       if (it == L.pakIndex.end()) continue;
@@ -304,18 +319,26 @@ std::optional<VfsHit> Vfs::read(std::string_view path, size_t maxBytes) const {
     if (it == L.files.end()) continue;
     VfsHit h;
     h.layer = &L;
-    if (!slurp(it->second, h.bytes, maxBytes)) continue;
+    if (!readFileBytes(it->second, h.bytes, maxBytes)) continue;
     return h;
   }
   return std::nullopt;
 }
 
-bool Vfs::exists(std::string_view path) const {
-  std::string k = normKey(path);
-  for (auto& L : layers_)
-    if (L.kind == Layer::PakFile ? L.pakIndex.count(k) : L.files.count(k)) return true;
-  return false;
+const Layer* Vfs::owner(std::string_view path, const fs::path& diskFile) const {
+  const auto k = normKey(path);
+  for (const auto& layer : layers_) {
+    if (diskFile.empty()) {
+      if (layer.kind == Layer::PakFile ? layer.pakIndex.count(k) : layer.files.count(k)) return &layer;
+    } else if (auto it = layer.files.find(k); it != layer.files.end()) {
+      std::error_code ec;
+      if (fs::equivalent(diskFile, it->second, ec)) return &layer;
+    }
+  }
+  return nullptr;
 }
+
+bool Vfs::exists(std::string_view path) const { return owner(path) != nullptr; }
 
 std::vector<std::string> Vfs::keys() const {
   std::set<std::string> s;

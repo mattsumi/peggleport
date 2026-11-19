@@ -264,7 +264,7 @@ static std::string backgroundKey(const std::vector<uint8_t>& bytes) {
   return "imported_" + std::to_string(fnv1a(bytes.data(), bytes.size()));
 }
 
-static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::vector<uint8_t>& bytes, const std::string& ext, std::string& name, std::string* err) {
+static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::vector<uint8_t>& bytes, const std::string& ext, std::string& name, std::string* err, bool referenceOnly = false) {
   auto fail = [&] { if (err) *err = "Cannot store the background in " + pathToUtf8(folder); return false; };
   std::error_code ec;
   fs::create_directories(folder, ec);
@@ -275,7 +275,7 @@ static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::v
   if (ec) return fail();
   const std::string base = backgroundKey(bytes);
   for (unsigned i = 0;; ++i) {
-    const std::string stem = base + (i ? "_" + std::to_string(i) : "");
+    const std::string stem = referenceOnly ? name : base + (i ? "_" + std::to_string(i) : "");
     const std::string leaf = stem + ext;
     bool conflict = false, reusable = false;
     for (const auto& pre : {stem, "_" + stem, stem + "_"}) for (const char* suffix : kArtExt) {
@@ -290,6 +290,7 @@ static bool storeBackground(const fs::path& folder, const Vfs* vfs, const std::v
         if (!hit || hit->bytes != bytes) conflict = true;
       }
     }
+    if (referenceOnly) return !conflict || fail();
     if (conflict) continue;
     if (!reusable) {
       const fs::path target = folder / leaf;
@@ -326,6 +327,19 @@ bool Editor::importBackground(const fs::path& file, const fs::path& folder, std:
 bool Editor::prepareBackground(const fs::path& folder, std::string& name, std::string* err) const {
   if (!hasImportedBackground()) return true;
   const auto key = name.substr(0, name.find('_', 9));
+  if (!meta.baseLink.name.empty()) {
+    for (const char* ext : kArtExt) {
+      const auto path = "levels/" + name + ext;
+      const auto* owner = vfs ? vfs->owner(path) : nullptr;
+      if (!owner) continue;
+      auto hit = vfs->readFrom(*owner, path);
+      if (owner->provider == meta.baseLink.provider && hit && backgroundKey(hit->bytes) == key)
+        return storeBackground(folder, vfs, hit->bytes, ext, name, err, true);
+      break;
+    }
+    if (err) *err = "Linked background " + name + " must be available from " + meta.baseLink.provider;
+    return false;
+  }
   if (!backgroundDir_.empty()) for (const char* ext : kArtExt) {
     std::vector<uint8_t> bytes;
     if (slurp(backgroundDir_ / (name + ext), bytes) && backgroundKey(bytes) == key)
@@ -615,8 +629,8 @@ bool Editor::loadDatFile(const fs::path& p, std::string* err) {
   if (fs::exists(side, ec)) {
     if (!slurp(side, bytes)) { if (err) *err = "cannot read " + pathToUtf8(side); return false; }
     auto ini = readIni(std::string(bytes.begin(), bytes.end()));
-    if (ini.count("base")) link = {ini.at("base"), ini["base_hash"]};
-    if (ini.count("base") && link.name.empty()) { if (err) *err = "invalid base level name"; return false; }
+    const auto* owner = vfs ? vfs->owner("levels/" + pathToUtf8(p.stem()) + ".dat", p) : nullptr;
+    if (!baseLinkFromIni(ini, owner, link, err)) return false;
     if (ini.count("background")) background = ini["background"];
     if (ini.count("board_width")) boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);
   }
@@ -641,8 +655,10 @@ static bool exportBaseLink(const BaseLink& link, const std::string& levelName, c
   auto fail = [&](const std::string& why) { if (err) *err = link.name + ": " + why; return false; };
   if (levelName.starts_with('_')) return fail("a base level cannot itself link another base");
   const auto leaf = link.name + ".dat";
-  auto hit = vfs ? vfs->read("levels/" + leaf) : std::nullopt;
-  if (!hit || std::to_string(fnv1a(hit->bytes.data(), hit->bytes.size())) != link.hash) return fail("mount the original base pack to export this level");
+  if (!vfs || link.hash.empty()) return fail("mount the original base pack to export this level");
+  uint64_t hash;
+  auto hit = readBaseFile(*vfs, link, hash, err);
+  if (!hit) return false;
   std::error_code ec;
   const auto folder = dir.empty() ? fs::path(".") : dir;
   if (fs::exists(folder, ec)) {
@@ -654,7 +670,7 @@ static bool exportBaseLink(const BaseLink& link, const std::string& levelName, c
     }
   }
   if (ec) return fail("cannot inspect the destination base");
-  text = "base = " + link.name + "\nbase_hash = " + link.hash + "\n";
+  text = "base = " + link.name + "\nbase_hash = " + link.hash + "\nbase_provider = " + link.provider + "\n";
   return true;
 }
 
@@ -673,7 +689,7 @@ bool Editor::saveDat(const fs::path& p, std::string* err) {
     if (!prepareBackground(p.has_parent_path() ? p.parent_path() : fs::path("."), background, err)) return false;
     while (std::getline(in, line)) {
       auto entry = readIni(line);
-      if (entry.count("base") || entry.count("base_hash")) continue;
+      if (entry.count("base") || entry.count("base_hash") || entry.count("base_provider")) continue;
       if (!entry.count("board_width") && !entry.count("background")) text += line + "\n";
     }
     if (!background.empty()) text += "background = " + background + "\n";

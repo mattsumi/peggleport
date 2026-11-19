@@ -15,9 +15,11 @@ namespace pp {
 uint64_t fnv1a(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
 struct BaseLink {
-  std::string name, hash;
+  std::string name, hash, provider;
 };
 
+bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Layer* owner, BaseLink& link, std::string* err);
+std::optional<VfsHit> readBaseFile(const Vfs& vfs, const BaseLink& link, uint64_t& hash, std::string* err);
 bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>& level, uint64_t& hash, std::string* err);
 
 struct LevelBundle {

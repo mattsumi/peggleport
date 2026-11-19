@@ -423,7 +423,7 @@ void ModManager::activate(Vfs* vfs) {
       }
     }
     std::string err;
-    if (vfs && !vfs->mountMod(m.dir, &err)) {
+    if (vfs && !vfs->mountMod(m.dir, &err, m.m.id)) {
       failLoad(m, err);
       host_.log(m.m.id, pp::log::Level::Error, "not loaded: " + err);
       continue;

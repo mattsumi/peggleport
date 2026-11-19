@@ -5,7 +5,6 @@
 #include "ui/cfg.h"
 
 #include <filesystem>
-#include <fstream>
 #include <sstream>
 #include <cstdint>
 #include <algorithm>
@@ -28,13 +27,6 @@ uint64_t fnv1a(const void* p, size_t n, uint64_t h) {
     h *= 1099511628211ull;
   }
   return h;
-}
-
-static bool slurp(const fs::path& p, std::vector<uint8_t>& out) {
-  std::ifstream f(p, std::ios::binary);
-  if (!f) return false;
-  out.assign(std::istreambuf_iterator<char>(f), {});
-  return true;
 }
 
 static void parseStages(const std::string& text, const std::string& pack, std::vector<StageLevel>& out) {
@@ -66,7 +58,7 @@ std::vector<StageLevel> listStageLevels(const Vfs& vfs) {
     auto it = L.files.find("LEVELS\\MOD_LEVELS.CFG");
     if (it == L.files.end()) continue;
     std::vector<uint8_t> b;
-    if (slurp(it->second, b)) parseStages(std::string(b.begin(), b.end()), L.label, out);
+    if (readFileBytes(it->second, b)) parseStages(std::string(b.begin(), b.end()), L.label, out);
     else pp::log::warn("game", "cannot read the level list of " + L.label);
   }
   return out;
@@ -112,18 +104,48 @@ static void parsePegTypeLines(const std::string& text, std::vector<std::pair<int
   }
 }
 
-bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>& level, uint64_t& hash, std::string* err) {
-  auto fail = [&](const std::string& message) { if (err) *err = message; return false; };
+bool baseLinkFromIni(const std::map<std::string, std::string>& ini, const Layer* owner, BaseLink& link, std::string* err) {
+  auto get = [&](const char* k) { auto it = ini.find(k); return it == ini.end() ? std::string() : it->second; };
+  link = {get("base"), get("base_hash"), get("base_provider")};
+  if ((ini.count("base") && link.name.empty()) || (ini.count("base_hash") && (link.name.empty() || link.hash.empty())) ||
+      (ini.count("base_provider") && (link.provider.empty() || link.hash.empty() || normKey(link.name) == "_BASE"))) {
+    if (err) *err = "incomplete base link";
+    return false;
+  }
+  if (!link.name.empty() && normKey(link.name) != "_BASE" && link.provider.empty() && owner) link.provider = owner->provider;
+  return true;
+}
+
+std::optional<VfsHit> readBaseFile(const Vfs& vfs, const BaseLink& link, uint64_t& hash, std::string* err) {
+  auto fail = [&](const std::string& message) { if (err) *err = message; return std::nullopt; };
   if (link.name.empty() || link.name[0] != '_' || link.name.find_first_not_of("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-") != std::string::npos)
     return fail("invalid base level name");
   const auto path = "levels/" + link.name + ".dat";
-  auto hit = vfs.read(path);
-  if (!hit) return fail(path + " missing");
+  const Layer* owner = nullptr;
+  if (normKey(link.name) == "_BASE") {
+    if (!link.provider.empty()) return fail(path + ": unexpected linked provider");
+    owner = vfs.owner(path);
+  } else {
+    if (link.provider.empty() || link.provider.find_first_of("\r\n") != std::string::npos) return fail(path + ": cannot identify the original provider");
+    for (const auto& layer : vfs.layers()) {
+      if (layer.provider != link.provider) continue;
+      if (owner && (layer.root.empty() || layer.root != owner->root)) return fail(path + ": ambiguous provider " + link.provider);
+      owner = &layer;
+    }
+  }
+  auto hit = owner ? vfs.readFrom(*owner, path) : std::nullopt;
+  if (!hit) return fail(path + " missing or unreadable" + (link.provider.empty() ? "" : " in " + link.provider));
   hash = fnv1a(hit->bytes.data(), hit->bytes.size());
   if (!link.hash.empty() && link.hash != std::to_string(hash)) return fail(path + " differs from the linked base");
+  return hit;
+}
+
+bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>& level, uint64_t& hash, std::string* err) {
+  auto hit = readBaseFile(vfs, link, hash, err);
+  if (!hit) return false;
   std::string e;
   auto parsed = parseLevel(hit->bytes, &e);
-  if (!parsed) return fail(path + ": " + e);
+  if (!parsed) { if (err) *err = link.name + ": " + e; return false; }
   level = std::make_shared<Level>(std::move(*parsed));
   if (normKey(link.name) == "_BASE") link = {};
   else link.hash = std::to_string(hash);
@@ -133,10 +155,11 @@ bool readBaseLevel(const Vfs& vfs, BaseLink& link, std::shared_ptr<const Level>&
 static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, LevelBundle& out, std::string* err) {
   out = LevelBundle();
   std::vector<uint8_t> lvBytes, sideBytes;
+  const Layer* linkOwner = nullptr;
   fs::path p = pathFromUtf8(nameOrPath);
   std::error_code ec;
   if (p.extension() == ".dat" && fs::is_regular_file(p, ec)) {
-    if (!slurp(p, lvBytes)) {
+    if (!readFileBytes(p, lvBytes)) {
       if (err) *err = "cannot read " + pathToUtf8(p);
       return false;
     }
@@ -144,17 +167,42 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
     out.source = pathToUtf8(p);
     fs::path side = p;
     side.replace_extension(".ini");
-    slurp(side, sideBytes);
+    linkOwner = vfs.owner("levels/" + out.name + ".dat", p);
+    if ((fs::exists(side, ec) && (!fs::is_regular_file(side, ec) || !readFileBytes(side, sideBytes))) || ec) {
+      if (err) *err = "cannot read " + pathToUtf8(side);
+      return false;
+    }
   } else {
     out.name = nameOrPath;
-    auto h = vfs.read("levels/" + nameOrPath + ".dat");
+    const auto key = "levels/" + nameOrPath;
+    const auto* boardOwner = vfs.owner(key + ".dat");
+    auto h = boardOwner ? vfs.readFrom(*boardOwner, key + ".dat") : std::nullopt;
     if (!h) {
       if (err) *err = "level not found: levels/" + nameOrPath + ".dat";
       return false;
     }
     lvBytes = std::move(h->bytes);
     out.source = h->layer ? h->layer->label : "";
-    if (auto s = vfs.read("levels/" + nameOrPath + ".ini")) sideBytes = std::move(s->bytes);
+    const auto side = key + ".ini";
+    const auto* sideOwner = vfs.owner(side);
+    if (sideOwner && sideOwner != boardOwner) {
+      const auto k = normKey(side);
+      if (boardOwner->files.count(k) || boardOwner->pakIndex.count(k)) {
+        auto own = vfs.readFrom(*boardOwner, side);
+        if (!own) { if (err) *err = "cannot read " + side; return false; }
+        auto declared = readIni(std::string(own->bytes.begin(), own->bytes.end()));
+        if (declared.count("base") && normKey(declared.at("base")) != "_BASE") {
+          if (err) *err = side + ": board's linked sidecar is shadowed by " + sideOwner->label;
+          return false;
+        }
+      }
+    }
+    if (sideOwner) {
+      auto s = vfs.readFrom(*sideOwner, side);
+      if (!s) { if (err) *err = "cannot read " + side; return false; }
+      sideBytes = std::move(s->bytes);
+      linkOwner = sideOwner;
+    }
   }
   auto ini = readIni(std::string(sideBytes.begin(), sideBytes.end()));
   std::string e2;
@@ -166,7 +214,8 @@ static bool loadLevelBundleImpl(const Vfs& vfs, const std::string& nameOrPath, L
   out.level = std::make_shared<Level>(std::move(*lv));
   uint64_t h = fnv1a(nullptr, 0);
   if (out.name.empty() || out.name[0] != '_') {
-    out.baseLink = {ini.count("base") ? ini.at("base") : "_base", ini.count("base_hash") ? ini.at("base_hash") : ""};
+    if (!baseLinkFromIni(ini, linkOwner, out.baseLink, err)) return false;
+    if (out.baseLink.name.empty()) out.baseLink.name = "_base";
     if (!readBaseLevel(vfs, out.baseLink, out.base, h, err)) return false;
   }
   if (ini.count("board_width")) out.cfg.boardWidth = std::clamp(std::atoi(ini["board_width"].c_str()), 650, 1400);

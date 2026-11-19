@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cctype>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -25,7 +26,15 @@ struct Manifest {
 
 bool parseManifest(const std::string& text, bool json, const std::string& folderName, Manifest& m, std::string* err);
 bool loadManifest(const std::filesystem::path& dir, Manifest& m, std::string* err);
-std::string sanitizeId(const std::string& s);
+inline std::string sanitizeId(const std::string& s) {
+  std::string o;
+  for (char c : s) {
+    c = (char)std::tolower((unsigned char)c);
+    if (std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-') o += c;
+    else if (c == ' ') o += '_';
+  }
+  return o.empty() ? "mod" : o;
+}
 std::filesystem::path resolveNative(const std::filesystem::path& dir, const Manifest& m);
 bool safeRelPath(const std::string& rel);
 

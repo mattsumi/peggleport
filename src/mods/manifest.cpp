@@ -43,15 +43,6 @@ bool readFile(const fs::path& p, std::string& out, size_t maxBytes) {
   f.read(out.data(), (std::streamsize)n);
   return true;
 }
-std::string sanitizeId(const std::string& s) {
-  std::string o;
-  for (char c : s) {
-    c = (char)std::tolower((unsigned char)c);
-    if (std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-') o += c;
-    else if (c == ' ') o += '_';
-  }
-  return o.empty() ? "mod" : o;
-}
 bool safeRelPath(const std::string& rel) { return modhost::relPathOk(rel); }
 
 static std::vector<std::string> splitList(const std::string& s) {
