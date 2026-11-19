@@ -49,10 +49,10 @@ Because the other game's Challenge mode is still locked, and the originals never
 Point at a challenge and the panel in the middle shows its name, what it asks of you and, once you have a result for it, a line **Your Best:** with your highest number. Before that there is no line, the same as in the originals. What the number is depends on the challenge. In Peggle Deluxe only the challenges with a score to reach keep one, your highest total score. In Peggle Nights it is the score of the level, the style points for the style point challenges, the number of different style shots, or the number of required style shots you made, and for the "stay under" challenges the lowest score counts. Challenges with a set number of orange pegs, with every peg to clear, duels, and challenges whose score carries on over several levels keep no best.
 
 **Where does it look for my game?**
-The first time, and again whenever its own copy of the game files is missing or damaged, it looks first in the folders it remembers from last time. Then it asks Steam: on Windows it reads the Steam folder from the registry, and on every system it reads Steam's list of library folders and Steam's own records of Peggle Deluxe and Peggle Nights, so a library on another drive or a folder with an unusual name is found too. After that it tries the usual Steam folders on every drive, the Origin, EA app and PopCap folders, and a `Games` folder next to PegglePort or in your home folder. A folder only counts when `main.pak` is in it. Once it has found a game it keeps its own copy of the files it needs (about 40 MB for both games) in its own folder next to `launcher.ini` and plays from that copy, so after that it does not need Steam, and you can close Steam, go offline or uninstall it.
+The first time, and again whenever its own copy of the game files is missing or damaged, it looks first in the folders it remembers from last time. Then it asks Steam: on Windows it reads the Steam folder from the registry, and on every system it reads Steam's list of library folders and Steam's own records of Peggle Deluxe, Peggle Nights, and Peggle Extreme, so a library on another drive or a folder with an unusual name is found too. After that it tries the usual Steam folders on every drive, the Origin, EA app and PopCap folders, and a `Games` folder next to PegglePort or in your home folder. A folder only counts when `main.pak` is in it. Once it has found a game it keeps its own copy of the files it needs in its own folder next to `launcher.ini` and plays from that copy, so after that it does not need Steam, and you can close Steam, go offline or uninstall it.
 
 **It cannot find my game.**
-Then a message tells you so and lists the places it looked at with what it saw there, for example "folder not there" or "folder there, but no main.pak in it". Press **Choose Folder...** and pick the folder that holds `main.pak`. The folder that contains your game folders works too (for example `Games`, it picks up both games), and so does a Steam folder. If the folder is wrong, the message says so and asks again. The complete list is written to `start.log`, next to `launcher.ini` (see "Where are my saves?").
+Then a message tells you so and lists the places it looked at with what it saw there, for example "folder not there" or "folder there, but no main.pak in it". Press **Choose Folder...** and pick the folder that holds `main.pak`. The folder that contains your game folders works too (for example `Games`, it picks up the installed editions), and so does a Steam folder. If the folder is wrong, the message says so and asks again. The complete list is written to `start.log`, next to `launcher.ini` (see "Where are my saves?").
 On Linux the folder window needs a desktop portal or `zenity`. If neither is there, the message tells you to put your game folder into a folder named `Games` next to PegglePort.
 
 **Where did it find my game?**
@@ -78,11 +78,11 @@ The original games keep their saves in `C:\ProgramData\PopCap Games\Peggle\userd
 
 PegglePort stores everything in one folder per game. Nothing is written into the game's install.
 
-| System | Peggle Deluxe | Peggle Nights |
-|---|---|---|
-| Windows | `%APPDATA%\PopCap Games\Peggle` | `%APPDATA%\PopCap Games\PeggleNights` |
-| macOS | `~/Library/Application Support/PopCap Games/Peggle` | `~/Library/Application Support/PopCap Games/PeggleNights` |
-| Linux | `~/.local/share/PopCap Games/Peggle` | `~/.local/share/PopCap Games/PeggleNights` |
+| System | Peggle Deluxe | Peggle Nights | Peggle Extreme |
+|---|---|---|---|
+| Windows | `%APPDATA%\PopCap Games\Peggle` | `%APPDATA%\PopCap Games\PeggleNights` | `%APPDATA%\PegglePort\PeggleExtreme` |
+| macOS | `~/Library/Application Support/PopCap Games/Peggle` | `~/Library/Application Support/PopCap Games/PeggleNights` | `~/Library/Application Support/PegglePort/PeggleExtreme` |
+| Linux | `~/.local/share/PopCap Games/Peggle` | `~/.local/share/PopCap Games/PeggleNights` | `~/.local/share/PegglePort/PeggleExtreme` |
 
 Inside you find `settings.ini` and a `userdata` folder with profiles (`users.dat`, `user*.dat`), saved games, `highscores.dat`, `replays/`, `mods/` and `logs/`. PegglePort remembers your game folders in a small `launcher.ini` of its own, in `%APPDATA%\PegglePort\PegglePort` on Windows, `~/Library/Application Support/PegglePort/PegglePort` on macOS and `~/.local/share/PegglePort/PegglePort` on Linux. The copy of the game files is in a `gamefiles` folder next to it.
 

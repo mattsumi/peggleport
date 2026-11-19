@@ -3,4 +3,4 @@ If macOS says the app is damaged, run this once in Terminal from the folder that
 
   xattr -dr com.apple.quarantine PegglePort.app
 
-The first window asks for your Peggle Deluxe and Peggle Nights folders.
+PegglePort looks for your copy of Peggle Deluxe, Peggle Nights, or Peggle Extreme. If none is found, choose the folder containing main.pak.
