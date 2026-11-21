@@ -776,6 +776,7 @@ bool Settings::load(const fs::path& file) {
     else if (k == "WinW") winW = std::atoi(v.c_str());
     else if (k == "WinH") winH = std::atoi(v.c_str());
     else if (k == "Widescreen") widescreen = std::clamp(std::atoi(v.c_str()), 0, 4);
+    else if (k == "Ps3ResourcePack") ps3ResourcePack = bl();
     else if (k == "VisInterpolate") vis.interpolate = bl();
     else if (k == "VisSmooth") vis.smooth = bl();
     else if (k == "VisBloom") vis.bloom = bl();
@@ -794,7 +795,8 @@ bool Settings::save(const fs::path& file) const {
     << "\nCustomCursors=" << (customCursors ? 1 : 0) << "\nWaitForVSync=" << (vsync ? 1 : 0) << "\nCurUser=" << curUser << "\nMaxStage=" << maxStage
     << "\nMaxLevel=" << maxLevel << "\nWinW=" << winW << "\nWinH=" << winH << "\nWidescreen=" << widescreen << "\nVisInterpolate=" << (vis.interpolate ? 1 : 0)
     << "\nVisSmooth=" << (vis.smooth ? 1 : 0) << "\nVisBloom=" << (vis.bloom ? 1 : 0) << "\nVisSparks=" << (vis.sparks ? 1 : 0)
-    << "\nVisUltraWideHud=" << (vis.ultraWideHud ? 1 : 0) << "\nVisBloomStrength=" << vis.bloomStrength << "\n";
+    << "\nVisUltraWideHud=" << (vis.ultraWideHud ? 1 : 0) << "\nVisBloomStrength=" << vis.bloomStrength
+    << "\nPs3ResourcePack=" << (ps3ResourcePack ? 1 : 0) << "\n";
   std::string s = o.str();
   return writeFileAtomic(file, std::vector<uint8_t>(s.begin(), s.end()));
 }

@@ -11,7 +11,11 @@ from PIL import Image, ImageOps
 class Pak:
     def __init__(self, path):
         self.name = path.name
-        data = path.read_bytes()
+        limit = 64 << 20
+        with path.open('rb') as source:
+            data = source.read(limit + 1)
+        if len(data) > limit:
+            raise ValueError(f'{self.name}: PS3 artwork archive is too large')
         self.sha256 = hashlib.sha256(data).hexdigest()
         if not data.startswith(bytes.fromhex('c04ac0ba00000000')):
             raise ValueError(f'{self.name}: not a plain Peggle PS3 PAK')
@@ -19,6 +23,8 @@ class Pak:
         records = []
         pos = 8
         while pos + 2 <= len(data) and data[pos] == 0:
+            if len(records) == 8192:
+                raise ValueError(f'{self.name}: too many archive members')
             name_end = pos + 2 + data[pos + 1]
             if name_end + 12 > len(data) or name_end == pos + 2:
                 raise ValueError(f'{self.name}: invalid member directory')
@@ -54,7 +60,7 @@ class Pak:
             if member not in self.entries:
                 raise ValueError(f'{self.name}: missing member {member}')
             name, data = self.entries[member]
-            with Image.open(BytesIO(data)) as image:
+            with Image.open(BytesIO(data), formats=('GIF', 'JPEG', 'PNG')) as image:
                 if image.size != size:
                     raise ValueError(f'{self.name}:{name}: expected {size}, got {image.size}')
                 decoded = image.convert(mode)

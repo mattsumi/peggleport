@@ -196,6 +196,15 @@ StartDialogs systemDialogs() {
   return d;
 }
 
+fs::path ps3ArtDir() {
+  const auto store = GameFolders::defaultStoreFile();
+  return store.empty() ? fs::path() : store.parent_path() / "presentation";
+}
+
+bool mountPs3Art(Vfs& vfs, const Settings& settings, const fs::path& imported, const fs::path& portable) {
+  return settings.ps3ResourcePack && (vfs.mountPresentation(imported) || vfs.mountPresentation(portable));
+}
+
 GameFolders::GameFolders(fs::path storeFile, FindSources sources, StartDialogs dialogs) : storeFile_(std::move(storeFile)), sources_([sources = std::move(sources)] { return sources; }), dialogs_(std::move(dialogs)) {}
 
 GameFolders::GameFolders(fs::path storeFile, std::function<FindSources()> sources, StartDialogs dialogs) : storeFile_(std::move(storeFile)), sources_(std::move(sources)), dialogs_(std::move(dialogs)) {}

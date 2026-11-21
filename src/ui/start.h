@@ -10,6 +10,8 @@
 
 struct SDL_Window;
 
+namespace pp { class Vfs; }
+
 namespace pp::ui {
 
 class App;
@@ -26,6 +28,8 @@ struct StartDialogs {
 };
 
 StartDialogs systemDialogs();
+std::filesystem::path ps3ArtDir();
+bool mountPs3Art(Vfs& vfs, const Settings& settings, const std::filesystem::path& imported, const std::filesystem::path& portable);
 
 using GameWait = std::function<void(const std::function<bool()>& done)>;
 

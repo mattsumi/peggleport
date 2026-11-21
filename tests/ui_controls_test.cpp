@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -14,6 +15,7 @@
 #include "ui/game_screen.h"
 #include "ui/log_view.h"
 #include "ui/screens.h"
+#include "ui/start.h"
 #include "ui/replay.h"
 #include "ui/visuals_dialog.h"
 
@@ -451,6 +453,48 @@ int main(int argc, char** argv) {
       if (!check(d->focusW == mods, "Classic Mods is keyboard reachable")) return 1;
       keypress(SDLK_RETURN);
       if (!check(app.helpOverlay() && std::string(app.helpOverlay()->name()) == "mods", "Classic Mods opens with Enter")) return 1;
+      settle(app);
+      auto* modsScreen = app.helpOverlay();
+      Button* ps3 = nullptr;
+      Button* openFolder = nullptr;
+      for (auto& widget : modsScreen->widgets) {
+        auto* b = dynamic_cast<Button*>(widget.get());
+        if (b && b->label == "PS3 Resource Pack") ps3 = b;
+        if (b && b->label == "Open Folder") openFolder = b;
+      }
+      check(ps3 && openFolder && ps3->x >= openFolder->x + openFolder->w && ps3->y == openFolder->y,
+            "PS3 Resource Pack is next to Open Folder");
+      if (ps3) {
+        click(app, *modsScreen, *ps3);
+        settle(app);
+        Button toggle;
+        toggle.x = 126 + 156;
+        toggle.y = 137 + 167;
+        toggle.w = 236;
+        toggle.h = ps3->h;
+        check(!app.settings.ps3ResourcePack, "PS3 artwork is off by default");
+        click(app, *modsScreen, toggle);
+        check(app.settings.ps3ResourcePack, "PS3 pack dialog enables artwork");
+        const auto root = userDir.parent_path();
+        const auto settingsFile = root / "ps3-settings.ini";
+        const auto imported = root / "ps3-presentation";
+        const auto image = imported / "console/menu/home.png";
+        Settings saved;
+        Vfs withArt, withoutArt;
+        check(app.settings.save(settingsFile) && saved.load(settingsFile) && saved.ps3ResourcePack, "PS3 artwork stays on after reloading settings");
+        check(!mountPs3Art(withoutArt, saved, {}, {}), "missing art keeps the PC fallback");
+        std::filesystem::create_directories(image.parent_path());
+        std::ofstream(image, std::ios::binary) << "fixture";
+        check(mountPs3Art(withArt, saved, imported, {}) && withArt.exists("console/menu/home.png"),
+              "startup mounts the imported artwork when enabled");
+        click(app, *modsScreen, toggle);
+        check(!app.settings.ps3ResourcePack && !mountPs3Art(withoutArt, app.settings, imported, {}), "disabled pack leaves the PC fallback even when art exists");
+        std::filesystem::remove(image);
+        std::filesystem::remove(settingsFile);
+        keypress(SDLK_ESCAPE);
+        settle(app);
+        check(app.helpOverlay() == modsScreen, "closing the pack dialog returns to Mods");
+      }
       keypress(SDLK_ESCAPE);
       check(!app.helpOverlay() && app.topDialog() == d && d->focusW == mods, "Back restores Options and Mods focus");
       if (game == Game::Nights) {

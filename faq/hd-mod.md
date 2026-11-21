@@ -1,6 +1,6 @@
 # Artwork guide
 
-PegglePort has two separate artwork options. **Peggle Native HD** adapts iPad textures and backgrounds for Deluxe and Nights as a mod. **PS3 presentation art** supplies optional artwork for the built-in console layout and is installed separately. Neither changes the playable board or aiming coordinates. Neither includes a copy of the original artwork.
+PegglePort has two separate artwork options. **Peggle Native HD** adapts iPad textures and backgrounds for Deluxe and Nights as a mod. The **PS3 Resource Pack** option loads artwork you import from your own PS3 copy for the built-in console layout. Neither changes the playable board or aiming coordinates. Neither includes a copy of the original artwork.
 
 ## Build the packs locally
 
@@ -35,16 +35,21 @@ A data mod can add an image at `widescreen/levels/<background>` with a supported
 
 The console layout is built into PegglePort. **Auto** uses the 16:9 presentation when the window is 16:10 or wider, and Classic 4:3 in narrower windows. It fits one frame to the window instead of mixing a widescreen menu with a different gameplay layout. You can still select an explicit aspect ratio. No mod is required.
 
-To import the menus, gameplay frame and online rooms from your PS3 copy, install Pillow and run the commands below from the repository. Replace `DATA` with the path to `NPUA30005/USRDIR/data`. Replace each `OUT` with the same staging directory outside the repository and the PS3 dump. The four output folders must not already exist.
+The **PS3 Resource Pack** button sits next to **Open Folder** in **Mods**. In Classic 4:3, open **Options → Mods** first. You need your own compatible Peggle PS3 `.pkg` (retail package with the original artwork archives) or a decrypted, extracted copy containing `USRDIR/data/peggle.pak` and `nights.pak`. The importer does not run the PS3 game or download anything. You still need your own supported PC edition to play.
 
-```text
-python tools/import_ps3_console_art.py "DATA" "OUT/base"
-python tools/import_ps3_secondary_art.py "DATA" "OUT/base" "OUT/menus"
-python tools/import_ps3_lobby_art.py "DATA" "OUT/menus" "OUT/lobbies"
-python tools/import_ps3_online_art.py "DATA" "OUT/lobbies" "OUT/presentation"
+Install Python 3.11 or newer and the import dependencies, using the same Python that PegglePort will find on `PATH` (`python.exe` on Windows, `python3` on macOS and Linux). The Python command below is `python3` on macOS or Linux. The game itself does not need Python after the import.
+
+```sh
+python -m pip install -r tools/requirements-ps3-art.txt
 ```
 
-Copy the final `presentation` folder beside the executable on Windows or Linux. For the macOS app, place it at `PegglePort.app/Contents/Resources/presentation`. PegglePort loads it automatically. Without it, the console layout still works and falls back to PC artwork. Remove the folder to switch back to that fallback. Peggle Native HD is a separate texture mod and does not use this folder.
+On Windows, the in-game importer needs a real `python.exe` on `PATH`, not a WindowsApps launcher alias. If you use a virtual environment, start PegglePort from the terminal where that environment is active. You can also use the command-line import below with any Python installation that runs the script.
+
+Select **Import PS3 .pkg** or **Import Extracted Folder**. For a folder, select the extracted game root or its `USRDIR/data` folder. If the package does not contain both archives in a readable form, use your decrypted, extracted copy instead. A successful import turns **PS3 Artwork** on. Close and restart PegglePort. Switch **PS3 Artwork** off and restart to return to PC art without deleting your import.
+
+If the in-game picker or Python setup is unavailable, run `python tools/import_ps3_art.py "SOURCE" "DEST/presentation"` from the download or source checkout instead. `SOURCE` is the package or extracted folder and `DEST` is the PegglePort preferences directory (beside `launcher.ini`): `%APPDATA%/PegglePort/PegglePort` on Windows, `~/Library/Application Support/PegglePort/PegglePort` on macOS, or `${XDG_DATA_HOME:-$HOME/.local/share}/PegglePort/PegglePort` on Linux. For a DMG without the standalone tools folder, the scripts are also in `PegglePort.app/Contents/Resources/tools`. The destination `presentation` must not already exist; move an old import aside before replacing it. Enable **PS3 Artwork** and restart after a command-line import.
+
+An existing `presentation` beside the Windows or Linux executable, or beside the macOS app or under its `Contents/Resources`, still works once **PS3 Artwork** is on. The preferences copy takes precedence. Without artwork, the console layout still works with PC art. Peggle Native HD is a separate texture mod and does not use this folder.
 
 The widescreen menus keep Custom Levels, Join With Code, the two-column Pause and Options dialogs, and the Nights Lounge. Online rooms show the port's actual players, readiness and room code rather than PSN statistics.
 

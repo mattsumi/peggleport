@@ -55,7 +55,7 @@ For HD, enable `-DPP_HD_TOOLS=ON`, build `pp_build_hd_mod` and follow the artwor
 
 For Pego, run `python examples/mods/build_pego_pack.py "path/to/Pego Deluxe" "path/to/pego_prototype"`. For WoW, build `pp_wow_pack` and run `pp_wow_pack "path/to/Peggle World of Warcraft Edition" "path/to/wow_levels"`.
 
-**Widescreen is built in, not a mod.** The console menus and centered 16:9 gameplay layout do not belong in this catalog. Optional imported PS3 presentation artwork is loaded separately, not installed as a mod; see [console presentation](faq/hd-mod.md#console-menus-and-169-gameplay).
+**Widescreen is built in, not a mod.** The console menus and centered 16:9 gameplay layout do not belong in this catalog. Use the built-in **Mods → PS3 Resource Pack** option to import artwork locally from your own PS3 copy. See the [artwork guide](faq/hd-mod.md#console-menus-and-169-gameplay).
 
 ## Make your own
 

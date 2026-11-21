@@ -12,6 +12,9 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <chrono>
+#include <future>
+#include <sstream>
 #include <vector>
 
 #include "log.h"
@@ -19,6 +22,7 @@
 #include "mods/text.h"
 #include "ui/consent_dialog.h"
 #include "ui/mod_text.h"
+#include "ui/start.h"
 
 namespace fs = std::filesystem;
 
@@ -59,7 +63,171 @@ std::string fileUrl(const fs::path& p) {
   }
   return o;
 }
+
+fs::path importerPython() {
+  const char* path = SDL_getenv("PATH");
+  if (!path) return {};
+  std::istringstream parts(path);
+  std::string part;
+#ifdef _WIN32
+  const char separator = ';';
+  const char* name = "python.exe";
+#else
+  const char separator = ':';
+  const char* name = "python3";
+#endif
+  while (std::getline(parts, part, separator)) {
+    const auto dir = pathFromUtf8(part);
+    std::error_code ec;
+    if (dir.is_absolute() && dir.filename() != "WindowsApps" && fs::is_regular_file(dir / name, ec)) return dir / name;
+  }
+  return {};
 }
+}
+
+class Ps3PackDialog : public Dialog {
+ public:
+  explicit Ps3PackDialog(App& a)
+      : Dialog(a, -1, true, "PS3 Resource Pack", "Import artwork from your own PS3 copy.\nThe game download does not include this artwork.", "Done", BUTTONS_FOOTER) {
+    resize(126, 137, 548, 326);
+    escapeButton = ID_FOOTER;
+    patchButton(101, "Import PS3 .pkg", "IMAGE_DLG_BUTTON3", 34, 120)->w = 236;
+    patchButton(102, "Import Extracted Folder", "IMAGE_DLG_BUTTON3", 278, 120)->w = 236;
+    toggle_ = patchButton(103, "", "IMAGE_DLG_BUTTON3", 156, 167);
+    toggle_->w = 236;
+    labelToggle();
+  }
+
+  ~Ps3PackDialog() override {
+    if (!stopImport()) {
+      log::warn("game", std::string("Could not stop PS3 artwork import: ") + SDL_GetError());
+      SDL_DestroyProcess(process_);
+    }
+  }
+
+  void drawLayer(Gfx& g) override {
+    Dialog::drawLayer(g);
+    drawPlain(g, kText, w * 0.5f, 231, fitPlain(g, kText, status_, w - 70), 0xffeeaa, 1, Align::Center);
+    drawPlain(g, kText, w * 0.5f, 253, "Restart to apply changes. PC artwork is the fallback.", 0xcbdaf0, 1, Align::Center);
+  }
+
+  void onButton(int id) override {
+    if (choosing_.valid()) return;
+    if (id == ID_FOOTER) {
+      if (!process_) closed = true;
+      else if (stopImport()) status_ = "Import cancelled.";
+      else status_ = "Could not stop the import. Try cancelling again.";
+      return;
+    }
+    if (process_) return;
+    if (id == 103) {
+      app.settings.ps3ResourcePack = !app.settings.ps3ResourcePack;
+      labelToggle();
+      status_ = app.settings.ps3ResourcePack ? "PS3 artwork enabled for the next launch." : "PC artwork selected for the next launch.";
+      return;
+    }
+    if ((id != 101 && id != 102) || app.cfg.noSave) return;
+    auto pending = std::make_unique<Choice>();
+    choosing_ = pending->get_future();
+    static const SDL_DialogFileFilter filters[] = {{"PS3 packages", "pkg"}};
+    auto chosen = +[](void* data, const char* const* files, int) {
+      std::unique_ptr<Choice> answer(static_cast<Choice*>(data));
+      answer->set_value(files ? std::optional<std::string>(files[0] ? files[0] : "") : std::nullopt);
+    };
+    if (id == 101) SDL_ShowOpenFileDialog(chosen, pending.release(), SDL_GetKeyboardFocus(), filters, 1, nullptr, false);
+    else SDL_ShowOpenFolderDialog(chosen, pending.release(), SDL_GetKeyboardFocus(), nullptr, false);
+  }
+
+  void update() override {
+    Dialog::update();
+    if (choosing_.valid() && choosing_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+      auto selected = choosing_.get();
+      if (!selected) status_ = "The file chooser is unavailable. See the artwork guide.";
+      else if (!selected->empty()) import(*selected);
+    }
+    if (!process_) return;
+    readOutput();
+    int code = -1;
+    if (!SDL_WaitProcess(process_, false, &code)) {
+      if (SDL_GetTicks() >= deadline_ && stopImport()) status_ = "Import took too long. Use the artwork guide to try again.";
+      return;
+    }
+    readOutput();
+    SDL_DestroyProcess(process_);
+    process_ = nullptr;
+    yesBtn->label = "Done";
+    if (code == 0) {
+      app.settings.ps3ResourcePack = true;
+      labelToggle();
+      status_ = "Artwork imported. Restart to use it.";
+    } else {
+      log::warn("game", "PS3 artwork import failed: " + output_);
+      if (output_.find("No module named") != std::string::npos || output_.find("Install the import dependency") != std::string::npos)
+        status_ = "Install the Python import dependencies. See the artwork guide.";
+      else status_ = "Could not import this source. See the log (F10).";
+    }
+  }
+
+  bool closed = false;
+
+ private:
+  using Choice = std::promise<std::optional<std::string>>;
+  std::future<std::optional<std::string>> choosing_;
+  SDL_Process* process_ = nullptr;
+  uint64_t deadline_ = 0;
+  Button* toggle_;
+  std::string status_, output_;
+
+  void labelToggle() { toggle_->label = app.settings.ps3ResourcePack ? "PS3 Artwork: On" : "PS3 Artwork: Off"; }
+
+  bool stopImport() {
+    if (!process_) return true;
+    if (!SDL_WaitProcess(process_, false, nullptr) &&
+        !SDL_KillProcess(process_, true) && !SDL_WaitProcess(process_, false, nullptr)) return false;
+    SDL_WaitProcess(process_, true, nullptr);
+    SDL_DestroyProcess(process_);
+    process_ = nullptr;
+    yesBtn->label = "Done";
+    return true;
+  }
+
+  void readOutput() {
+    if (auto* stream = SDL_GetProcessOutput(process_)) {
+      char buf[512];
+      for (int i = 0; i < 32; ++i) {
+        const size_t size = SDL_ReadIO(stream, buf, sizeof buf);
+        if (!size) break;
+        if (output_.size() < 16384) output_.append(buf, size);
+      }
+    }
+  }
+
+  void import(const std::string& source) {
+    const auto dir = ps3ArtDir();
+    std::error_code ec;
+    if (dir.empty()) { status_ = "Could not find PegglePort's artwork folder."; return; }
+    if (fs::exists(dir, ec)) { status_ = "Art already imported. Use the artwork guide to replace it."; return; }
+    const auto python = importerPython();
+    if (python.empty()) { status_ = "Python 3 was not found. See the artwork guide."; return; }
+    const char* base = SDL_GetBasePath();
+    const auto script = base && *base ? pathFromUtf8(base) / "tools" / "import_ps3_art.py" : fs::path();
+    if (!fs::is_regular_file(script, ec)) { status_ = "The import script is missing. See the artwork guide."; return; }
+    const std::string program = pathToUtf8(python), scriptPath = pathToUtf8(script), dest = pathToUtf8(dir);
+    const char* args[] = {program.c_str(), "-E", "-P", scriptPath.c_str(), source.c_str(), dest.c_str(), nullptr};
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, args);
+    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
+    SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
+    process_ = SDL_CreateProcessWithProperties(props);
+    SDL_DestroyProperties(props);
+    output_.clear();
+    if (process_) {
+      deadline_ = SDL_GetTicks() + 120000;
+      yesBtn->label = "Cancel import";
+    }
+    status_ = process_ ? "Importing artwork..." : "Could not start Python. See the artwork guide.";
+  }
+};
 
 void App::showModsScreen() {
   if (overlay_) return;
@@ -76,6 +244,8 @@ ModsScreen::ModsScreen(App& a) : Screen(a), seen_(a.modApplyCount()), wasFocused
     status_ = "No mod manager is running.";
   }
 }
+
+ModsScreen::~ModsScreen() = default;
 
 void ModsScreen::changed(const std::string& id) {
   touched_ = id;
@@ -126,7 +296,8 @@ void ModsScreen::rebuild() {
   };
   auto labelled = [&](const std::string& label) { return g.textWidth("BUTTON", label) + kButtonPad; };
   patchButton(0, "Done", "IMAGE_DLG_BUTTON3", 296, 545)->w = 208;
-  sized(patchButton(6000, "Open Folder", "IMAGE_DLG_BUTTON3", 24, 10), labelled("Open Folder"));
+  const Button* open = sized(patchButton(6000, "Open Folder", "IMAGE_DLG_BUTTON3", 24, 10), labelled("Open Folder"));
+  sized(patchButton(6002, "PS3 Resource Pack", "IMAGE_DLG_BUTTON3", open->x + open->w + 8, 10), labelled("PS3 Resource Pack"));
   Button* logBtn = sized(patchButton(6001, "Log", "IMAGE_DLG_BUTTON3", 0, 10), labelled("Log"));
   logBtn->x = 776 - logBtn->w;
 
@@ -219,17 +390,24 @@ void ModsScreen::openConsent(const std::string& modId, bool ask) {
   dlg_->resize(120, std::max(10.0f, (600 - hgt) / 2), 560, hgt);
 }
 bool ModsScreen::input(const Input& in) {
+  if (ps3Pack_) { ps3Pack_->input(in); return true; }
   if (dlg_) { dlg_->input(in); return true; }
   return Panel::input(in);
 }
 void ModsScreen::drawOverlay(Gfx& g) {
-  if (!dlg_) return;
+  if (!dlg_ && !ps3Pack_) return;
   g.fill(0, 0, 800, 600, 0x000000, 0.5f);
-  dlg_->draw(g);
+  if (ps3Pack_) ps3Pack_->draw(g);
+  else dlg_->draw(g);
 }
 
 void ModsScreen::update() {
   followApply();
+  if (ps3Pack_) {
+    ps3Pack_->update();
+    if (ps3Pack_->closed) ps3Pack_.reset();
+    return;
+  }
   if (dlg_) {
     dlg_->update();
     if (dlg_->closed) {
@@ -272,6 +450,7 @@ void ModsScreen::onButton(int id) {
   if (id == 2) { page_++; dirty_ = true; return; }
   if (id == 6000) { openFolder(); return; }
   if (id == 6001) { app.showLogView(true); return; }
+  if (id == 6002) { ps3Pack_ = std::make_unique<Ps3PackDialog>(app); return; }
   if (!mm) return;
   if (id >= 5000) {
     auto menus = mm->menus();
