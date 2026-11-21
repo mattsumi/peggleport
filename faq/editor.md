@@ -51,7 +51,8 @@ The `:` key opens a one line command box for typed commands, which some people p
 
 * **Pegs** are circles with a peg block. Blue and orange are saved as "variable" pegs like the shipped levels: the game picks the real oranges at the start of every game, and the colour you see in the editor is only a preview. Green and purple are fixed.
 * **Mod peg types**: select a peg and type a name into the **Custom type** field of the Object tab, for example `ice` or `mymod:ice`. **To mod** saves it as a `peg` line in the level's `.ini`, and the game gives the peg that type when the mod that defines it is on. The editor still draws the peg as a normal one, and opening a level with `peg` lines keeps them. The modding guide has the details.
-* **Round and bumper**: any radius. A bumper has no peg properties.
+* **Round and bumper**: you can set the radius. A bumper has no peg properties.
+* **Collision role** in the Object tab sets whether a supported selection is a **Scoring peg**, **Permanent bumper**, **Solid terrain** or **Decoration**. A scoring peg can be cleared; bumpers and solid terrain collide without counting toward the peg goal; decoration does not collide. The choices depend on the selected shapes.
 * **Bricks** have all the brick settings of the game (type, subdivisions, radius or length, sweep, end angles, thickness, rotation) and can also be a peg.
 * **Polygons** are collision shapes and are drawn as outlines. New ones are oriented like the shipped ones so "keep out" faces the right way. Select one and every corner gets a handle: drag a handle to move that corner, double-click an edge to add a corner, and press Delete on a chosen corner to remove it. The **Corners** part of the Object tab does the same with buttons and exact numbers (Corner X and Corner Y). A corner will not move onto another one or across an edge, and the polygon always keeps at least 3 corners. Every change is one undo step. **Lines** are single walls. **Holes** have a score, an out delay and a size.
 * **Emitters** are the particle effects of Peggle Nights, like flames and sparks. Pick the Emitter tool (N) and click to place one. It shows as an orange frame, the area the particles come from, with a small square in the middle that holds the effect's picture. Click the square or the frame to select it and drag it to move it. The Object tab has all of its settings: the size and shape of the area, the picture, opacity, colour and size, how fast and how many particles, how long they live, speed, gravity and spin. An emitter can have a mover like any other object. The editor only shows where an emitter is and which picture it uses. The particles run when you play the level, and an emitter with a mover or a follower moves with it.
@@ -63,18 +64,14 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 
 ## Saving and playing your level
 
-* **Save** writes the level to where it came from, or into your mod folder when it is new.
-* **To mod** (Ctrl/Cmd+Shift+S) writes
-  * `mods/<modname>/levels/<Level>.dat`,
-  * `<Level>.ini` next to it with `title`, `board_width`, `balls`, `orange`, `background` and `master`, the physics keys you set in the Level tab (`gravity`, `wind`, `launch_speed`, `bounce`, `peg_bounce`, `drag`, `max_speed`, `ball_radius`, see the Physics part of the modding guide), and a `peg` line for every mod peg type you set (see Mod peg types),
-  * `levels/mod_levels.cfg`, which makes a Quick Play stage for every five levels,
-  * a `mod.ini` when the folder has none, and a 200 by 177 thumbnail in `levels/cached_thumbnails/` for the Quick Play tile.
-* New levels use the file version that both games load. A loaded level keeps its own version, so a Nights-only level only loads in Nights.
-* Level names may use letters, digits, `_` and `-`. A name that starts with `_` is treated as a base layout without walls and a bucket, and the checker tells you about it.
-* The art of a level is its own picture in the game or mod files (`levels/<level name>`, a .jpg, .png or .jp2, 646 x 543 for the classic board, 800 x 600 for a full screen picture). The editor does not paint pictures, it picks them: see Level art below. A new level uses the art you choose in the Level tab. Pictures that come from another mod are copied into your mod folder when you save, so the mod does not break when the other one is switched off. Pictures of the game itself are only named, never copied, and nothing is ever written into the game folders.
-* To play it: enable the mod on the **Mods** screen. In **Quick Play**, press the **left arrow on the first stage** to reach the mod's stages. The editor also mounts the mod into the running game, so levels you save in a session show up without a restart.
+* **Save** (Ctrl/Cmd+S) updates the writable mod or loose DAT you opened, or the last destination you saved to. An unsaved board or a board from a shipped archive or ZIP mod goes through **To mod** instead. Shipped archives and ZIPs are not rewritten.
+* To edit one of two mods with the same level name, select the **mod `<folder>`: `<level>`** entry in **Open** rather than the by-name entry. The by-name entry opens the active copy. The editor preserves existing filename spelling and refuses ambiguous paths rather than guessing. An ordinary edit to geometry leaves the stage registration and settings intact.
+* **To mod** (Ctrl/Cmd+Shift+S) uses the **Mod name** in the Level tab. It writes `userdata/mods/<modname>/levels/<Level>.dat`, a companion `.ini` for level settings, and the `levels/mod_levels.cfg` stage registration. Newly generated stages group up to five levels; authored stage settings are kept. It creates `mod.ini` if there is no manifest and renders a 200 × 177 TGA thumbnail into `levels/cached_thumbnails/`. If a destination has conflicting stage settings, choose a new mod folder.
+* A board linked to another base keeps that link when you save or export. Keep the pack that supplies the base enabled when playing or editing the board. Do not rename or remove the generated `base`, `base_hash` and `base_provider` entries in its `.ini`.
+* A loaded board keeps its DAT version. Use its original edition for testing and do not assume that a Nights board works in Deluxe. Level names may use letters, digits, `_` and `-`; an initial `_` marks a base layout.
+* To play a saved board, enable its mod on the **Mods** screen. In Classic 4:3, use the **left arrow on the first Quick Play stage** to reach the mod's stages. In the console layout, use **Single Player → Custom Levels**. No restart is needed.
 
-**Export and Import** write and read `exports/<Level>.json` in your save folder. When sharing a level with an imported background, send the whole mod folder, or send the generated image alongside the JSON. For loose DAT files, keep the DAT, INI and generated image together.
+**Export** and **Import** write and read `userdata/exports/<Level>.json`. When sharing a level with an imported background, send the whole mod folder or send the generated image alongside the JSON. For loose DAT files, keep the DAT, INI and generated image together. A linked base pack is still required. See the [modding guide](modding.md#data-mods) for the sidecar fields.
 
 ## Test play
 
@@ -82,7 +79,7 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 
 ## Checks
 
-**F6**, the Check button and every save run the checks.
+**F6**, **Check** and **Run checks** inspect the board. **To mod** reports check errors without necessarily blocking the export. Test play also runs the checks.
 
 * **Errors**: no objects, no pegs, no peg that can turn orange, no bucket, an object completely outside the playfield, an invalid level name.
 * **Warnings**: fewer possible orange pegs than the orange target (the original rules want 25), pegs that overlap each other or a wall, polygon or line, pegs in the side walls or in the bucket zone, pegs that stick out of the playfield, duplicate object ids, movers that do nothing, emitters without a picture or with a picture the game cannot find.
@@ -91,6 +88,8 @@ Properties the editor has no controls for are kept untouched, so editing one peg
 Markers on the canvas show the objects a message is about.
 
 ## Level art
+
+A level background normally takes its name from the board and lives in `levels/`. In the Level tab you can choose a different image or import your own. Stock backgrounds are referenced by name. Keep the source pack enabled if the exported board still links to its base layout.
 
 The editor can show and pick three kinds of pictures. Each one has the same chooser: a list of every picture in the game and in your mod folder with a big preview of the one under the mouse, a filter box (just type), and a button to type a name by hand.
 

@@ -1,0 +1,53 @@
+name: Bug report
+description: Report something that does not work in PegglePort.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [FAQ](https://github.com/mattsumi/peggleport/blob/main/FAQ.md) and [existing issues](https://github.com/mattsumi/peggleport/issues?q=is%3Aissue) first. Do not attach `main.pak`, other original game files, or private information.
+  - type: input
+    id: version
+    attributes:
+      label: PegglePort version
+      description: Release tag or commit SHA. Say if you built it yourself.
+      placeholder: Release tag or short commit SHA
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: Windows 11 x64, macOS 15 Apple silicon, or Ubuntu 24.04 x64
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Game edition
+      options:
+        - Peggle Deluxe
+        - Peggle Nights
+        - Peggle Extreme
+        - More than one edition
+        - Launcher or not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the mode, level, and Master if relevant. List enabled mods and say whether it also happens with them off.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Open F10 and use Save, or attach start.log if the game could not start. Redact local paths, private invite links, and other private information.

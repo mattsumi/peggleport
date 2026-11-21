@@ -4,11 +4,11 @@ PegglePort has three kinds of mods. They all live in the same place and go throu
 
 | Kind | What it is | Where it runs | Asks for permission |
 |---|---|---|---|
-| Data | Replaces art, sounds and levels, tweaks a few rules with an ini file | it is not code | no |
-| Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers, new Masters, new peg types, physics | sandbox | network use or the `control` permission |
-| Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | separate restricted helper process | always |
+| Data | Replaces art, sounds and levels, tweaks a few rules with an ini file | it is not code | not for data alone |
+| Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers, new Masters, new peg types, physics | sandbox | a network scan finding, declared `net` or declared `control` |
+| Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | separate helper process, restricted where supported | always |
 
-The [mod catalog](../MODS.md) lists official PegglePort mods, examples and generated packs. The download includes the official [MCP Agent mod](mcp.md) alongside working examples in `examples/mods`, and the source of the native example in `examples/plugin`.
+The [mod catalog](../MODS.md) lists official PegglePort mods, examples and generated packs. Find the examples in `examples/mods` and the native example source in `examples/plugin`. The [MCP Agent mod](mcp.md) and its player-control API are on `main`; they are not in v0.5.0. Use a build that includes the API.
 
 ## Installing and turning mods on
 
@@ -36,7 +36,7 @@ Press **F10** on any screen to open the live log, also in the middle of a level.
 
 ## The manifest
 
-Every mod has a `mod.ini` (or a `mod.json` with the same keys, where `permissions` and `scripts` are arrays) in its top folder.
+Mods without a manifest can be used as data packs. To set metadata or declare code and permissions, put a `mod.ini` in the top folder (or a `mod.json` with the same keys, with `permissions` and `scripts` as arrays). Do not include keys for permissions or code that your mod does not need.
 
 ```ini
 name = Hello Lua
@@ -59,13 +59,13 @@ priority = 0
 | `name`, `version`, `author`, `description` | shown in the Mods screen |
 | `id` | unique name, defaults to the folder name |
 | `api` | the mod API level you wrote against. This build is level 1, a higher number will not load |
-| `permissions` | `net` allows the `net` Lua library, `fs` allows the `fs` library (a private data folder), and `control` allows the player-input API after consent and F8 approval. They apply to Lua only: a native plugin never gets the network, file or player-input API, whatever this line says. Unknown words give a warning |
-| `scripts` | Lua files, run in this order inside one sandbox. Defaults to `main.lua` when it exists |
-| `native` | the plugin, as a file name or a base name (`hello_native.dll`, `libhello_native.so`, `.dylib`) |
-| `determinism` | `sim` (default) means the mod takes part in the gameplay and every player in an online match needs it. `cosmetic` cannot edit the simulation; a separately approved `control` mod can supply normal local-player inputs |
-| `memory_mb` | Lua memory limit, 4 to 64 |
-| `instruction_budget` | work allowed per hook call, 1000 to 5000000. Lua instructions and library calls both count |
-| `priority` | for data mods, which one wins when two replace the same file. The higher number wins |
+| `permissions` | `net` allows the `net` Lua library, `fs` allows the `fs` library (a private data folder), and `control` allows the player-input API after consent and F8 approval. These Lua permissions do not grant OS permissions to native plugins. Unknown words give a warning |
+| `scripts` | Lua files, run in this order inside one sandbox. If you provide a manifest but no script list, an existing `main.lua` is used |
+| `native` | the plugin, as a file name or a base name (`hello_native.dll`, `libhello_native.so`, `libhello_native.dylib`) |
+| `determinism` | `sim` (default) includes the mod in the online gameplay comparison. `cosmetic` excludes it from that comparison and cannot run gameplay hooks or edit the simulation. Use `cosmetic` only when the mod does not change gameplay data, rules or levels |
+| `memory_mb` | Lua memory limit, 4 to 64 (default 16) |
+| `instruction_budget` | work allowed per hook call, 1000 to 5000000 (default 200000). Lua instructions and library calls both count |
+| `priority` | higher values take precedence for data-file replacements. Equal-priority files follow the mod load order |
 
 Paths to scripts and plugins must stay inside the mod folder.
 
@@ -84,7 +84,7 @@ Files in a mod folder are looked up before the game's own files, using the same 
 
 Run `python examples/mods/build_pego_pack.py "path/to/Pego Deluxe" "path/to/pego_prototype"` with your own August 2006 prototype files. Put the generated folder into Deluxe's Mods folder and enable **Pego Prototype**. Its 55 boards appear as extra Quick Play stages. The pack keeps their original base geometry and uses prototype backgrounds and thumbnails where supplied. Deluxe supplies the remaining art, interface and rules; this is not the full prototype campaign.
 
-A level sidecar can use `base = _pack_base` to load `levels/_pack_base.dat` instead of `levels/_base.dat`. The base name must start with an underscore and contain only letters, digits, underscores or hyphens.
+A level sidecar can use `base = _pack_base` to load `levels/_pack_base.dat` instead of `levels/_base.dat`. The base name must start with an underscore and contain only letters, digits, underscores or hyphens. When re-exporting a board that links to another pack, the editor also records `base_hash` and `base_provider`. Keep those fields and leave the source pack enabled. See [saving and playing your level](editor.md#saving-and-playing-your-level).
 
 ### World of Warcraft level pack
 
@@ -197,7 +197,7 @@ Gameplay hooks run on every player's computer and must give identical results.
 * Use `+ - * /` and `math.sin`, `cos`, `atan`. Avoid `x ^ y` with fractional exponents.
 * Globals are frozen while a gameplay hook runs (assigning one raises an error), so set them at load time. Local variables of your script are not protected: if you keep gameplay state in one, players will drift apart after a rollback.
 * `pairs()` order is stable for string keys, but not for tables or functions used as keys.
-* A mod with `determinism = cosmetic` gets no gameplay hooks and cannot change state. It only has `on_load`, `on_frame`, menu and network callbacks, and it does not count in the match comparison.
+* A mod with `determinism = cosmetic` is left out of the match comparison. Its Lua code cannot run gameplay hooks or change simulation state. It can use load, draw and UI callbacks. An approved `on_control` hook can read local board state before arming, but cannot send player inputs until the player arms control.
 
 ## Physics
 
