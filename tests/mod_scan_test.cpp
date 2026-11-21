@@ -72,6 +72,16 @@ int main(int argc, char** argv) {
       check(body.findings.size() == 1 && body.after.empty(), "undeclared network finding is retained without generic text");
     }
     mod->scan = {};
+    mod->scan.playerControl = true;
+    mod->scan.findings.push_back({mods::Finding::Control, "mod manifest", 0, "declares permissions = control"});
+    {
+      ConsentDialog dialog(app, mod->m.id, true);
+      check(dialog.ask && dialog.step == 1, "player control always asks for consent");
+      check(dialog.body.before.front() == "This mod asks to control your player.", "control permission is explicit without claiming network access");
+      check(dialog.body.findings.size() == 1, "control finding is retained");
+      check(!dialog.body.after.empty() && dialog.body.after.front().find("F8") != std::string::npos, "control consent explains the local approval and stop key");
+    }
+    mod->scan = {};
     mod->scan.hasNative = true;
     mod->scan.findings.push_back({mods::Finding::Native, "plugin.dll", 0, "native plugin"});
     {

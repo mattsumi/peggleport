@@ -162,6 +162,25 @@ HostServices& LuaModHost(lua_State* L);
 
 namespace {
 HostServices& HS(lua_State* L) { return LuaModHost(L); }
+
+int controlCall(lua_State* L, bool command) {
+  auto& host = HS(L);
+  if (IM(L)->ctx != Ctx::Ui || !host.control) return luaL_error(L, "control.* can only be used from on_control");
+  std::string request;
+  if (command) {
+    size_t size = 0;
+    const char* text = luaL_checklstring(L, 1, &size);
+    if (!size || size > 4096) return luaL_error(L, "control request must contain 1 to 4096 bytes");
+    request.assign(text, size);
+  }
+  const std::string response = (*host.control)(request);
+  if (response.size() > (1u << 20)) return luaL_error(L, "control response is too large");
+  workSpend(L, (long long)(response.size() >> 5));
+  lua_pushlstring(L, response.data(), response.size());
+  return 1;
+}
+int controlState(lua_State* L) { return controlCall(L, false); }
+int controlCommand(lua_State* L) { return controlCall(L, true); }
 Board& needBoard(lua_State* L) {
   Board* b = HS(L).board;
   if (!b) luaL_error(L, "no board in this context");
@@ -950,6 +969,10 @@ bool LuaMod::open(std::string* err) {
   static const luaL_Reg ui[] = {{"menu", u_menu}, {"message", u_message}, {nullptr, nullptr}};
   static const luaL_Reg draw[] = {{"rect", d_rect}, {"circle", d_circle}, {"text", d_text}, {"image", d_image}, {"screen", d_screen}, {"rgb", d_rgb}, {"hsv", d_hsv}, {nullptr, nullptr}};
   setFuncs(L, "board", board); setFuncs(L, "state", state); setFuncs(L, "ui", ui); setFuncs(L, "draw", draw); setFuncs(L, "physics", physics);
+  if (man_.control) {
+    static const luaL_Reg control[] = {{"state", controlState}, {"command", controlCommand}, {nullptr, nullptr}};
+    setFuncs(L, "control", control);
+  }
   if (man_.net || man_.fs) openNetLib(L, this, host_);
   if (luaL_loadbufferx(L, kPrelude, std::strlen(kPrelude), "=prelude", "t") != LUA_OK || lua_pcall(L, 0, 0, 0) != LUA_OK) {
     if (err) *err = std::string("prelude: ") + lua_tostring(L, -1);

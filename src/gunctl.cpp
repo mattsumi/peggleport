@@ -28,6 +28,12 @@ void Board::gunClick() {
   else if (phase == Phase::Shot) clickInShot();
 }
 
+void Board::gunCancelFire() {
+  if (phase != Phase::Aim) return;
+  clickPending = fireHeld = false;
+  if (lstate == 10) setLState(1);
+}
+
 void Board::gunLogic() {
   if (wheelLock != 0) wheelLock--;
   if (lstate == 10) return;

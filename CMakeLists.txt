@@ -190,7 +190,7 @@ target_link_libraries(pp_editor_core PUBLIC pp_core PRIVATE pp_mods)
 add_library(pp_ui STATIC
   src/profile.cpp src/profile_import.cpp
   src/ui/res.cpp src/ui/text.cpp src/ui/text_font.cpp src/ui/gfx.cpp src/ui/widgets.cpp src/ui/dialog.cpp src/ui/dialogs.cpp
-  src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/other_game.cpp src/ui/game_screen.cpp src/ui/run.cpp src/ui/start.cpp src/ui/nights.cpp src/ui/sparkle.cpp src/ui/fireworks.cpp src/ui/fairies.cpp src/ui/nights_loading.cpp src/ui/storywin.cpp src/ui/pad.cpp
+  src/ui/stages.cpp src/ui/app.cpp src/ui/app2.cpp src/ui/screens.cpp src/ui/screens2.cpp src/ui/other_game.cpp src/ui/game_screen.cpp src/ui/game_control.cpp src/ui/run.cpp src/ui/start.cpp src/ui/nights.cpp src/ui/sparkle.cpp src/ui/fireworks.cpp src/ui/fairies.cpp src/ui/nights_loading.cpp src/ui/storywin.cpp src/ui/pad.cpp
   src/ui/character_dialog.cpp src/ui/slot_dialog.cpp src/ui/replay.cpp src/ui/replay_ui.cpp src/ui/session.cpp src/ui/import_dialog.cpp src/ui/hooks.cpp src/ui/visuals_dialog.cpp
   src/ui/mods_screen.cpp src/ui/mod_apply.cpp src/ui/consent_dialog.cpp src/ui/log_view.cpp
   src/online/discord.cpp src/online/online_ui.cpp src/online/online_match.cpp src/online/level_names.cpp src/online/online_text.cpp)
@@ -312,6 +312,14 @@ option(PP_BUILD_TESTS "Build regression tests" ON)
 option(PP_TEST_LAN_DISCOVERY "Run the LAN broadcast integration test" OFF)
 if(PP_BUILD_TESTS)
   enable_testing()
+  add_executable(pp_mod_control_api_test tests/mod_control_api_test.cpp)
+  target_link_libraries(pp_mod_control_api_test PRIVATE pp_mods)
+  add_test(NAME mod_control_api COMMAND pp_mod_control_api_test "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/examples/mods/mcp_agent")
+  find_package(Python3 3.10 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME mcp_server COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p test_mcp_server.py)
+    set_tests_properties(mcp_server PROPERTIES TIMEOUT 60 ENVIRONMENT "TMPDIR=${CMAKE_CURRENT_BINARY_DIR};PYTHONDONTWRITEBYTECODE=1")
+  endif()
   if(NOT PP_STEAM)
     set_target_properties(pp_edition_test PROPERTIES EXCLUDE_FROM_ALL FALSE)
     add_test(NAME launcher COMMAND pp_edition_test --launcher "${CMAKE_CURRENT_BINARY_DIR}/launcher-fixtures")
@@ -372,6 +380,11 @@ if(PP_BUILD_TESTS)
     src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
     src/mods/overlay.cpp src/editor/screen.cpp)
   target_link_libraries(pp_mod_scan_test PRIVATE pp_ui pp_editor_core)
+  add_executable(pp_mcp_control_test
+    tests/mcp_control_test.cpp
+    src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
+    src/mods/overlay.cpp src/editor/screen.cpp)
+  target_link_libraries(pp_mcp_control_test PRIVATE pp_ui pp_editor_core)
   add_executable(pp_authored_render_test
     tests/authored_render_test.cpp
     src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp)
@@ -409,6 +422,14 @@ if(PP_BUILD_TESTS)
     add_test(NAME authored_session COMMAND pp_authored_session_test "${PP_TEST_DELUXE_DIR}" ${PP_TEST_NIGHTS_DIR})
     set_tests_properties(authored_session PROPERTIES TIMEOUT 30 ENVIRONMENT "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
     if(PP_TEST_NIGHTS_DIR)
+      add_test(NAME mcp_control COMMAND pp_mcp_control_test "${PP_TEST_DELUXE_DIR}" "${PP_TEST_NIGHTS_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+      set_tests_properties(mcp_control PROPERTIES TIMEOUT 45 ENVIRONMENT "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME mcp_play COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/mcp_play_test.py"
+          "$<TARGET_FILE:pp_mcp_control_test>" "${PP_TEST_DELUXE_DIR}" "${PP_TEST_NIGHTS_DIR}"
+          "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/examples/mods/mcp_agent")
+        set_tests_properties(mcp_play PROPERTIES TIMEOUT 45 ENVIRONMENT "TMPDIR=${CMAKE_CURRENT_BINARY_DIR};PYTHONDONTWRITEBYTECODE=1")
+      endif()
       add_test(NAME claude_flippers COMMAND pp_claude_flippers_test "${PP_TEST_DELUXE_DIR}" "${PP_TEST_NIGHTS_DIR}")
       add_test(NAME miss_coin_toss COMMAND pp_miss_coin_toss_test "${PP_TEST_DELUXE_DIR}" "${PP_TEST_NIGHTS_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/miss-coin-fixtures")
       add_test(NAME collision_regression COMMAND pp_collision_regression_test "${PP_TEST_DELUXE_DIR}" "${PP_TEST_NIGHTS_DIR}")

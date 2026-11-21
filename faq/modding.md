@@ -5,10 +5,10 @@ PegglePort has three kinds of mods. They all live in the same place and go throu
 | Kind | What it is | Where it runs | Asks for permission |
 |---|---|---|---|
 | Data | Replaces art, sounds and levels, tweaks a few rules with an ini file | it is not code | no |
-| Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers, new Masters, new peg types, physics | sandbox | only when the scan finds network use |
+| Lua | Scripts with hooks into the game, drawing on top of the board, menu buttons, custom powers, new Masters, new peg types, physics | sandbox | network use or the `control` permission |
 | Native | A shared library (`.dll`, `.so`, `.dylib`) written against the C header `include/peggleport_mod.h` | separate restricted helper process | always |
 
-The download has working examples in `examples/mods` (`hello_lua`, `rainbow_pegs`, `trace_hooks`, `moon_shots`, `ice_pegs`, `frost_queen`, and a prebuilt `hello_native` when your platform has one) and the source of the native example in `examples/plugin`.
+The [mod catalog](../MODS.md) lists official PegglePort mods, examples and generated packs. The download includes the official [MCP Agent mod](mcp.md) alongside working examples in `examples/mods`, and the source of the native example in `examples/plugin`.
 
 ## Installing and turning mods on
 
@@ -59,10 +59,10 @@ priority = 0
 | `name`, `version`, `author`, `description` | shown in the Mods screen |
 | `id` | unique name, defaults to the folder name |
 | `api` | the mod API level you wrote against. This build is level 1, a higher number will not load |
-| `permissions` | `net` allows the `net` Lua library, `fs` allows the `fs` library (a private data folder). They apply to Lua only: a native plugin never gets the network or file access, whatever this line says. Unknown words give a warning |
+| `permissions` | `net` allows the `net` Lua library, `fs` allows the `fs` library (a private data folder), and `control` allows the player-input API after consent and F8 approval. They apply to Lua only: a native plugin never gets the network, file or player-input API, whatever this line says. Unknown words give a warning |
 | `scripts` | Lua files, run in this order inside one sandbox. Defaults to `main.lua` when it exists |
 | `native` | the plugin, as a file name or a base name (`hello_native.dll`, `libhello_native.so`, `.dylib`) |
-| `determinism` | `sim` (default) means the mod takes part in the gameplay and every player in an online match needs it. `cosmetic` means it only draws and can never change a result |
+| `determinism` | `sim` (default) means the mod takes part in the gameplay and every player in an online match needs it. `cosmetic` cannot edit the simulation; a separately approved `control` mod can supply normal local-player inputs |
 | `memory_mb` | Lua memory limit, 4 to 64 |
 | `instruction_budget` | work allowed per hook call, 1000 to 5000000. Lua instructions and library calls both count |
 | `priority` | for data mods, which one wins when two replace the same file. The higher number wins |
@@ -112,6 +112,7 @@ When a hook runs out it is stopped with an error: `instruction budget exceeded` 
 | Sim | the `on_*` gameplay hooks and power callbacks | read the board, use `state.*` and `rng_*`, queue changes. No global writes, no `net` |
 | Draw | `on_frame` | read the board, use `draw.*` and globals |
 | Ui | `ui.menu` callbacks and `net` callbacks | globals, `ui.message`, `net` and `fs` |
+| Control | `on_control` on the local game screen | globals, `fs`, `control.state` and `control.command`; requires the `control` permission |
 
 ### Hooks
 
@@ -131,8 +132,9 @@ Define these as global functions.
 | `on_fever()` | | Extreme Fever started |
 | `on_level_end(result)` | `{won, score, shots, orange_left, ticks}` | the level is over |
 | `on_frame(info)` | `{tick, width, orange_left, score, frame}` | after every drawn frame |
+| `on_control()` | | local game-screen update, for approved `control` mods only; never during online matches |
 
-Hooks run in load order, for every board (a Peg Party match has one per player), and also while an online match replays old ticks after a late shot.
+Gameplay hooks run in load order, for every board (a Peg Party match has one per player), and also while an online match replays old ticks after a late shot. The `on_control` hook is separate and only runs on the local game screen.
 
 ### Reading the board (Sim and Draw)
 
@@ -178,6 +180,14 @@ Both `http://` and `https://` work. For `https://` the certificate of the server
 `net.tcp` takes `tls = true` in the same table when the server speaks TLS from the first byte, for example `net.tcp("mail.example.org", 465, {tls = true, on_open = ..., on_data = ...})`. It gets the same checks. `on_open` runs after the handshake, and when the check fails you only get `on_close(conn, err)`. If the server drops the connection without sending the TLS goodbye (close_notify), `on_close` also gets an `err`, because the data may have been cut short.
 
 With `permissions = fs` you get `fs.read`, `fs.write`, `fs.exists`, `fs.remove` and `fs.list` on plain file names inside `mod-data/<your mod id>` (1 MB per file, 64 files).
+
+### Player control
+
+`permissions = control` always requires permission on the Mods screen, separately from network access. The player must also press **F8** in each single-player level to arm control. Pressing F8 again stops it. Control is blocked in online play, Duel, Demo mode and replays, and while the game is paused, unfocused or covered by a dialog. The agent cannot grant itself permission or dismiss dialogs.
+
+Only `on_control` can use `control.state()` and `control.command(json)`. Both return JSON strings. State includes the board, peg and ball positions and whether control is armed and available. Commands use the ordinary recorded mouse-input path for aiming, firing and flippers, not simulation edits. Requests identify the current control session and expire, so a delayed request cannot fire in a different level. Held flippers release automatically when their short lease expires.
+
+The [MCP Agent setup guide](mcp.md) describes the supplied local-file bridge and its stdio tools. It uses `control, fs`, not `net`, and opens no network port. Its `determinism = cosmetic` keeps it out of gameplay-mod fingerprints; the control hook itself is restricted to the local game screen.
 
 ### Keeping online matches in sync
 
@@ -459,6 +469,7 @@ Before a mod loads, PegglePort reads its files:
 * Lua: the `net` library, URLs, words such as `socket`, `tcp`, `curl` and `http`, and tricks like `load`, `_G[...]`, escaped or concatenated names (`"so" .. "cket"`).
 * Native libraries (Windows, Linux and macOS formats): network libraries, imported network functions and embedded URLs.
 * A manifest with `permissions = net`.
+* A manifest with `permissions = control`, which asks to operate the player's inputs even without network access.
 
 If it finds something, or the mod has native code, the game shows the findings and the mod does not load until you press **Allow...**. Until then even its data files stay unmounted.
 

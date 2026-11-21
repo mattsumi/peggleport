@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <vector>
 #include <string>
+#include <chrono>
 
 #include "ui/aimgr.h"
 #include "ui/dialogs.h"
@@ -75,6 +76,7 @@ class GameScreen : public Screen {
   Renderer::View consoleView() const;
   void onButton(int id) override;
   void keyDown(int key, int mod) override;
+  std::string modControl(const std::string& request);
   void lostFocus() override { beginBarePause(); }
   void onLeave() override;
   void startChallengeLevel();
@@ -110,6 +112,13 @@ class GameScreen : public Screen {
   int overTicks = 0;
 
  private:
+  std::string modControlReason() const;
+  void releaseModControl();
+  void resetModControl();
+  void updateModControl();
+  std::string controlSession_ = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  bool controlArmed_ = false, controlHeld_ = false, controlFirePending_ = false;
+  std::chrono::steady_clock::time_point controlLease_;
   bool startLevel(const std::string& name, SimRules rules = SimRules::FairCoin);
   void finishLevel();
   void applyProgress(const LevelOutcome& o, bool won);

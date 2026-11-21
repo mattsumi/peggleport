@@ -33,11 +33,12 @@ std::string ScanReport::summary() const {
   if (usesNet()) s = "uses the network (" + std::to_string(net) + " finding" + (net == 1 ? "" : "s") + (declaredNet ? ", permission declared" : "") + ")";
   else s = "no network use found";
   if (hasNative) s += "; native code";
+  if (playerControl) s += "; player control";
   if (dyn) s += "; dynamic code";
   return s;
 }
 std::string Finding::describe() const {
-  static const char* tag[] = {"NET", "URL", "NET?", "NET", "DYN", "NATIVE", "FS", "INFO"};
+  static const char* tag[] = {"NET", "URL", "NET?", "NET", "DYN", "NATIVE", "FS", "INFO", "CONTROL"};
   std::string o = std::string("[") + tag[(int)kind] + "] " + file;
   if (line) o += ":" + std::to_string(line);
   o += "  " + what;
@@ -200,8 +201,10 @@ void scanNativeBytes(const std::string& file, std::string_view b, ScanReport& r)
 ScanReport scanMod(const fs::path& dir, const Manifest& m) {
   ScanReport r;
   r.declaredNet = m.net;
+  r.playerControl = m.control;
   if (m.net) add(r, Finding::NetApi, "mod manifest", 0, "declares permissions = net (gets the `net` API)");
   if (m.fs) add(r, Finding::Fs, "mod manifest", 0, "declares permissions = fs (private data folder)");
+  if (m.control) add(r, Finding::Control, "mod manifest", 0, "declares permissions = control (can aim, fire and operate flippers after F8 approval)");
   std::error_code ec;
   std::set<std::string> done;
   auto scanFile = [&](const fs::path& p) {

@@ -105,6 +105,7 @@ bool parseManifest(const std::string& text, bool json, const std::string& folder
     std::string q = lower(p);
     if (q == "net") m.net = true;
     else if (q == "fs") m.fs = true;
+    else if (q == "control") m.control = true;
     else m.warnings.push_back("unknown permission '" + p + "' ignored");
   }
   int mem = std::atoi(get("memory_mb", "16").c_str());

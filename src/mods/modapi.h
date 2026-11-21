@@ -39,6 +39,7 @@ struct HostServices {
   DrawSink* sink = nullptr;
   std::function<void(const ModCmd&)> queue;
   std::function<std::string(const std::string& modId)> dataDir;
+  const std::function<std::string(const std::string&)>* control = nullptr;
 };
 
 }

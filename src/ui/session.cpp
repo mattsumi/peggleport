@@ -28,7 +28,7 @@ namespace pp::ui {
 namespace {
 
 constexpr uint32_t kMagic = 0x53535050;
-constexpr uint32_t kLegacyVersion = 2, kFairCoinVersion = 3, kVersion = 4;
+constexpr uint32_t kLegacyVersion = 2, kFairCoinVersion = 3, kVersion = 4, kCancelFireVersion = 5;
 constexpr size_t kHeadBytes = 20;
 
 struct Ar {
@@ -217,7 +217,7 @@ void syncBody(Ar& a, SavedSession& s) {
   if (s.cfg.players == 2) syncDuel(a, s.duel);
 }
 
-bool bodySane(const SavedSession& s) {
+bool bodySane(const SavedSession& s, uint32_t version) {
   if (s.game < 0 || s.game > 1) return false;
   const bool challenge = s.mode == (int)GameMode::Challenge;
   const bool duel = s.mode == (int)GameMode::Duel;
@@ -250,15 +250,20 @@ bool bodySane(const SavedSession& s) {
   if (s.shots < 0 || s.ballsLeft < 0) return false;
   if (!configSane(s.cfg)) return false;
   int last = 0;
+  bool cancelled = false;
   for (const ReplayEvent& e : s.log) {
-    if (e.kind > 6 || (e.kind > 3 && (!s.cfg.duel || (s.flags & 2) != 0))) return false;
+    if (e.kind > 7 || (e.kind >= 4 && e.kind <= 6 && (!s.cfg.duel || (s.flags & 2) != 0))) return false;
+    if (e.kind == 7) {
+      if (version != kCancelFireVersion || s.cfg.duel || s.cfg.players != 1 || e.a != 0 || e.b != 0) return false;
+      cancelled = true;
+    }
     if (e.frame < last || e.frame > s.frames) return false;
     if (e.kind == 2 && (e.a < -1000000 || e.a > 1000000)) return false;
     if (e.kind == 4 && (e.a < 0 || e.a > 100000 || (e.b != 0 && e.b != 1))) return false;
     if ((e.kind == 5 || e.kind == 6) && !angleSane(e.a)) return false;
     last = e.frame;
   }
-  return true;
+  return version != kCancelFireVersion || cancelled;
 }
 
 }
@@ -268,8 +273,9 @@ std::vector<uint8_t> SavedSession::bytes() const {
   Ar w;
   w.out = &body;
   SavedSession copy = *this;
-  uint32_t version = cfg.simRules == SimRules::Unspecified ? kLegacyVersion : kVersion;
-  if (version == kVersion) {
+  const bool cancelled = std::any_of(log.begin(), log.end(), [](const ReplayEvent& e) { return e.kind == 7; });
+  uint32_t version = cancelled ? kCancelFireVersion : cfg.simRules == SimRules::Unspecified ? kLegacyVersion : kVersion;
+  if (version >= kVersion) {
     uint8_t rules = static_cast<uint8_t>(cfg.simRules);
     w.u8(rules);
   }
@@ -292,14 +298,14 @@ bool SavedSession::parse(const std::vector<uint8_t>& data, SavedSession& out) {
   uint32_t magic = 0, version = 0, size = 0;
   uint64_t sum = 0;
   h.u32(magic); h.u32(version); h.u32(size); h.u64(sum);
-  if (h.bad || magic != kMagic || (version != kLegacyVersion && version != kFairCoinVersion && version != kVersion)) return false;
+  if (h.bad || magic != kMagic || (version != kLegacyVersion && version != kFairCoinVersion && version != kVersion && version != kCancelFireVersion)) return false;
   if ((size_t)size != data.size() - kHeadBytes) return false;
   if (digest(data.data() + kHeadBytes, size) != sum) return false;
   Ar r;
   r.in = data.data() + kHeadBytes;
   r.n = size;
   SavedSession s;
-  if (version == kVersion) {
+  if (version >= kVersion) {
     uint8_t rules = 0;
     r.u8(rules);
     if (r.bad || !knownSimRules(rules)) return false;
@@ -308,7 +314,7 @@ bool SavedSession::parse(const std::vector<uint8_t>& data, SavedSession& out) {
     s.cfg.simRules = version == kLegacyVersion ? SimRules::Unspecified : SimRules::FairCoin;
   }
   syncBody(r, s);
-  if (r.bad || r.pos != r.n || !bodySane(s)) return false;
+  if (r.bad || r.pos != r.n || !bodySane(s, version)) return false;
   out = std::move(s);
   return true;
 }
@@ -379,6 +385,7 @@ bool SavedSession::rebuildWith(SimRules rules, const LevelBundle& lb, Board& boa
         if (b.phase == Phase::Aim) { snap = b; haveSnap = true; }
         b.gunClick();
       } else if (e.kind == 3) b.gunRelease();
+      else if (e.kind == 7) b.gunCancelFire();
       else if (e.kind == 4) {
         if (e.b == 1) { aiSnap = b; begun = true; }
         for (int i = 0; i < e.a; i++) b.rng.rand();

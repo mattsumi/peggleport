@@ -129,10 +129,13 @@ Press **F10** on any screen, also while you play. A panel opens at the bottom wi
 ## Mods
 
 **How do I install a mod?**
-In Classic 4:3, choose **Options → Mods** from the main menu. In widescreen, choose **Mods** directly on the main menu. Select **Open Folder**, put the mod folder or `.zip` there, then tick the mod on the Mods screen. It loads without a restart. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
+In Classic 4:3, choose **Options → Mods** from the main menu. In widescreen, choose **Mods** directly on the main menu. Select **Open Folder**, put the mod folder or `.zip` there, then tick the mod on the Mods screen. It loads without a restart. The [mod catalog](MODS.md) lists the available mods. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
 
 **Can a mod do something nasty?**
-A mod can only touch the network if it says so in its manifest, and PegglePort scans every mod before it loads. If the scan finds network use, or the mod contains native code, the game shows you what it found and waits for your OK. This is a best effort check, not a guarantee, so only install mods from people you trust. Lua mods run in a sandbox without file or network access. Native plugins run in a separate helper process that the operating system locks down: no network, no writing files, no starting programs, and it can only read its own folder. If your system cannot apply all of that to a plugin, the game says so and the plugin stays off until you also allow it to run without restrictions.
+A mod can only touch the network if it says so in its manifest, and PegglePort scans every mod before it loads. If the scan finds network use, the mod contains native code, or it asks for player control, the game shows you what it found and waits for your OK. This is a best effort check, not a guarantee, so only install mods from people you trust. Lua mods run in a sandbox; declared permissions can add network access, a private data folder or approved player inputs. Native plugins run in a separate helper process that the operating system locks down: no network, no writing files, no starting programs, and it can only read its own folder. If your system cannot apply all of that to a plugin, the game says so and the plugin stays off until you also allow it to run without restrictions.
+
+**Can an AI agent play for me?**
+Yes, with the official, optional [MCP Agent mod](faq/mcp.md). Enable and approve it, connect its local stdio companion to an MCP client, open a single-player level and press **F8**. Press F8 again to stop control. The agent can inspect the board, aim, fire and operate flippers. It cannot control online matches, Duel, Demo mode or replays, or dismiss your menus and dialogs.
 
 **What is pp_modhost?**
 The helper program for native mod plugins. It only runs while a native plugin is switched on and it ends when the game ends. Keep it next to the game.
