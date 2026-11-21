@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an addition or improvement to PegglePort.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [existing issues](https://github.com/mattsumi/peggleport/issues?q=is%3Aissue) first. If something is broken, use the bug report form. Do not attach original game files or private information.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe what is missing or awkward today. Include the edition, mode, or platform if it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like PegglePort to do?
+      description: Explain how you would use the feature or what would change for the player.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Workarounds, alternatives, examples, or mockups are welcome.
