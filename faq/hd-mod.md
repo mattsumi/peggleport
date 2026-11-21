@@ -1,17 +1,17 @@
-# Peggle HD
+# Artwork guide
 
-Peggle HD adapts higher-resolution artwork from the iPad edition to Deluxe and Nights. It keeps the original sprite sizes and aiming coordinates. Matched levels get scene-derived side art for center-extended playfields. The built-in 16:9 layout uses a separate surround outside the machine.
+PegglePort has two separate artwork options. **Peggle Native HD** adapts iPad textures and backgrounds for Deluxe and Nights as a mod. **PS3 presentation art** supplies optional artwork for the built-in console layout and is installed separately. Neither changes the playable board or aiming coordinates. Neither includes a copy of the original artwork.
 
 ## Build the packs locally
 
-Configure the [PegglePort build](../README.md) with `-DPP_HD_TOOLS=ON` and build `pp_build_hd_mod` and `peggleport`. `pp_build_hd_mod` exports the unmodified PC artwork and sprite layouts as a reference for the importer. Give it your installed edition's folder containing `main.pak` and a **new** output folder outside the game install. For both steps, replace `/external/peggle-art` with an absolute staging path outside all Git checkouts and input folders.
+Run the following from a source checkout. The regular game downloads do not ship the artwork tools. Configure the [PegglePort build](../README.md#building) with `-DPP_HD_TOOLS=ON`, then run `cmake --build build --config Release --target pp_build_hd_mod`. The exporter uses your installed edition's folder containing `main.pak`. Give it a new output folder outside the source install and any Git checkout. In these examples, `/external/peggle-art` is an absolute staging path you choose; use `build/pp_build_hd_mod` or `build/Release/pp_build_hd_mod.exe` if the tool is not on your `PATH`.
 
 ```sh
 pp_build_hd_mod Deluxe "/path/to/Peggle Deluxe" "/external/peggle-art/pc-deluxe"
 pp_build_hd_mod Nights "/path/to/Peggle Nights" "/external/peggle-art/pc-nights"
 ```
 
-Use a Python virtual environment with `tools/requirements-hd-art.txt` installed. Supply your local copy of the extracted `Content.HD` artwork with its English resource manifest, background JPEGs, and decoded PNG atlases. The importer does not download or include game artwork.
+Use a Python virtual environment with `tools/requirements-hd-art.txt` installed. Your extracted `Content.HD` folder needs `en.lproj/properties/1024x768/resources.xml`, the JPEG backgrounds under `levels/1024x768/`, and decoded PNG atlases at the paths the manifest references. The importer does not download or include game artwork.
 
 ```sh
 python -m pip install -r tools/requirements-hd-art.txt
@@ -23,7 +23,7 @@ The importer crops and repacks compatible HD sprites into the PC sprite grid. It
 
 ## Install
 
-Open **Mods → Open Folder** in the edition you want to mod. Copy the matching `Peggle-Deluxe-Native-HD` or `Peggle-Nights-Native-HD` folder there, then enable it on the Mods screen. Do not stack it with another texture pack. In **Options → Widescreen**, choose **Auto** or the matching aspect ratio. **Classic 4:3** keeps the HD textures without adding side art. Untick the mod to return to stock rendering.
+In Classic 4:3, open **Options → Mods**; in widescreen, choose **Mods** directly from the main menu. Select **Open Folder** in the edition you want to mod. Copy in the matching `Peggle-Deluxe-Native-HD` or `Peggle-Nights-Native-HD` folder, then enable it. Do not stack it with another texture pack. Classic 4:3 keeps the HD textures without side art. Other layouts can use the panoramas; the centered 16:9 console frame uses its own gutters. Untick the mod to go back to stock textures.
 
 With the tested sources, the mod replaces 72 textures per edition, including the ball, pegs, bricks, and colorblind variants. It replaces all 55 Deluxe backgrounds and 55 of 70 Nights backgrounds. Unmatched UI, bitmap fonts, and the 15 other Nights backgrounds stay stock.
 
@@ -44,7 +44,7 @@ python tools/import_ps3_lobby_art.py "DATA" "OUT/menus" "OUT/lobbies"
 python tools/import_ps3_online_art.py "DATA" "OUT/lobbies" "OUT/presentation"
 ```
 
-Copy the final `presentation` folder beside `peggleport.exe`. Both editions load it automatically. Without it, PegglePort falls back to PC artwork. The original artwork is not included in the repository. Peggle Native HD is a separate, optional texture mod.
+Copy the final `presentation` folder beside the executable on Windows or Linux. For the macOS app, place it at `PegglePort.app/Contents/Resources/presentation`. PegglePort loads it automatically. Without it, the console layout still works and falls back to PC artwork. Remove the folder to switch back to that fallback. Peggle Native HD is a separate texture mod and does not use this folder.
 
 The widescreen menus keep Custom Levels, Join With Code, the two-column Pause and Options dialogs, and the Nights Lounge. Online rooms show the port's actual players, readiness and room code rather than PSN statistics.
 

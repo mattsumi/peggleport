@@ -37,7 +37,7 @@ PegglePort reads the data files of your own install, so the games look, sound an
 
 ## Minimum system requirements
 
-- Your own copy of Peggle Deluxe, Peggle Nights or both (Steam, the EA app, Origin or a PopCap install)
+- Your own PC copy of at least one supported edition: Peggle Deluxe, Peggle Nights or Peggle Extreme
 - Operating system:
     - Windows 10 or newer, 64-bit
     - macOS 12 or newer, Apple silicon or Intel
@@ -98,7 +98,7 @@ Mods replace art, sound and levels, or add behaviour with Lua scripts and native
 
 ### Online play
 
-Duels for two players and Peg Party for up to four. **Online** automatically lists LAN/local and global rooms together, without a server-address setup step. One player creates a room and the others select it, type a 5-character code or open an invite link. You can also run your own lobby with `pp_lobbyd`; custom servers remain available through settings or invites. See the [online guide](faq/online.md).
+**Online play** supports Duels for two players and Peg Party for three or four. Use **Online** in Classic 4:3 or **Multiplayer** in the console layout. The browser lists LAN/local and global rooms together with no server-address setup step. Join by room, code or invite, or run your own lobby with `pp_lobbyd`. See the [online guide](faq/online.md).
 
 ### Discord and Steam
 
@@ -109,7 +109,7 @@ Both are optional. **Discord activity** on the Online screen shares what you are
 
 ## Known issues
 
-Before reporting an issue, check if it is listed [here][issues].
+Before filing a [bug report][report-bug], check the [existing issues][issues]. Include your PegglePort version, edition, steps to reproduce and a redacted log if available.
 
 ## Controls
 
@@ -238,3 +238,4 @@ PegglePort is released under the MIT license, see `LICENSE`. The libraries it bu
 
 [releases]: https://github.com/mattsumi/peggleport/releases
 [issues]: https://github.com/mattsumi/peggleport/issues
+[report-bug]: https://github.com/mattsumi/peggleport/issues/new?template=bug_report.yml

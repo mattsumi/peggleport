@@ -1,22 +1,19 @@
 # Online play guide
 
-PegglePort plays Duel (2 players) and Peg Party (3 or 4 players, one board each, same level and same seed) over the internet. Every player's computer simulates every board, and the only thing that travels over the network is the shot: the angle and the moment it was fired. After every shot the host compares the state of all boards and tells everybody if the games ever drift apart.
-
-All of it is done from the game. The only thing that needs a command line is the lobby server, because it is a separate program for people who host.
+PegglePort plays Duel (2 players) and Peg Party (3 or 4 players, one board each with the same level and seed) over the internet or a local network. Each computer simulates every board. The game sends player inputs and compares board-state hashes after each shot to detect when the simulations disagree.
 
 ## Playing
 
-1. On the main menu press **Online** (above Replays).
-2. LAN/local and global rooms appear together automatically, with a **Source** label on each row. Local results do not wait for the global lobby. **Refresh** checks both again; the mouse wheel scrolls longer lists. You can return to **Main Menu** while discovery is running. If the global lobby is unavailable, local rooms remain usable. There is no server-address field to fill in.
-3. **To join**: click a room (a double click joins it), or type its 5-character code, or press **Paste Invite** with an invite link on your clipboard.
-   **To host**: press **Create Room**, choose Duel or Peg Party with 3 or 4 players, the level and your Master, then **Open Room**. The destination defaults to the global lobby, or your configured custom lobby. When a local lobby has answered, **Destination** can switch to that LAN lobby without entering an address. Masters added by mods are listed after the original ones.
-4. In the waiting room everybody presses **Ready** and the host presses **Start Match**. **Copy Invite** puts a link on your clipboard that your friends can open.
+1. In Classic 4:3, choose **Online** from the main menu. In the console layout, choose **Multiplayer → Online Duel** or **Online Peg Party**. Choose **Custom Match** to browse, **Quick Match** to try joining an open room on a level you have, or **Host Duel** / **Host Peg Party** to create one. If Quick Match finds no suitable room, it opens the custom room list. The **Multiplayer** menu also has **Join With Code**.
+2. LAN/local and global rooms appear together, with a source label on each row. **Refresh** checks both again. Back cancels a search, and local rooms remain usable if the global lobby is unavailable. There is no server-address field to fill in.
+3. **To join**, select a room and confirm (or double-click it), enter its five-character code, or use **Paste Invite** with the invite on your clipboard. **To host**, pick the mode, level and Master, then confirm with **Open Room** or **Host Match**. In Classic 4:3, start with **Create Room**. The hosting destination defaults to the global lobby or your configured custom lobby. If a local lobby has answered, **Destination** lets you choose it. Masters added by mods are listed after the original ones.
+4. Guests press **Ready**. Once all seats are filled and ready, the host presses **Start Match** or **Start Game**. **Copy Invite** puts the room link on the clipboard.
 5. Playing: aim with the mouse and click (or press Space or Enter) on your turn. Esc opens the leave menu. In a Peg Party the two boxes at the top list everybody with their scores, yours first and marked YOU. The log (F10) says who you are, whether you are on a direct link (`Direct UDP link (23 ms)`) or relayed through the lobby, how many shots the host has verified, whose turn it is in a Duel, and rollbacks.
 6. When the match ends, **Rematch** needs everybody to ask (the host picks a new seed), or choose **Leave**.
 
 A disconnect or a mismatch puts a clear message on the screen instead of silently carrying on. Losing the lobby ends the match for everybody, even with a working direct link. The message names the player or host whose connection was lost when that is known; an unknown network or server failure is not blamed on a player. A player who is no longer reachable may only see a connection-loss message.
 
-Everybody needs the same game data. A guest whose level files or active gameplay mods differ is turned away in the waiting room with a message that says so. A guest who does not have the mod that adds the Master you picked is told which Master is missing.
+Use the same PegglePort version as the host. A guest whose level files or active gameplay mods differ is turned away in the waiting room with a message that says so. If the host picked a Master added by a mod that a guest does not have, the message names the missing Master.
 
 ## Invite links
 
@@ -28,12 +25,12 @@ The global lobby is `wss://peggleport-lobby.konekurosawa.org/lobby`, using encry
 
 To make links open the game:
 
-* **Windows and Linux**: press **Register invite links** on the Online screen. On Windows this writes a key in the current user's registry, on Linux a desktop entry in `~/.local/share/applications`. No administrator rights are needed.
+* **Windows and Linux**: press **Register invite links** on **Online** in Classic 4:3 or **Multiplayer → Join With Code** in the console layout. It registers the handler for your account only, in the Windows registry or with a Linux desktop entry. No administrator rights are needed. You can still paste an invite without registering it.
 * **macOS**: the app already announces the link type. Open `PegglePort.app` once and macOS remembers it.
 
 ## Direct links and the relay
 
-The public secure lobby carries the entire match through its relay. You do not need extra networking software or router settings. **Test connection** checks the secure lobby’s room-list response.
+From **Online** in Classic 4:3 or **Multiplayer → Join With Code** in the console layout, **Test connection** checks the configured lobby, not the currently selected room. For the public secure lobby it requests the room list. That lobby relays match traffic rather than using native direct UDP; no router changes are needed.
 
 On native custom servers, players first talk through the TCP lobby. Their computers also try to open a direct UDP connection with each other, which has less delay and spares the server. If that fails for any reason, you stay on the relay and the match is not interrupted. The waiting room tells you why a direct link did not happen, and the log (F10) keeps the full reason.
 
@@ -50,8 +47,8 @@ pp_lobbyd [port] [--no-udp] [--aux-offset N] [--proxy-local]
 The port defaults to 7770. It uses:
 
 * **TCP on the port**: the room list and the relay. Always needed.
-* **UDP on the same port number**: LAN discovery and direct-link rendezvous.
-* **UDP on port+1**: the router type check. Optional.
+* **UDP on the same port**: LAN discovery and direct-link rendezvous. Use `--no-udp` to run a TCP-only relay.
+* **UDP on port+1**: the optional router type check. `--aux-offset N` changes the offset.
 
 The browser sends one IPv4 broadcast and one loopback discovery request to UDP 7770 per refresh, listens briefly, then queries the responding servers over TCP. Allow UDP and TCP 7770 through the server's local firewall for automatic LAN discovery. Broadcasts normally stay on the current subnet; a lobby on another subnet or a nondefault port can be added through the custom setting or an invite. Discovered replies carry the server's actual listening port. If UDP is disabled or blocked, the browser still checks TCP `127.0.0.1:7770`, and configured servers and invites still work through the relay.
 
@@ -70,9 +67,9 @@ The service file uses port 7770. Edit `ExecStart` to change it. `journalctl --us
 
 **To make it reachable from the internet:**
 
-1. Open the ports in the server's firewall, for example `sudo ufw allow 7770/tcp && sudo ufw allow 7770/udp && sudo ufw allow 7771/udp`.
-2. Forward TCP 7770, UDP 7770 and UDP 7771 on your router to the server.
-3. From another network, configure the server with `online.ini` or `PP_LOBBY`, then press **Test connection**, or open an invite for a room on that server.
+1. Open or forward **TCP 7770** for the room list and relay.
+2. For direct UDP, also open or forward **UDP 7770**. Open or forward **UDP 7771** if you want the default router type check. Adjust these numbers if you changed the listening port or `--aux-offset`.
+3. From another network, open a room invite or look for a room from the configured server. **Test connection** on a native server checks UDP, not TCP-only relay reachability.
 
 ### Secure relay bridge
 
@@ -103,7 +100,7 @@ The bridge only listens on `127.0.0.1:7772`, accepts WebSockets at `/lobby`, and
 
 ## Discord (optional)
 
-**Discord activity** in the top left of **Online** is off by default. Turn it on to share your current game or menu status with the Discord desktop app. The choice is remembered for both games. Turning it off clears the activity and closes the connection.
+**Discord activity** is off by default. Find it on **Online** in Classic 4:3 or **Multiplayer → Join With Code** in the console layout. Turn it on to share your current activity with the Discord desktop app. Turning it off clears the activity and closes the connection.
 
 A host waiting in a room with an open seat can share that room through Discord. Full rooms and matches have no join link. While PegglePort is running, an incoming invitation fills in the existing Online screen; press **Join** to connect. It does not interrupt a level or another room. An unanswered Discord invitation expires after five seconds. Very long lobby addresses can still use **Copy Invite** when they do not fit Discord’s limit.
 

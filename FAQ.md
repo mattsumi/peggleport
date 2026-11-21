@@ -1,14 +1,16 @@
 # FAQ
 
-Longer guides: [Modding](faq/modding.md) · [Level editor](faq/editor.md) · [Online play and the lobby server](faq/online.md)
+Longer guides: [Artwork](faq/hd-mod.md) · [Level editor](faq/editor.md) · [Online play and the lobby server](faq/online.md) · [Modding](faq/modding.md) · [Third-party software](THIRD_PARTY.md)
+
+This FAQ follows the source on `main`. Release builds may not include changes merged after their tag; check the [release notes](https://github.com/mattsumi/peggleport/releases) for your build.
 
 ## The basics
 
 **What is PegglePort?**
-It is a program I wrote that runs Peggle Deluxe and Peggle Nights natively on Windows, macOS and Linux. It uses the data files of your own install, so the games look, sound and play like the originals, and it adds a few things on top (widescreen, a level editor, mods, online play).
+It is an unofficial native port of Peggle Deluxe, Peggle Nights and Peggle Extreme for Windows, macOS and Linux. It uses the data files from your own installation and adds widescreen, a level editor, mods and online play.
 
-**Do I need to own the games?**
-Yes. PegglePort does not contain any of the game's code, art, music or levels, and the downloads on this page never will. Buy Peggle Deluxe and/or Peggle Nights from Steam, the EA app (Origin) or wherever you find them, install them, and PegglePort finds them by itself.
+**Do I need to own all three games?**
+No. One supported PC edition is enough. PegglePort does not ship the original games' files. Install your own copy and let PegglePort find it, or choose the folder that contains `main.pak`.
 
 **Does it change my installed game?**
 No. It only reads from the install. Profiles, high scores, settings, replays and mods are stored in a separate folder (see "Where are my saves?").
@@ -102,7 +104,7 @@ That is the goal and I have put most of the work into it: the physics, scoring, 
 ## Display
 
 **How do I turn on widescreen?**
-Options, then **Widescreen**. The default is **Auto**, which makes the picture as wide as your window. You can also lock it to 16:9, 16:10 or 21:9, or go back to the classic 4:3 picture. The board keeps the width it has in the original and stands in the middle, and the room at the sides is dimmed, so levels, scores, replays and high scores are exactly the same as in the original. Menus stay centred over a blurred backdrop.
+Options, then **Widescreen**. **Auto** uses the built-in 16:9 console layout when the window is 16:10 or wider, and Classic 4:3 otherwise. You can also choose Classic 4:3, 16:9, 16:10 or 21:9 explicitly. The display setting does not change board geometry or scoring. The [artwork guide](faq/hd-mod.md) explains the optional PS3 presentation art and iPad texture mods.
 
 **What are Enhanced Visuals?**
 Options, then **Enhanced Visuals...**. They are extras that do not change how the game plays: smoother slow motion, edge smoothing, bloom, sparks and a frame that stretches to the corners of any wide window. They are all off by default so the game looks like the original.
@@ -119,7 +121,7 @@ That is usually the graphics driver, in a virtual machine or over remote desktop
 The music comes from the `music` folder of your Peggle Deluxe or Peggle Nights install, next to `main.pak`, which PegglePort copies when it first finds the game, so that folder has to be there at that time. Then look at **Music Volume** in Options: all the way to the left is off. The fanfare at an Extreme Fever has its own slider, **Fever Volume**. If the folder is there and the music is still missing, the log (F10) names the file the game could not play.
 
 **There is no sound at all.**
-The game keeps running when it cannot open an audio device. Check the output device of your system. On Linux you can force a driver with `SDL_AUDIODRIVER=pulseaudio`, `alsa` or `pipewire`. The log (F10) says why the device could not be opened.
+The game keeps running when it cannot open an audio device. Check your system's output device. On Linux you can select a driver with `SDL_AUDIO_DRIVER=pulseaudio`, `alsa` or `pipewire`. The log (F10) says why the device could not be opened.
 
 ## The log
 
@@ -132,10 +134,10 @@ Press **F10** on any screen, also while you play. A panel opens at the bottom wi
 In Classic 4:3, choose **Options → Mods** from the main menu. In widescreen, choose **Mods** directly on the main menu. Select **Open Folder**, put the mod folder or `.zip` there, then tick the mod on the Mods screen. It loads without a restart. The [mod catalog](MODS.md) lists the available mods. The guide in [faq/modding.md](faq/modding.md) covers writing your own mods with Lua or native plugins.
 
 **Can a mod do something nasty?**
-A mod can only touch the network if it says so in its manifest, and PegglePort scans every mod before it loads. If the scan finds network use, the mod contains native code, or it asks for player control, the game shows you what it found and waits for your OK. This is a best effort check, not a guarantee, so only install mods from people you trust. Lua mods run in a sandbox; declared permissions can add network access, a private data folder or approved player inputs. Native plugins run in a separate helper process that the operating system locks down: no network, no writing files, no starting programs, and it can only read its own folder. If your system cannot apply all of that to a plugin, the game says so and the plugin stays off until you also allow it to run without restrictions.
+A Lua mod needs `net` permission, and your approval, to access the network. The scan also flags possible network use, native code and player-control requests, but it cannot prove a mod is safe. Native plugins run in a separate helper. If the system cannot enforce all of its restrictions, PegglePort asks for a separate **Run anyway** confirmation. On Windows the helper does not block network access or restrict file reads to the mod folder. Only install mods from sources you trust. See the [modding guide](faq/modding.md#where-a-native-plugin-runs).
 
 **Can an AI agent play for me?**
-Yes, with the official, optional [MCP Agent mod](faq/mcp.md). Enable and approve it, connect its local stdio companion to an MCP client, open a single-player level and press **F8**. Press F8 again to stop control. The agent can inspect the board, aim, fire and operate flippers. It cannot control online matches, Duel, Demo mode or replays, or dismiss your menus and dialogs.
+Yes, with a build that includes the optional [MCP Agent mod and control API](faq/mcp.md). They were merged after v0.5.0. Enable and approve the mod, connect its local stdio companion to an MCP client, open a single-player level and press **F8**. Press F8 again to stop control. The agent can inspect the board, aim, fire and operate flippers. It cannot control online matches, Duel, Demo mode or replays, or dismiss your menus and dialogs.
 
 **What is pp_modhost?**
 The helper program for native mod plugins. It only runs while a native plugin is switched on and it ends when the game ends. Keep it next to the game.
@@ -151,13 +153,13 @@ Yes, inside the game. Open **Options, then Level Editor**, or press **F9** on th
 ## Online play
 
 **How do I play with a friend?**
-Open **Online** on the main menu. The public lobby is already filled in. One player creates a room and the others join it from the list, with the 5-character code, or by pasting an invite link. See [faq/online.md](faq/online.md), which also explains how to run a lobby server yourself.
+In Classic 4:3, open **Online**. In the console layout, use **Multiplayer → Online Duel**, **Online Peg Party** or **Join With Code**. One player hosts and the others join from the room list, enter the five-character code or use an invite. See the [online guide](faq/online.md) for both layouts and self-hosting.
 
 **Is there a public lobby server?**
-Yes. Its address is filled in when you open **Online**: `wss://peggleport-lobby.konekurosawa.org/lobby`. You can also enter the address of a server somebody else runs, or run your own. `pp_lobbyd` in the download is the server, and the guide shows how to start it.
+The Online browser checks `wss://peggleport-lobby.konekurosawa.org/lobby` and scans for LAN/local rooms. No address entry is needed. For a private server, use an invite or set a custom lobby as described in the [online guide](faq/online.md#custom-and-private-lobbies). The download includes the standalone `pp_lobbyd` server.
 
 **What does "Test connection" do?**
-On the public lobby it checks that the room list answers. On a custom server it checks that the lobby answers over UDP and what kind of router you sit behind. UDP is what allows a direct link between players; if it does not work, the game uses the slower relay through the lobby automatically.
+For a secure WebSocket lobby, it checks whether the room list responds. For a native lobby, it checks UDP reachability and the router's behaviour. A native match can use direct UDP, but falls back to the lobby relay if that does not work. The public WebSocket lobby uses the relay rather than native direct UDP.
 
 **Do I need Steam or Discord to play online?**
 No. Both are optional. **Discord activity** on the Online screen is off until you turn it on, and Steam is only used by builds made with the Steamworks SDK when Steam is running. The guide in [faq/online.md](faq/online.md) explains what each one adds.
