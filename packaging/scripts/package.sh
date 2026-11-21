@@ -29,6 +29,8 @@ cp "$LOBBY" "$STAGE/"
 cp "$ROOT/README.md" "$ROOT/MODS.md" "$ROOT/FAQ.md" "$ROOT/THIRD_PARTY.md" "$STAGE/"
 [ -f "$ROOT/LICENSE" ] && cp "$ROOT/LICENSE" "$STAGE/"
 cp -R "$ROOT/faq" "$STAGE/faq"
+mkdir -p "$STAGE/tools"
+cp "$ROOT"/tools/import_ps3_*.py "$ROOT/tools/requirements-ps3-art.txt" "$STAGE/tools/"
 
 mkdir -p "$STAGE/licenses"
 for d in "$BUILD"/_deps/*-src; do

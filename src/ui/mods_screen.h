@@ -8,9 +8,12 @@
 
 namespace pp::ui {
 
+class Ps3PackDialog;
+
 class ModsScreen : public Screen {
  public:
   explicit ModsScreen(App& a);
+  ~ModsScreen() override;
   const char* name() const override { return "mods"; }
   void update() override;
   void drawLayer(Gfx& g) override;
@@ -33,6 +36,7 @@ class ModsScreen : public Screen {
   bool dirty_ = true, wasFocused_ = true;
   std::string status_, touched_;
   std::unique_ptr<ConsentDialog> dlg_;
+  std::unique_ptr<Ps3PackDialog> ps3Pack_;
   int signature() const;
   void rebuild();
   void followApply();

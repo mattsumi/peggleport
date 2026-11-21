@@ -79,7 +79,11 @@ On 16:9, 16:10 and 21:9 windows the picture fills the window instead of showing 
 
 Smooth motion between the game's 10 ms steps, smooth scaling, bloom glow, peg sparks and a frame that stretches over an ultrawide window. They change nothing about how the game plays, and they are all off by default so the game looks like the original.
 
-The console menus and centered 16:9 gameplay frame are built in. The [artwork guide](faq/hd-mod.md) covers importing original PS3 presentation art and the separate, optional iPad texture mod.
+### PS3 resource pack
+
+The console menus and centered 16:9 gameplay frame work with the PC artwork you already supplied. **The PS3 Resource Pack option is built in. Original PS3 artwork is not included.**
+
+Open **Mods → PS3 Resource Pack**, next to **Open Folder**. In Classic 4:3, open **Options → Mods** first. Import either a supported PS3 `.pkg` or a decrypted, extracted folder from your own copy of Peggle on PS3. The import runs locally and needs Python; see the [artwork guide](faq/hd-mod.md#console-menus-and-169-gameplay) for setup. Restart PegglePort after importing or switching the pack on or off. Without an import, the game uses PC artwork. The PS3 artwork does not replace the required PC game files.
 
 ### Saves and profiles
 

@@ -110,7 +110,12 @@ int main(int argc, char** argv) {
         break;
       }
       if (edition && pp::combinedEdition(*edition)) folders.setHome(*edition);
-      if (!base.empty()) vfs->mountPresentation(base / "presentation");
+      pp::Settings settings;
+      settings.load(pp::defaultUserDir(request.game).parent_path() / "settings.ini");
+      const char* appBase = SDL_GetBasePath();
+      if (!pp::ui::mountPs3Art(*vfs, settings, pp::ui::ps3ArtDir(),
+                              appBase && *appBase ? pp::pathFromUtf8(appBase) / "presentation" : std::filesystem::path()) && !base.empty())
+        pp::ui::mountPs3Art(*vfs, settings, {}, base / "presentation");
       pp::log::info("start", std::string("Opening ") + pp::gameTitle(request.game) + " from " + pp::pathToUtf8(dir));
       std::string error;
       pp::ui::GameRequest next;

@@ -202,6 +202,15 @@ add_executable(peggleport WIN32
   src/main.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)
 target_link_libraries(peggleport PRIVATE pp_ui pp_core pp_audio pp_mods pp_editor_core SDL3::SDL3)
+set(PP_PS3_IMPORT_FILES
+  tools/import_ps3_art.py tools/import_ps3_console_art.py tools/import_ps3_secondary_art.py
+  tools/import_ps3_lobby_art.py tools/import_ps3_online_art.py tools/requirements-ps3-art.txt)
+foreach(file IN LISTS PP_PS3_IMPORT_FILES)
+  configure_file("${file}" "${CMAKE_CURRENT_BINARY_DIR}/${file}" COPYONLY)
+  foreach(config IN LISTS CMAKE_CONFIGURATION_TYPES)
+    configure_file("${file}" "${CMAKE_BINARY_DIR}/${config}/${file}" COPYONLY)
+  endforeach()
+endforeach()
 add_executable(pp_edition_test EXCLUDE_FROM_ALL
   tests/edition_test.cpp tests/launcher_test.cpp src/render.cpp src/hud.cpp src/effects.cpp src/emitfx.cpp
   src/mods/overlay.cpp src/editor/screen.cpp)

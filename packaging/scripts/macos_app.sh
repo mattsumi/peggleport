@@ -14,6 +14,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/peggleport"
 cp "$MODHOST" "$APP/Contents/MacOS/pp_modhost"
 chmod +x "$APP/Contents/MacOS/peggleport" "$APP/Contents/MacOS/pp_modhost"
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+mkdir -p "$APP/Contents/Resources/tools"
+cp "$ROOT"/tools/import_ps3_*.py "$ROOT/tools/requirements-ps3-art.txt" "$APP/Contents/Resources/tools/"
 
 SHORT=$(printf '%s' "$VERSION" | sed -E 's/^v//' | grep -E '^[0-9]+(\.[0-9]+){0,2}$' || echo 0.0.0)
 
