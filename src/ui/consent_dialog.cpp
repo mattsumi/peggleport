@@ -142,13 +142,15 @@ ConsentDialog::Body ConsentDialog::describe(const std::string& id, int step) {
   std::string what;
   if (mi->scan.usesNet()) what += (mi->scan.declaredNet ? "asks for the network permission" : "contains code that looks like network access");
   if (mi->scan.hasNative) what += std::string(what.empty() ? "" : " and ") + "ships native code";
+  if (mi->scan.playerControl) what += std::string(what.empty() ? "" : " and ") + "asks to control your player";
   if (what.empty()) what = "has nothing that needs your OK";
   b.before.push_back("This mod " + what + ".");
   for (auto& f : mi->scan.findings) {
-    if (!(f.isNet() || f.kind == mods::Finding::Native)) continue;
+    if (!(f.isNet() || f.kind == mods::Finding::Native || f.kind == mods::Finding::Control)) continue;
     b.findings.push_back(f.file + (f.line ? ":" + std::to_string(f.line) : "") + ": " + f.what);
   }
   bool nativeFull = false;
+  if (mi->scan.playerControl) b.after.push_back("Player control stays off until you press F8 in a single-player level. Press F8 again to stop it. Online play, Duel, Demo mode and replays cannot be controlled.");
   if (mi->scan.hasNative || !mi->m.native.empty()) {
     b.after.push_back(helperLine());
     nativeFull = mods::NativeMod::probe().full();

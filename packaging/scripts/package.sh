@@ -26,7 +26,7 @@ MODHOST=$(find_bin pp_modhost)
 cp "$LOBBY" "$STAGE/"
 [ "$LABEL" = "macos" ] || cp "$PP" "$MODHOST" "$STAGE/"
 
-cp "$ROOT/README.md" "$ROOT/FAQ.md" "$ROOT/THIRD_PARTY.md" "$STAGE/"
+cp "$ROOT/README.md" "$ROOT/MODS.md" "$ROOT/FAQ.md" "$ROOT/THIRD_PARTY.md" "$STAGE/"
 [ -f "$ROOT/LICENSE" ] && cp "$ROOT/LICENSE" "$STAGE/"
 cp -R "$ROOT/faq" "$STAGE/faq"
 

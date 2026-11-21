@@ -295,6 +295,7 @@ class Board {
   void gunWheel(int notches);
   void gunClick();
   void gunRelease();
+  void gunCancelFire();
   bool flipHeld = false;
   void flipFlippers(bool up);
   static int updatesToPhase(const Mover& m, int cur, float frac);

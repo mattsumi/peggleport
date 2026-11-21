@@ -62,6 +62,7 @@ constexpr uint32_t kVersion = 1;
 constexpr uint32_t kVersionPhysics = 2;
 constexpr uint32_t kVersionFairCoin = 3;
 constexpr uint32_t kVersionSimRules = 4;
+constexpr uint32_t kVersionCancelFire = 5;
 
 void putPhysics(W& w, const PhysicsEdit& e) {
   w.u32(e.mask);
@@ -82,9 +83,10 @@ std::string replayExt(int game) { return game == 1 ? ".pegn" : ".pego"; }
 
 bool ReplayData::save(const std::filesystem::path& path) const {
   W w;
-  const uint32_t version = cfg.simRules == SimRules::Unspecified ? (cfg.physics.any() ? kVersionPhysics : kVersion) : kVersionSimRules;
+  const bool cancelled = std::any_of(log.begin(), log.end(), [](const ReplayEvent& e) { return e.kind == 7; });
+  const uint32_t version = cancelled ? kVersionCancelFire : cfg.simRules == SimRules::Unspecified ? (cfg.physics.any() ? kVersionPhysics : kVersion) : kVersionSimRules;
   w.u32(kMagic); w.u32(version);
-  if (version == kVersionSimRules) w.u32(static_cast<uint32_t>(cfg.simRules));
+  if (version >= kVersionSimRules) w.u32(static_cast<uint32_t>(cfg.simRules));
   w.i32(game); w.str(level); w.str(title); w.str(player);
   w.u32((uint32_t)(when & 0xffffffff)); w.u32((uint32_t)(when >> 32));
   w.i32(score); w.i32(shots); w.i32(startTick);
@@ -110,9 +112,9 @@ bool ReplayData::load(const std::filesystem::path& path, ReplayData& out) {
   R r{buf};
   if (r.u32() != kMagic) return false;
   const uint32_t version = r.u32();
-  if (version != kVersion && version != kVersionPhysics && version != kVersionFairCoin && version != kVersionSimRules) return false;
+  if (version != kVersion && version != kVersionPhysics && version != kVersionFairCoin && version != kVersionSimRules && version != kVersionCancelFire) return false;
   ReplayData d;
-  if (version == kVersionSimRules) {
+  if (version >= kVersionSimRules) {
     const auto rules = r.u32();
     if (r.bad || !knownSimRules(rules)) return false;
     d.cfg.simRules = static_cast<SimRules>(rules);
@@ -128,7 +130,19 @@ bool ReplayData::load(const std::filesystem::path& path, ReplayData& out) {
   uint32_t cnt = r.u32();
   if (r.bad || cnt > 5000000 || d.startTick > 4000000 || d.cfg.boardWidth > 1400) return false;
   d.log.resize(cnt);
-  for (auto& e : d.log) { e.tick = r.i32(); e.kind = (uint8_t)r.u32(); e.a = r.i32(); e.b = r.i32(); }
+  bool cancelled = false;
+  for (auto& e : d.log) {
+    e.tick = r.i32();
+    const uint32_t kind = r.u32();
+    if (kind > 7) return false;
+    e.kind = static_cast<uint8_t>(kind);
+    e.a = r.i32(); e.b = r.i32();
+    if (e.kind == 7) {
+      if (version != kVersionCancelFire || d.cfg.duel || d.cfg.players != 1 || e.a != 0 || e.b != 0) return false;
+      cancelled = true;
+    }
+  }
+  if (version == kVersionCancelFire && !cancelled) return false;
   if (r.bad) return false;
   out = std::move(d);
   return true;

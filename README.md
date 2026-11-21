@@ -13,6 +13,8 @@
     ·
     <a href="#features"><b>Features</b></a>
     ·
+    <a href="MODS.md"><b>Mods</b></a>
+    ·
     <a href="#known-issues"><b>Known issues</b></a>
     ·
     <a href="#controls"><b>Controls</b></a>
@@ -89,10 +91,10 @@ A level editor inside the game. It opens any level, places pegs, bricks, polygon
 
 ### Mod support
 
-Mods replace art, sound and levels, or add behaviour with Lua scripts and native plugins. They load from the Mods screen without a restart. See the [modding guide](faq/modding.md).
+Mods replace art, sound and levels, or add behaviour with Lua scripts and native plugins. They load from the Mods screen without a restart. Browse the [mod catalog](MODS.md) for official PegglePort mods, bundled examples, and locally generated HD and level packs. The official [MCP Agent mod](faq/mcp.md) adds opt-in AI control of local gameplay. See the [modding guide](faq/modding.md) to install or make mods.
 
 > [!NOTE]
-> PegglePort scans every mod before it loads. A mod that uses the network or contains native code is shown to you first and waits for your OK. Lua mods run in a sandbox, and native plugins run in a separate locked down helper process. The scan is a best effort check, so only install mods from people you trust.
+> PegglePort scans every mod before it loads. A mod that uses the network, contains native code or requests player control is shown to you first and waits for your OK. Player control also requires F8 approval in each level. Lua mods run in a sandbox, and native plugins run in a separate locked down helper process. The scan is a best effort check, so only install mods from people you trust.
 
 ### Online play
 
@@ -133,6 +135,7 @@ A game controller works too.
 
 | Hotkey | Action |
 | --- | --- |
+| F8 | Allow or stop MCP player control for the current single-player level, when an approved control mod is enabled |
 | F9 | Open the level editor from the main menu |
 | F10 | Show or hide the log |
 | Ctrl+V | Paste an invite link on the Online screen (Cmd+V on macOS) |

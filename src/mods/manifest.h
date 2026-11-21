@@ -14,6 +14,7 @@ struct Manifest {
   int api = kModApi;
   bool net = false;
   bool fs = false;
+  bool control = false;
   bool cosmetic = false;
   std::vector<std::string> scripts;
   std::string native;

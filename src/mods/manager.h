@@ -75,6 +75,7 @@ class ModManager final : public SimHooks {
   std::string report() const;
 
   void frame(DrawSink& sink, const Board& b);
+  void controlTick(const std::function<std::string(const std::string&)>& handler);
   void pump();
   struct MenuRef { std::string modId, label; int index; };
   std::vector<MenuRef> menus() const;

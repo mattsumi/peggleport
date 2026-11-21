@@ -13,6 +13,7 @@
 #include "ui/character_dialog.h"
 #include "ui/slot_dialog.h"
 #include "gun.h"
+#include "mods/manager.h"
 
 #include <SDL3/SDL.h>
 
@@ -84,6 +85,7 @@ template <class C>
 static void setRuleInputs(C&, const PlayerInfo*, int, bool, int, long) {}
 
 bool GameScreen::startLevel(const std::string& name, SimRules rules) {
+  resetModControl();
   if (replaying_ || replayPanel_) {
     pausedEffects_.reset();
     if (app.boardRenderer) app.boardRenderer->exchangeEffects();
@@ -349,10 +351,12 @@ void GameScreen::recMouse(int x, int y) {
   log_.push_back({board_.tick, 0, x, y, board_.frames});
 }
 void GameScreen::recClick() {
+  controlFirePending_ = false;
   board_.gunClick();
   if (recording_) log_.push_back({board_.tick, 1, 0, 0, board_.frames});
 }
 void GameScreen::recRelease() {
+  controlHeld_ = false;
   board_.gunRelease();
   if (recording_) log_.push_back({board_.tick, 3, 0, 0, board_.frames});
 }
@@ -411,6 +415,7 @@ void GameScreen::applyViewEvents() {
       replay_.gunClick();
       if (!lastShot) replayRan_ = false;
     } else if (e.kind == 3) replay_.gunRelease();
+    else if (e.kind == 7) replay_.gunCancelFire();
     else if (e.kind == 2 || !lastShot) replay_.gunWheel(e.a);
   }
 }
@@ -597,6 +602,7 @@ bool GameScreen::saveReplay(bool all, std::filesystem::path* pathOut, const std:
 }
 
 bool GameScreen::startViewer(const ReplayData& d) {
+  resetModControl();
   std::string err;
   LevelBundle lb;
   if (!loadLevelBundle(app.vfs, d.level, lb, &err)) { loadError = err; return false; }
@@ -727,6 +733,7 @@ void GameScreen::pushMouse() {
 
 void GameScreen::pause(bool on) {
   if (on) {
+    releaseModControl();
     pauseCount_++;
   } else if (pauseCount_ > 0) {
     pauseCount_--;
@@ -794,6 +801,8 @@ LevelOutcome GameScreen::collectOutcome() const {
 
 void GameScreen::update() {
   Panel::update();
+  updateModControl();
+  if (mods::g_mods && app.screen() == this) mods::g_mods->controlTick([this](const std::string& r) { return modControl(r); });
   if (!ready_) return;
   Board& b = board_;
   bool dialogs = app.anyDialog();
@@ -837,6 +846,7 @@ void GameScreen::update() {
     if (keyUp_) recWheel(-5);
     if (keyDown_) recWheel(5);
     b.step();
+    if (b.phase != Phase::Aim) controlFirePending_ = false;
     if (app.audio) app.audio->tick();
     for (const auto& e : b.events)
       if (e.type == Event::LuckySpin) { spinOutcome = e.a; spinPower = e.b; spinCode = e.c; }
@@ -939,6 +949,8 @@ void GameScreen::submitStats() {
 }
 
 void GameScreen::onLeave() {
+  controlArmed_ = false;
+  releaseModControl();
   pausedEffects_.reset();
   if (charPaused_) app.killDialog(D_Character);
   PlayerInfo* p = app.curProfile;
@@ -1177,6 +1189,7 @@ void GameScreen::drawLayer(Gfx& g) {
 
 void GameScreen::drawOverlay(Gfx& g) {
   if (!ready_) return;
+  if (controlArmed_) g.drawString("OVERLOAD10OUTLINE", canvasWidth() * 0.5f, 59, "MCP CONTROL ON - F8 TO STOP", 0xffff00, 1, Align::Center);
   float dw = (float)(canvasWidth() - 800);
   const int inset = hudInset();
   if (replayPanel_ || (inset && replaying_)) {
@@ -1243,6 +1256,7 @@ static Input inView(const Input& in, const Renderer::View& v) {
 }
 
 bool GameScreen::input(const Input& raw) {
+  if (raw.type == Input::KeyDown && raw.key == SDLK_F8) { keyDown(raw.key, raw.mod); return true; }
   const Input in = inView(raw, consoleView());
   if (replaying_ && in.type == Input::KeyDown && (in.key == SDLK_SPACE || in.key == SDLK_RETURN)) {
     if (barePaused_ && !app.anyDialog()) pause(false);
@@ -1337,6 +1351,11 @@ void GameScreen::menuThroughDialog(const Input& raw) {
 }
 
 void GameScreen::keyDown(int key, int) {
+  if (key == SDLK_F8) {
+    if (controlArmed_) { controlArmed_ = false; releaseModControl(); }
+    else if (modControlReason().empty()) controlArmed_ = true;
+    return;
+  }
   if (replayPanel_) {
     if (consoleReplayPanel()) {
       if (key == SDLK_ESCAPE) onButton(kReplayDone);

@@ -404,7 +404,7 @@ void ModManager::activate(Vfs* vfs) {
     if (!m.enabled) continue;
     if (m.needsConsent()) {
       m.state = ModInfo::NeedsConsent;
-      pp::log::warn(src, "not loaded: it uses the network or native code and needs your consent first");
+      pp::log::warn(src, "not loaded: network, native code or player control needs your consent first");
       continue;
     }
     if (m.m.api > kModApi) {
@@ -679,12 +679,15 @@ struct ModManager::Scope {
   Board* pb;
   Ctx pc;
   DrawSink* ps;
-  Scope(ModManager& m, Board* b, Ctx c, DrawSink* s = nullptr) : M(m), pb(m.host_.board), pc(m.host_.ctx), ps(m.host_.sink) {
+  const std::function<std::string(const std::string&)>* input;
+  Scope(ModManager& m, Board* b, Ctx c, DrawSink* s = nullptr, const std::function<std::string(const std::string&)>* control = nullptr)
+      : M(m), pb(m.host_.board), pc(m.host_.ctx), ps(m.host_.sink), input(m.host_.control) {
     M.host_.board = b;
     M.host_.ctx = c;
     M.host_.sink = s;
+    M.host_.control = control;
   }
-  ~Scope() { M.host_.board = pb; M.host_.ctx = pc; M.host_.sink = ps; }
+  ~Scope() { M.host_.board = pb; M.host_.ctx = pc; M.host_.sink = ps; M.host_.control = input; }
 };
 
 template <class F> void ModManager::eachSim(F&& f) {
@@ -926,6 +929,13 @@ void ModManager::flush(Board& b) {
   }
   queue_.clear();
   queueFull_ = false;
+}
+
+void ModManager::controlTick(const std::function<std::string(const std::string&)>& handler) {
+  Scope sc(*this, nullptr, Ctx::Ui, nullptr, &handler);
+  for (auto& m : mods_)
+    if (m->enabled && m->state == ModInfo::Active && m->m.control && m->consented && m->lua)
+      m->lua->callLoose("on_control", Ctx::Ui, 0, nullptr);
 }
 
 void ModManager::frame(DrawSink& sink, const Board& b) {

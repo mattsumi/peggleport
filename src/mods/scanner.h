@@ -9,7 +9,7 @@
 namespace pp::mods {
 
 struct Finding {
-  enum Kind { NetApi, Url, SocketWord, NativeNet, Dynamic, Native, Fs, Info } kind = Info;
+  enum Kind { NetApi, Url, SocketWord, NativeNet, Dynamic, Native, Fs, Info, Control } kind = Info;
   std::string file;
   int line = 0;
   std::string what;
@@ -22,8 +22,9 @@ struct ScanReport {
   int filesScanned = 0;
   bool declaredNet = false;
   bool hasNative = false;
+  bool playerControl = false;
   bool usesNet() const;
-  bool needsConsent() const { return usesNet() || hasNative; }
+  bool needsConsent() const { return usesNet() || hasNative || playerControl; }
   std::string summary() const;
   std::string text() const;
 };
